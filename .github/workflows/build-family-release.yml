@@ -1,0 +1,116 @@
+name: Build and Publish Family Release
+
+on:
+  push:
+    tags:
+      - 'family-v*'
+
+permissions:
+  contents: read
+
+# Serialize releases so version/commit tags cannot race between workflow runs.
+concurrency:
+  group: family-release
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/fjzhangzzzzzz/ezbookkeeping-family
+
+jobs:
+  build:
+    if: github.repository == 'fjzhangZzzzzz/ezbookkeeping'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Validate source and release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'family-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag), 'Invalid family release tag'
+          version = tag.removeprefix('family-v')
+          package = json.load(open('package.json'))
+          lock = json.load(open('package-lock.json'))
+          assert package['version'] == lock['version'] == lock['packages']['']['version'] == version
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
+          PY
+
+      - name: Build complete application and run backend/frontend checks
+        run: |
+          docker buildx create --name family-builder --use
+          docker buildx build --load --platform linux/amd64 \
+            --build-arg RELEASE_BUILD=1 \
+            --build-arg BUILD_PIPELINE=1 \
+            --build-arg CHECK_3RD_API=0 \
+            --build-arg BUILD_COMMIT="$GITHUB_SHA" \
+            --build-arg BUILD_NODE_OPTIONS=--max-old-space-size=8192 \
+            --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.version="${GITHUB_REF_NAME#family-v}" \
+            --tag ezbookkeeping-family:ci .
+
+      - name: Smoke test the exact image
+        run: |
+          mkdir -p release-artifact
+          python3 scripts/release/smoke_image.py \
+            --image ezbookkeeping-family:ci --commit "$GITHUB_SHA" \
+            --version "${GITHUB_REF_NAME#family-v}" \
+            --output release-artifact/smoke.json
+
+      - name: Save verified image and its checksum
+        run: |
+          docker save ezbookkeeping-family:ci | gzip -1 > release-artifact/image.tar.gz
+          cd release-artifact
+          sha256sum image.tar.gz smoke.json > SHA256SUMS
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: family-image-${{ github.sha }}
+          path: release-artifact/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: github.repository == 'fjzhangZzzzzz/ezbookkeeping'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: family-image-${{ github.sha }}
+          path: release-artifact
+
+      - name: Load the verified image
+        run: |
+          cd release-artifact
+          sha256sum --check SHA256SUMS
+          gzip -dc image.tar.gz | docker load
+
+      - name: Authenticate to GHCR with the workflow token
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish immutable image and release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/release/publish_image.py
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io

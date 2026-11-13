@@ -5,6 +5,7 @@ on:
   push:
     branches-ignore:
       - main
+      - 'family/**'
 
 jobs:
   setup:

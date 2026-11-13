@@ -1,0 +1,8 @@
+{
+  "product": "ezbookkeeping-family",
+  "upstream": {
+    "repository": "https://github.com/mayswind/ezbookkeeping",
+    "version": "2.2.0-dev",
+    "commit": "82920c62fd774b95eaed7fe78938675b56b73cf2"
+  }
+}

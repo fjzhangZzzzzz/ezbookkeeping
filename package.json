@@ -1,6 +1,6 @@
 {
   "name": "ezbookkeeping",
-  "version": "2.2.0",
+  "version": "0.1.1",
   "private": true,
   "repository": {
     "type": "git",
@@ -16,6 +16,7 @@
     "build": "cross-env NODE_ENV=production vite build",
     "serve:dist": "vite preview",
     "lint": "vue-tsc --noEmit && eslint . --fix",
+    "lint:check": "vue-tsc --noEmit && eslint .",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
 
+set -e
+
 TYPE=""
 NO_LINT="0"
 NO_TEST="0"
@@ -198,7 +200,7 @@ build_frontend() {
 
     if [ "$NO_LINT" = "0" ]; then
         echo "Executing frontend lint checking..."
-        npm run lint
+        npm run lint:check
 
         if [ "$?" != "0" ]; then
             echo_red "Error: Failed to pass lint checking"
