@@ -6,6 +6,8 @@
 
         <overview-dashboard :layout="layout" :loading="loading" @navigate="onNavigate" />
 
+        <f7-block><f7-link href="/family">家庭账本 ›</f7-link></f7-block>
+
         <f7-toolbar tabbar icons bottom class="main-tabbar">
             <f7-link class="link" href="/transaction/list" :aria-label="tt('Details')">
                 <f7-icon f7="square_list" aria-hidden="true"></f7-icon>

@@ -22,7 +22,7 @@
                     @popover:open="scrollPopoverToSelectedItem">
             <f7-list dividers>
                 <f7-list-item link="#" no-chevron popover-close
-                              :title="tagGroup.name"
+                              :title="tagGroup.name + (tagGroup.hidden ? '（已隐藏）' : '')"
                               :class="{ 'list-item-selected': activeTagGroupId === tagGroup.id }"
                               :key="tagGroup.id"
                               v-for="tagGroup in allTagGroupsWithDefault"
@@ -186,6 +186,8 @@
                 <f7-actions-button @click="addTagGroup">{{ tt('Add Tag Group') }}</f7-actions-button>
                 <f7-actions-button @click="renameTagGroup"
                                    v-if="activeTagGroupId && activeTagGroupId !== DEFAULT_TAG_GROUP_ID">{{ tt('Rename Tag Group') }}</f7-actions-button>
+                <f7-actions-button v-if="activeTagGroupId && activeTagGroupId !== DEFAULT_TAG_GROUP_ID"
+                                   @click="toggleTagGroupVisibility">{{ activeTagGroupHidden ? '恢复标签分组' : '隐藏标签分组' }}</f7-actions-button>
                 <f7-actions-button color="red" :class="{ 'disabled': tags && tags.length > 0 }"
                                    @click="removeTagGroup"
                                    v-if="activeTagGroupId && activeTagGroupId !== DEFAULT_TAG_GROUP_ID">{{ tt('Delete Tag Group') }}</f7-actions-button>
@@ -261,6 +263,7 @@ const {
 } = useTagListPageBase();
 
 const transactionTagsStore = useTransactionTagsStore();
+const activeTagGroupHidden = computed<boolean>(() => !!transactionTagsStore.allTransactionTagGroupsMap[activeTagGroupId.value]?.hidden);
 
 const newTagItem = useTemplateRef<{ $el: HTMLElement }>('newTagItem');
 
@@ -280,7 +283,7 @@ const lastShowingId = computed<string | null>(() => getLastShowingId(tags.value,
 
 const displayTagGroupName = computed<string>(() => {
     const tagGroup = transactionTagsStore.allTransactionTagGroupsMap[activeTagGroupId.value];
-    return tagGroup ? tagGroup.name : tt('Default Group');
+    return tagGroup ? tagGroup.name + (tagGroup.hidden ? '（已隐藏）' : '') : tt('Default Group');
 });
 
 function getTagDomId(tag: TransactionTag): string {
@@ -379,6 +382,15 @@ function cancelSave(tag: TransactionTag): void {
     } else {
         newTag.value = null;
     }
+}
+
+function toggleTagGroupVisibility(): void {
+    const tagGroup = transactionTagsStore.allTransactionTagGroupsMap[activeTagGroupId.value];
+    if (!tagGroup) return;
+    showLoading();
+    transactionTagsStore.hideTagGroup({ tagGroup, hidden: !tagGroup.hidden }).catch(error => {
+        if (!error.processed) showToast(error.error?.errorMessage || error.message || error);
+    }).finally(() => { hideLoading(); });
 }
 
 function hide(tag: TransactionTag, hidden: boolean): void {

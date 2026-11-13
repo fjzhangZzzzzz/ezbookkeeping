@@ -12,7 +12,6 @@ import (
 func RequestLog(c *core.WebContext) {
 	start := time.Now()
 	path := c.Request.URL.Path
-	query := c.Request.URL.RawQuery
 
 	c.Next()
 
@@ -34,10 +33,6 @@ func RequestLog(c *core.WebContext) {
 
 	if err != nil {
 		errorCode = err.Code()
-	}
-
-	if query != "" {
-		path = path + "?" + query
 	}
 
 	cost := now.Sub(start).Nanoseconds() / 1e6

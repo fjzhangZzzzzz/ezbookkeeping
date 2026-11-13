@@ -6,6 +6,7 @@ type TransactionTagGroup struct {
 	Uid             int64  `xorm:"INDEX(IDX_tag_group_uid_deleted_order) NOT NULL"`
 	Deleted         bool   `xorm:"INDEX(IDX_tag_group_uid_deleted_order) NOT NULL"`
 	Name            string `xorm:"VARCHAR(64) NOT NULL"`
+	Hidden          bool   `xorm:"NOT NULL DEFAULT 0"`
 	DisplayOrder    int32  `xorm:"INDEX(IDX_tag_group_uid_deleted_order) NOT NULL"`
 	CreatedUnixTime int64
 	UpdatedUnixTime int64
@@ -28,6 +29,12 @@ type TransactionTagGroupModifyRequest struct {
 	Name string `json:"name" binding:"required,notBlank,max=64"`
 }
 
+// TransactionTagGroupHideRequest changes visibility of a shared tag group.
+type TransactionTagGroupHideRequest struct {
+	Id     int64 `json:"id,string" binding:"required,min=1"`
+	Hidden bool  `json:"hidden"`
+}
+
 // TransactionTagGroupMoveRequest represents all parameters of transaction tag group moving request
 type TransactionTagGroupMoveRequest struct {
 	NewDisplayOrders []*TransactionTagGroupNewDisplayOrderRequest `json:"newDisplayOrders" binding:"required,min=1"`
@@ -48,6 +55,7 @@ type TransactionTagGroupDeleteRequest struct {
 type TransactionTagGroupInfoResponse struct {
 	Id           int64  `json:"id,string"`
 	Name         string `json:"name"`
+	Hidden       bool   `json:"hidden"`
 	DisplayOrder int32  `json:"displayOrder"`
 }
 
@@ -56,6 +64,7 @@ func (t *TransactionTagGroup) ToTransactionTagGroupInfoResponse() *TransactionTa
 	return &TransactionTagGroupInfoResponse{
 		Id:           t.TagGroupId,
 		Name:         t.Name,
+		Hidden:       t.Hidden,
 		DisplayOrder: t.DisplayOrder,
 	}
 }

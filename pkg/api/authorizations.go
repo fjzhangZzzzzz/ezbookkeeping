@@ -370,7 +370,7 @@ func (a *AuthorizationsApi) TwoFactorAuthorizeByRecoveryCodeHandler(c *core.WebC
 	c.SetTokenClaims(claims)
 	c.SetTokenRecord(tokenRecord)
 
-	log.Infof(c, "[authorizations.TwoFactorAuthorizeByRecoveryCodeHandler] user \"uid:%d\" has authorized two-factor via recovery code \"%s\", token will be expired at %d", user.Uid, credential.RecoveryCode, claims.ExpiresAt)
+	log.Infof(c, "[authorizations.TwoFactorAuthorizeByRecoveryCodeHandler] user \"uid:%d\" has authorized two-factor via recovery code, token will be expired at %d", user.Uid, claims.ExpiresAt)
 
 	userApplicationCloudSettings, err := a.userAppCloudSettings.GetUserApplicationCloudSettingsByUid(c, user.Uid)
 	var applicationCloudSettingSlice *models.ApplicationCloudSettingSlice = nil
@@ -639,7 +639,7 @@ func (a *AuthorizationsApi) update2FAPasscodeUsed(c *core.WebContext, uid int64,
 	found, remark := a.GetOrSetSubmissionRemarkWithCustomExpiration(duplicatechecker.DUPLICATE_CHECKER_TYPE_2FA_PASSCODE, uid, passcodeHash, utils.Int64ToString(time.Now().Unix()), a.twoFactorAuthorizations.GetTwoFactorPasscodeExpirationDuration())
 
 	if found {
-		log.Warnf(c, "[authorizations.update2FAPasscodeUsed] passcode \"%s\" has been used for user \"uid:%d\" in unix timestamp %s", passcode, uid, remark)
+		log.Warnf(c, "[authorizations.update2FAPasscodeUsed] a passcode has already been used for user \"uid:%d\" in unix timestamp %s", uid, remark)
 	}
 
 	return found

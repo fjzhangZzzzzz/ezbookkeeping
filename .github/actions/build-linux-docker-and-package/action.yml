@@ -89,6 +89,7 @@ runs:
           *.platform=${{ inputs.platform }}
           *.args.RELEASE_BUILD=${{ inputs.release-build }}
           *.args.BUILD_PIPELINE=1
+          *.args.BUILD_COMMIT=${{ github.sha }}
           *.args.BUILD_UNIXTIME=${{ inputs.build-unix-time }}
           *.args.BUILD_DATE=${{ inputs.build-date }}
           *.args.BUILD_NODE_OPTIONS=${{ inputs.build-node-options }}

@@ -22,6 +22,18 @@ var (
 	}
 )
 
+// TagGroupHideHandler changes visibility of a shared tag group.
+func (a *TransactionTagGroupsApi) TagGroupHideHandler(c *core.WebContext) (any, *errs.Error) {
+	var request models.TransactionTagGroupHideRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
+	}
+	if err := a.tagGroups.HideTagGroup(c, c.GetCurrentUid(), request.Id, request.Hidden); err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+	return true, nil
+}
+
 // TagGroupListHandler returns transaction tag group list of current user
 func (a *TransactionTagGroupsApi) TagGroupListHandler(c *core.WebContext) (any, *errs.Error) {
 	uid := c.GetCurrentUid()

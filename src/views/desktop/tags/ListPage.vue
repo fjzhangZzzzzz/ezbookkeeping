@@ -24,7 +24,7 @@
                                    :key="tagGroup.id" :value="tagGroup.id"
                                    v-for="tagGroup in allTagGroupsWithDefault"
                                    @click="switchTagGroup(tagGroup.id)">
-                                <span class="text-truncate">{{ tagGroup.name }}</span>
+                                <span class="text-truncate">{{ tagGroup.name }}{{ tagGroup.hidden ? '（已隐藏）' : '' }}</span>
                             </v-tab>
                             <template v-if="loading && (!allTagGroupsWithDefault || allTagGroupsWithDefault.length < 2)">
                                 <v-skeleton-loader class="skeleton-no-margin mx-4 mt-h1 py-3" type="text"
@@ -70,6 +70,10 @@
                                                                      @click="renameTagGroup"
                                                                      v-if="activeTagGroupId && activeTagGroupId !== DEFAULT_TAG_GROUP_ID">
                                                             <v-list-item-title>{{ tt('Rename Tag Group') }}</v-list-item-title>
+                                                        </v-list-item>
+                                                        <v-list-item v-if="activeTagGroupId && activeTagGroupId !== DEFAULT_TAG_GROUP_ID"
+                                                                     :prepend-icon="mdiEyeOffOutline" @click="toggleTagGroupVisibility">
+                                                            <v-list-item-title>{{ activeTagGroupHidden ? '恢复标签分组' : '隐藏标签分组' }}</v-list-item-title>
                                                         </v-list-item>
                                                         <v-list-item :prepend-icon="mdiDeleteOutline"
                                                                      :disabled="tags && tags.length > 0"
@@ -406,6 +410,7 @@ const {
 } = useTagListPageBase();
 
 const transactionTagsStore = useTransactionTagsStore();
+const activeTagGroupHidden = computed<boolean>(() => !!transactionTagsStore.allTransactionTagGroupsMap[activeTagGroupId.value]?.hidden);
 
 const newTagRow = useTemplateRef<HTMLElement>('newTagRow');
 const tagGroupChangeDisplayOrderDialog = useTemplateRef<TagGroupChangeDisplayOrderDialogType>('tagGroupChangeDisplayOrderDialog');
@@ -660,6 +665,15 @@ function saveSortResult(): void {
             snackbar.value?.showError(error);
         }
     });
+}
+
+function toggleTagGroupVisibility(): void {
+    const tagGroup = transactionTagsStore.allTransactionTagGroupsMap[activeTagGroupId.value];
+    if (!tagGroup) return;
+    updating.value = true;
+    transactionTagsStore.hideTagGroup({ tagGroup, hidden: !tagGroup.hidden }).catch(error => {
+        if (!error.processed) snackbar.value?.showError(error);
+    }).finally(() => { updating.value = false; });
 }
 
 function hide(tag: TransactionTag, hidden: boolean): void {

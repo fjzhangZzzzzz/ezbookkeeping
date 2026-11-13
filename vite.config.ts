@@ -17,6 +17,21 @@ const SRC_DIR = resolve(__dirname, './src');
 const PUBLIC_DIR = resolve(__dirname, './public');
 const BUILD_DIR = resolve(__dirname, './dist',);
 
+// Monaco 0.57 embeds DOMPurify 3.4.15 independently of its npm dependency.
+// Resolve that one vendored import to the patched, lockfile-pinned package too.
+function patchedMonacoSanitizer(): Plugin {
+    return {
+        name: 'patched-monaco-sanitizer',
+        enforce: 'pre',
+        async resolveId(source, importer) {
+            if (source === './dompurify/dompurify.js' && importer?.replaceAll('\\', '/').endsWith('/monaco-editor/esm/vs/base/browser/domSanitize.js')) {
+                return this.resolve('dompurify', importer, { skipSelf: true });
+            }
+            return null;
+        }
+    };
+}
+
 function minifyWorkerWithTerser(): Plugin {
     const minifyOptionsHash = `terser-${packageFile.devDependencies.terser}-compress-mangle-no-comments`;
 
@@ -114,12 +129,13 @@ export default defineConfig(() => {
             __EZBOOKKEEPING_IS_PRODUCTION__: process.env['NODE_ENV'] === 'production',
             __EZBOOKKEEPING_VERSION__: JSON.stringify(packageFile.version),
             __EZBOOKKEEPING_BUILD_UNIX_TIME__: JSON.stringify(buildUnixTime),
-            __EZBOOKKEEPING_BUILD_COMMIT_HASH__: JSON.stringify(git.short()),
+            __EZBOOKKEEPING_BUILD_COMMIT_HASH__: JSON.stringify(process.env['BUILD_COMMIT'] || git.short()),
             __EZBOOKKEEPING_CONTRIBUTORS__: JSON.stringify(contributorsFile),
             __EZBOOKKEEPING_LICENSE__: JSON.stringify(licenseContent),
             __EZBOOKKEEPING_THIRD_PARTY_LICENSES__: JSON.stringify(thirdPartyLicenseFile)
         },
         plugins: [
+            patchedMonacoSanitizer(),
             vue({
                 template: {
                     compilerOptions: {

@@ -306,13 +306,17 @@ export function isSubCategoryIdAvailable(categories: TransactionCategory[], cate
     return false;
 }
 
+export function hasAnyVisibleCategory(categories?: TransactionCategory[]): boolean {
+    return !!categories?.some(category => !category.hidden && category.subCategories?.some(child => !child.hidden));
+}
+
 export function getFirstVisibleCategoryId(categories?: TransactionCategory[]): string {
     if (!categories || !categories.length) {
         return '';
     }
 
     for (const primaryCategory of categories) {
-        if (primaryCategory.hidden) {
+        if (primaryCategory.hidden || primaryCategory.familyInternalTransfer) {
             continue;
         }
 
@@ -323,7 +327,7 @@ export function getFirstVisibleCategoryId(categories?: TransactionCategory[]): s
         }
 
         for (const secondaryCategory of subCategoryList) {
-            if (secondaryCategory.hidden) {
+            if (secondaryCategory.hidden || secondaryCategory.familyInternalTransfer) {
                 continue;
             }
 

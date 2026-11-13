@@ -99,8 +99,15 @@ func initializeDatabase(dbConfig *settings.DatabaseConfig) (*XOrmDatabase, error
 		return nil, err
 	}
 
-	engineGroup.SetMaxIdleConns(int(dbConfig.MaxIdleConnection))
-	engineGroup.SetMaxOpenConns(int(dbConfig.MaxOpenConnection))
+	if dbConfig.DatabaseType == settings.Sqlite3DbType {
+		// A household has one SQLite writer. Serialize access instead of exposing
+		// transient table-lock errors during simultaneous saves and token refreshes.
+		engineGroup.SetMaxIdleConns(1)
+		engineGroup.SetMaxOpenConns(1)
+	} else {
+		engineGroup.SetMaxIdleConns(int(dbConfig.MaxIdleConnection))
+		engineGroup.SetMaxOpenConns(int(dbConfig.MaxOpenConnection))
+	}
 	engineGroup.SetConnMaxLifetime(time.Duration(dbConfig.ConnectionMaxLifeTime) * time.Second)
 
 	return &XOrmDatabase{

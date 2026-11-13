@@ -144,6 +144,9 @@ export function useTransactionTagSelectionBase(props: CommonTransactionTagSelect
             const visibleTags: TransactionTag[] = [];
 
             for (const tag of tags) {
+                if (tagGroup.hidden && !selectedTagIds.value[tag.id]) {
+                    continue;
+                }
                 if (!tagFilterFn(tag)) {
                     continue;
                 }

@@ -751,6 +751,24 @@ export const useTransactionTagsStore = defineStore('transactionTags', () => {
         });
     }
 
+    async function hideTagGroup({ tagGroup, hidden }: { tagGroup: TransactionTagGroup, hidden: boolean }): Promise<boolean> {
+        try {
+            const response = await services.hideTransactionTagGroup({ id: tagGroup.id, hidden });
+            if (!response.data || !response.data.success || !response.data.result) {
+                throw { message: hidden ? '无法隐藏标签分组' : '无法恢复标签分组' };
+            }
+            const updated = tagGroup.clone();
+            updated.hidden = hidden;
+            updateTagGroupInTransactionTagGroupList(updated);
+            return true;
+        } catch (error: unknown) {
+            const err = error as { response?: { data?: { errorMessage?: string } }; processed?: boolean; message?: string };
+            if (err.response?.data?.errorMessage) throw { error: err.response.data };
+            if (err.processed) throw err;
+            throw { message: err.message || (hidden ? '无法隐藏标签分组' : '无法恢复标签分组') };
+        }
+    }
+
     function hideTag({ tag, hidden }: { tag: TransactionTag, hidden: boolean }): Promise<boolean> {
         return new Promise((resolve, reject) => {
             services.hideTransactionTag({
@@ -849,6 +867,7 @@ export const useTransactionTagsStore = defineStore('transactionTags', () => {
         changeTagDisplayOrder,
         updateTagDisplayOrders,
         hideTag,
+        hideTagGroup,
         deleteTag
     }
 });

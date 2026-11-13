@@ -225,7 +225,14 @@ func (s *UserService) CreateUser(c core.Context, user *models.User, noPassword b
 	user.LastLoginUnixTime = time.Now().Unix()
 
 	return s.UserDB().DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		_, err := sess.Insert(user)
+		count, err := sess.Where("deleted=? AND disabled=?", false, false).Count(&models.User{})
+		if err != nil {
+			return err
+		}
+		if !user.Disabled && count >= MaximumFamilyMembers {
+			return errs.ErrFamilyMemberLimit
+		}
+		_, err = sess.Insert(user)
 		return err
 	})
 }
@@ -497,14 +504,28 @@ func (s *UserService) EnableUser(c core.Context, username string) error {
 		UpdatedUnixTime: now,
 	}
 
-	updatedRows, err := s.UserDB().NewSession(c).Cols("disabled", "updated_unix_time").Where("username=? AND deleted=?", username, false).Update(updateModel)
-
-	if err != nil {
+	return s.UserDB().DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		user := &models.User{}
+		has, err := sess.Where("username=? AND deleted=?", username, false).Get(user)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return errs.ErrUserNotFound
+		}
+		if !user.Disabled {
+			return nil
+		}
+		count, err := sess.Where("deleted=? AND disabled=?", false, false).Count(&models.User{})
+		if err != nil {
+			return err
+		}
+		if count >= MaximumFamilyMembers {
+			return errs.ErrFamilyMemberLimit
+		}
+		_, err = sess.ID(user.Uid).Cols("disabled", "updated_unix_time").Update(updateModel)
 		return err
-	} else if updatedRows < 1 {
-		return errs.ErrUserNotFound
-	}
-	return nil
+	})
 }
 
 // DisableUser sets user disabled
@@ -520,14 +541,22 @@ func (s *UserService) DisableUser(c core.Context, username string) error {
 		UpdatedUnixTime: now,
 	}
 
-	updatedRows, err := s.UserDB().NewSession(c).Cols("disabled", "updated_unix_time").Where("username=? AND deleted=?", username, false).Update(updateModel)
-
-	if err != nil {
+	// This fork supports one SQLite store. Disable and token revocation must commit together.
+	return s.UserDB().DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		user := &models.User{}
+		has, err := sess.Where("username=? AND deleted=?", username, false).Get(user)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return errs.ErrUserNotFound
+		}
+		if _, err = sess.ID(user.Uid).Cols("disabled", "updated_unix_time").Update(updateModel); err != nil {
+			return err
+		}
+		_, err = sess.Where("uid=?", user.Uid).Delete(&models.TokenRecord{})
 		return err
-	} else if updatedRows < 1 {
-		return errs.ErrUserNotFound
-	}
-	return nil
+	})
 }
 
 // UpdateUserFeatureRestriction sets user user feature restrictions

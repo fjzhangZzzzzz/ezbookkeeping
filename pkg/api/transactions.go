@@ -1266,6 +1266,14 @@ func (a *TransactionsApi) TransactionCreateHandler(c *core.WebContext) (any, *er
 		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
 	}
 
+	request, err := transactionRequestRecord(c.GetCurrentUid(), &transactionCreateReq)
+	if err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+	if response, responseErr, replayed := a.replayTransactionRequest(c, request); replayed {
+		return response, responseErr
+	}
+
 	clientTimezone, err := c.GetClientTimezone()
 
 	if err != nil {
@@ -1330,6 +1338,7 @@ func (a *TransactionsApi) TransactionCreateHandler(c *core.WebContext) (any, *er
 	}
 
 	transaction := a.createNewTransactionModel(uid, &transactionCreateReq, c.ClientIP())
+	transaction.ClientRequest = request
 
 	allUsedAccounts, err := a.getTransactionUsedAccounts(c, uid, []*models.Transaction{transaction})
 
@@ -1398,6 +1407,9 @@ func (a *TransactionsApi) TransactionCreateHandler(c *core.WebContext) (any, *er
 	err = a.transactions.CreateTransaction(c, transaction, tagIds, pictureIds)
 
 	if err != nil {
+		if response, responseErr, replayed := a.replayTransactionRequest(c, request); replayed {
+			return response, responseErr
+		}
 		log.Errorf(c, "[transactions.TransactionCreateHandler] failed to create transaction \"id:%d\" for user \"uid:%d\", because %s", transaction.TransactionId, uid, err.Error())
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}

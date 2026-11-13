@@ -1,0 +1,66 @@
+[global]
+mode = production
+
+[server]
+protocol = http
+http_addr = 0.0.0.0
+http_port = 8080
+domain = books.fjzhang233.top
+root_url = https://books.fjzhang233.top/
+log_request = false
+
+[mcp]
+enable_mcp = false
+
+[database]
+type = sqlite3
+db_path = /ezbookkeeping/data/ezbookkeeping.db
+auto_update_database = true
+log_query = false
+
+[log]
+mode = console
+level = info
+
+[storage]
+type = local_filesystem
+local_filesystem_path = /ezbookkeeping/storage/
+
+[ai]
+transaction_from_ai_text_recognition = false
+transaction_from_ai_image_recognition = false
+insights_explorer_coding_assistant = false
+
+[cron]
+enable_remove_expired_tokens = true
+enable_create_scheduled_transaction = false
+
+[security]
+secret_key = REPLACE_WITH_RANDOM_SECRET_BEFORE_USE
+# Replace with only the exact Caddy/EasyTier source address observed at the container.
+trusted_proxy_ips = REPLACE_WITH_EXACT_TRUSTED_PROXY_CIDR
+token_expired_time = 2592000
+token_min_refresh_interval = 86400
+
+[auth]
+enable_internal_auth = true
+enable_oauth2_auth = true
+oauth2_provider = oidc
+oauth2_client_id = REPLACE_WITH_POCKET_ID_CLIENT_ID
+oauth2_client_secret = REPLACE_WITH_POCKET_ID_CLIENT_SECRET
+oauth2_user_identifier = email
+oauth2_use_pkce = true
+oauth2_auto_register = false
+oidc_provider_base_url = https://auth.fjzhang233.top
+oidc_provider_check_issuer_url = true
+oauth2_skip_tls_verify = false
+
+[user]
+enable_register = false
+enable_custom_icon = false
+enable_transaction_picture = true
+enable_scheduled_transaction = false
+
+[map]
+map_provider =
+map_data_fetch_proxy = false

@@ -3,6 +3,7 @@ import type { Router } from 'framework7/types';
 import { isUserLogined, isUserUnlocked } from '@/lib/userstate.ts';
 
 import HomePage from '@/views/mobile/HomePage.vue';
+import FamilyPage from '@/views/mobile/FamilyPage.vue';
 import LoginPage from '@/views/mobile/LoginPage.vue';
 import SignUpPage from '@/views/mobile/SignupPage.vue';
 import UnlockPage from '@/views/mobile/UnlockPage.vue';
@@ -163,6 +164,7 @@ const routes: Router.RouteParameters[] = [
         async: asyncResolve(TransactionListPage),
         beforeEnter: [checkLogin]
     },
+    { path: '/family', async: asyncResolve(FamilyPage), beforeEnter: [checkLogin] },
     {
         path: '/transaction/filter/amount',
         async: asyncResolve(TransactionAmountFilterPage),

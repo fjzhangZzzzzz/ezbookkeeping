@@ -201,26 +201,7 @@ func (a *DataManagementsApi) ClearAllDataHandler(c *core.WebContext) (any, *errs
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
 
-	err = a.categories.DeleteAllCategories(c, uid)
-
-	if err != nil {
-		log.Errorf(c, "[data_managements.ClearAllDataHandler] failed to delete all transaction categories, because %s", err.Error())
-		return nil, errs.Or(err, errs.ErrOperationFailed)
-	}
-
-	err = a.tags.DeleteAllTags(c, uid)
-
-	if err != nil {
-		log.Errorf(c, "[data_managements.ClearAllDataHandler] failed to delete all transaction tags, because %s", err.Error())
-		return nil, errs.Or(err, errs.ErrOperationFailed)
-	}
-
-	err = a.tagGroups.DeleteAllTagGroups(c, uid)
-
-	if err != nil {
-		log.Errorf(c, "[data_managements.ClearAllDataHandler] failed to delete all transaction tag groups, because %s", err.Error())
-		return nil, errs.Or(err, errs.ErrOperationFailed)
-	}
+	// Categories, tags and groups belong to the instance, not the user.
 
 	err = a.userCustomIcons.DeleteAllCustomIcons(c, uid)
 

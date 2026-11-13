@@ -218,16 +218,17 @@ func (a *TransactionCategoriesApi) CategoryModifyHandler(c *core.WebContext) (an
 	}
 
 	newCategory := &models.TransactionCategory{
-		CategoryId:       category.CategoryId,
-		Uid:              uid,
-		ParentCategoryId: categoryModifyReq.ParentId,
-		Name:             categoryModifyReq.Name,
-		DisplayOrder:     category.DisplayOrder,
-		Icon:             categoryModifyReq.Icon,
-		IconType:         categoryModifyReq.IconType,
-		Color:            categoryModifyReq.Color,
-		Comment:          categoryModifyReq.Comment,
-		Hidden:           categoryModifyReq.Hidden,
+		FamilyInternalTransfer: category.FamilyInternalTransfer,
+		CategoryId:             category.CategoryId,
+		Uid:                    uid,
+		ParentCategoryId:       categoryModifyReq.ParentId,
+		Name:                   categoryModifyReq.Name,
+		DisplayOrder:           category.DisplayOrder,
+		Icon:                   categoryModifyReq.Icon,
+		IconType:               categoryModifyReq.IconType,
+		Color:                  categoryModifyReq.Color,
+		Comment:                categoryModifyReq.Comment,
+		Hidden:                 categoryModifyReq.Hidden,
 	}
 
 	if newCategory.ParentCategoryId == category.ParentCategoryId &&
@@ -512,28 +513,10 @@ func (a *TransactionCategoriesApi) getTransactionCategoryListByTypeResponse(cate
 }
 
 func (a *TransactionCategoriesApi) isTransactionCategoryIconTypeValid(c *core.WebContext, uid int64, categories []*models.TransactionCategory) bool {
-	iconIds := make([]int64, 0)
-
 	for _, category := range categories {
-		if !category.IconType.IsValid() {
+		if category.IconType != core.ICON_TYPE_SYSTEM {
 			return false
 		}
-
-		if category.IconType == core.ICON_TYPE_USER_CUSTOM {
-			iconIds = append(iconIds, category.Icon)
-		}
 	}
-
-	if len(iconIds) < 1 {
-		return true
-	}
-
-	iconExists, err := a.icons.ExistsCustomIcons(c, uid, iconIds)
-
-	if err != nil {
-		log.Errorf(c, "[category.isTransactionCategoryIconTypeValid] failed to check custom icons for user \"uid:%d\", because %s", uid, err.Error())
-		return false
-	}
-
-	return iconExists
+	return true
 }

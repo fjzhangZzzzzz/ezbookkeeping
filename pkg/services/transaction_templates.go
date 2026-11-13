@@ -301,7 +301,7 @@ func (s *TransactionTemplateService) isTemplateValid(sess datastore.DatabaseSess
 
 	// check category is valid
 	category := &models.TransactionCategory{}
-	has, err = sess.ID(template.CategoryId).Where("uid=? AND deleted=?", template.Uid, false).Get(category)
+	has, err = sess.ID(template.CategoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(category)
 
 	if err != nil {
 		return err
@@ -316,6 +316,15 @@ func (s *TransactionTemplateService) isTemplateValid(sess datastore.DatabaseSess
 	if category.ParentCategoryId == models.LevelOneTransactionCategoryParentId {
 		return errs.ErrCannotUsePrimaryCategoryForTransaction
 	}
+	parentCategory := &models.TransactionCategory{}
+	has, err = sess.ID(category.ParentCategoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(parentCategory)
+	if err != nil {
+		return err
+	} else if !has {
+		return errs.ErrTransactionCategoryNotFound
+	} else if parentCategory.Hidden {
+		return errs.ErrCannotUseHiddenTransactionCategory
+	}
 
 	if (template.Type == models.TRANSACTION_TYPE_INCOME && category.Type != models.CATEGORY_TYPE_INCOME) ||
 		(template.Type == models.TRANSACTION_TYPE_EXPENSE && category.Type != models.CATEGORY_TYPE_EXPENSE) ||
@@ -326,12 +335,15 @@ func (s *TransactionTemplateService) isTemplateValid(sess datastore.DatabaseSess
 	// check tags are valid
 	tagIds := template.GetTagIds()
 	var tags []*models.TransactionTag
-	err = sess.Where("uid=? AND deleted=?", template.Uid, false).In("tag_id", tagIds).Find(&tags)
+	err = sess.Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("tag_id", tagIds).Find(&tags)
 
 	if err != nil {
 		return err
 	} else if len(tags) < len(tagIds) {
 		return errs.ErrTransactionTagNotFound
+	}
+	if err := validateTagGroups(sess, tags); err != nil {
+		return err
 	}
 
 	for i := 0; i < len(tags); i++ {

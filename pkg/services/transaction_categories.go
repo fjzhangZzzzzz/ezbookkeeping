@@ -36,7 +36,7 @@ func (s *TransactionCategoryService) GetTotalCategoryCountByUid(c core.Context, 
 		return 0, errs.ErrUserIdInvalid
 	}
 
-	count, err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", uid, false).Count(&models.TransactionCategory{})
+	count, err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Count(&models.TransactionCategory{})
 
 	return count, err
 }
@@ -49,7 +49,7 @@ func (s *TransactionCategoryService) GetAllCategoriesByUid(c core.Context, uid i
 
 	condition := "uid=? AND deleted=?"
 	conditionParams := make([]any, 0, 8)
-	conditionParams = append(conditionParams, uid)
+	conditionParams = append(conditionParams, models.SharedDictionaryOwnerUID)
 	conditionParams = append(conditionParams, false)
 
 	if categoryType > 0 {
@@ -80,7 +80,7 @@ func (s *TransactionCategoryService) GetSubCategoriesByCategoryIds(c core.Contex
 
 	condition := "uid=? AND deleted=?"
 	conditionParams := make([]any, 0, len(categoryIds)+2)
-	conditionParams = append(conditionParams, uid)
+	conditionParams = append(conditionParams, models.SharedDictionaryOwnerUID)
 	conditionParams = append(conditionParams, false)
 
 	var categoryIdConditions strings.Builder
@@ -121,7 +121,7 @@ func (s *TransactionCategoryService) GetCategoryByCategoryId(c core.Context, uid
 	}
 
 	category := &models.TransactionCategory{}
-	has, err := s.UserDataDB(uid).NewSession(c).ID(categoryId).Where("uid=? AND deleted=?", uid, false).Get(category)
+	has, err := s.UserDataDB(uid).NewSession(c).ID(categoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(category)
 
 	if err != nil {
 		return nil, err
@@ -143,7 +143,7 @@ func (s *TransactionCategoryService) GetCategoriesByCategoryIds(c core.Context, 
 	}
 
 	var categories []*models.TransactionCategory
-	err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", uid, false).In("category_id", categoryIds).Find(&categories)
+	err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("category_id", categoryIds).Find(&categories)
 
 	if err != nil {
 		return nil, err
@@ -160,7 +160,7 @@ func (s *TransactionCategoryService) GetMaxDisplayOrder(c core.Context, uid int6
 	}
 
 	category := &models.TransactionCategory{}
-	has, err := s.UserDataDB(uid).NewSession(c).Cols("uid", "deleted", "parent_category_id", "display_order").Where("uid=? AND deleted=? AND type=? AND parent_category_id=?", uid, false, categoryType, models.LevelOneTransactionCategoryParentId).OrderBy("display_order desc").Limit(1).Get(category)
+	has, err := s.UserDataDB(uid).NewSession(c).Cols("uid", "deleted", "parent_category_id", "display_order").Where("uid=? AND deleted=? AND type=? AND parent_category_id=?", models.SharedDictionaryOwnerUID, false, categoryType, models.LevelOneTransactionCategoryParentId).OrderBy("display_order desc").Limit(1).Get(category)
 
 	if err != nil {
 		return 0, err
@@ -184,7 +184,7 @@ func (s *TransactionCategoryService) GetMaxSubCategoryDisplayOrder(c core.Contex
 	}
 
 	category := &models.TransactionCategory{}
-	has, err := s.UserDataDB(uid).NewSession(c).Cols("uid", "deleted", "parent_category_id", "display_order").Where("uid=? AND deleted=? AND type=? AND parent_category_id=?", uid, false, categoryType, parentCategoryId).OrderBy("display_order desc").Limit(1).Get(category)
+	has, err := s.UserDataDB(uid).NewSession(c).Cols("uid", "deleted", "parent_category_id", "display_order").Where("uid=? AND deleted=? AND type=? AND parent_category_id=?", models.SharedDictionaryOwnerUID, false, categoryType, parentCategoryId).OrderBy("display_order desc").Limit(1).Get(category)
 
 	if err != nil {
 		return 0, err
@@ -202,6 +202,9 @@ func (s *TransactionCategoryService) CreateCategory(c core.Context, category *mo
 	if category.Uid <= 0 {
 		return errs.ErrUserIdInvalid
 	}
+	if category.IconType != core.ICON_TYPE_SYSTEM {
+		return errs.ErrTransactionCategoryIconInvalid
+	}
 
 	category.CategoryId = s.GenerateUuid(uuid.UUID_TYPE_CATEGORY)
 
@@ -214,7 +217,9 @@ func (s *TransactionCategoryService) CreateCategory(c core.Context, category *mo
 	category.UpdatedUnixTime = time.Now().Unix()
 
 	return s.UserDataDB(category.Uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		_, err := sess.Insert(category)
+		sharedCategory := *category
+		sharedCategory.Uid = models.SharedDictionaryOwnerUID
+		_, err := sess.Insert(&sharedCategory)
 		return err
 	})
 }
@@ -237,6 +242,9 @@ func (s *TransactionCategoryService) CreateCategories(c core.Context, uid int64,
 
 	for i := 0; i < len(primaryCategories); i++ {
 		primaryCategory := primaryCategories[i]
+		if primaryCategory.IconType != core.ICON_TYPE_SYSTEM {
+			return nil, errs.ErrTransactionCategoryIconInvalid
+		}
 		primaryCategory.CategoryId = primaryCategoryUuids[i]
 		primaryCategory.Deleted = false
 		primaryCategory.CreatedUnixTime = time.Now().Unix()
@@ -255,6 +263,9 @@ func (s *TransactionCategoryService) CreateCategories(c core.Context, uid int64,
 
 		for j := 0; j < len(secondaryCategories); j++ {
 			secondaryCategory := secondaryCategories[j]
+			if secondaryCategory.IconType != core.ICON_TYPE_SYSTEM {
+				return nil, errs.ErrTransactionCategoryIconInvalid
+			}
 			secondaryCategory.CategoryId = secondaryCategoryUuids[j]
 			secondaryCategory.ParentCategoryId = primaryCategory.CategoryId
 			secondaryCategory.Deleted = false
@@ -268,7 +279,9 @@ func (s *TransactionCategoryService) CreateCategories(c core.Context, uid int64,
 	err := s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
 		for i := 0; i < len(allCategories); i++ {
 			category := allCategories[i]
-			_, err := sess.Insert(category)
+			sharedCategory := *category
+			sharedCategory.Uid = models.SharedDictionaryOwnerUID
+			_, err := sess.Insert(&sharedCategory)
 
 			if err != nil {
 				return err
@@ -290,11 +303,31 @@ func (s *TransactionCategoryService) ModifyCategory(c core.Context, category *mo
 	if category.Uid <= 0 {
 		return errs.ErrUserIdInvalid
 	}
+	if category.IconType != core.ICON_TYPE_SYSTEM {
+		return errs.ErrTransactionCategoryIconInvalid
+	}
 
 	category.UpdatedUnixTime = time.Now().Unix()
 
 	return s.UserDataDB(category.Uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		updatedRows, err := sess.ID(category.CategoryId).Cols("parent_category_id", "name", "display_order", "icon", "icon_type", "color", "comment", "hidden", "updated_unix_time").Where("uid=? AND deleted=?", category.Uid, false).Update(category)
+		existing := &models.TransactionCategory{}
+		found, err := sess.ID(category.CategoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(existing)
+		if err != nil {
+			return err
+		} else if !found {
+			return errs.ErrTransactionCategoryNotFound
+		} else if existing.FamilyInternalTransfer && (existing.Name != category.Name || existing.Hidden != category.Hidden || existing.ParentCategoryId != category.ParentCategoryId) {
+			return errs.ErrNotPermittedToPerformThisAction
+		}
+		if category.Hidden {
+			protected, err := sess.Where("uid=? AND deleted=? AND family_internal_transfer=? AND parent_category_id=?", models.SharedDictionaryOwnerUID, false, true, category.CategoryId).Exist(&models.TransactionCategory{})
+			if err != nil {
+				return err
+			} else if protected {
+				return errs.ErrNotPermittedToPerformThisAction
+			}
+		}
+		updatedRows, err := sess.ID(category.CategoryId).Cols("parent_category_id", "name", "display_order", "icon", "icon_type", "color", "comment", "hidden", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Update(category)
 
 		if err != nil {
 			return err
@@ -320,7 +353,21 @@ func (s *TransactionCategoryService) HideCategory(c core.Context, uid int64, ids
 	}
 
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		updatedRows, err := sess.Cols("hidden", "updated_unix_time").Where("uid=? AND deleted=?", uid, false).In("category_id", ids).Update(updateModel)
+		protected, err := sess.Where("uid=? AND deleted=? AND family_internal_transfer=?", models.SharedDictionaryOwnerUID, false, true).In("category_id", ids).Exist(&models.TransactionCategory{})
+		if err != nil {
+			return err
+		} else if protected {
+			return errs.ErrNotPermittedToPerformThisAction
+		}
+		if hidden {
+			protected, err = sess.Where("uid=? AND deleted=? AND family_internal_transfer=?", models.SharedDictionaryOwnerUID, false, true).In("parent_category_id", ids).Exist(&models.TransactionCategory{})
+			if err != nil {
+				return err
+			} else if protected {
+				return errs.ErrNotPermittedToPerformThisAction
+			}
+		}
+		updatedRows, err := sess.Cols("hidden", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("category_id", ids).Update(updateModel)
 
 		if err != nil {
 			return err
@@ -345,7 +392,7 @@ func (s *TransactionCategoryService) ModifyCategoryDisplayOrders(c core.Context,
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
 		for i := 0; i < len(categories); i++ {
 			category := categories[i]
-			updatedRows, err := sess.ID(category.CategoryId).Cols("display_order", "updated_unix_time").Where("uid=? AND deleted=?", uid, false).Update(category)
+			updatedRows, err := sess.ID(category.CategoryId).Cols("display_order", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Update(category)
 
 			if err != nil {
 				return err
@@ -373,7 +420,7 @@ func (s *TransactionCategoryService) DeleteCategory(c core.Context, uid int64, c
 
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
 		var categoryAndSubCategories []*models.TransactionCategory
-		err := sess.Where("uid=? AND deleted=? AND (category_id=? OR parent_category_id=?)", uid, false, categoryId, categoryId).Find(&categoryAndSubCategories)
+		err := sess.Where("uid=? AND deleted=? AND (category_id=? OR parent_category_id=?)", models.SharedDictionaryOwnerUID, false, categoryId, categoryId).Find(&categoryAndSubCategories)
 
 		if err != nil {
 			return err
@@ -384,10 +431,13 @@ func (s *TransactionCategoryService) DeleteCategory(c core.Context, uid int64, c
 		categoryAndSubCategoryIds := make([]int64, len(categoryAndSubCategories))
 
 		for i := 0; i < len(categoryAndSubCategories); i++ {
+			if categoryAndSubCategories[i].FamilyInternalTransfer {
+				return errs.ErrNotPermittedToPerformThisAction
+			}
 			categoryAndSubCategoryIds[i] = categoryAndSubCategories[i].CategoryId
 		}
 
-		exists, err := sess.Cols("uid", "deleted", "category_id").Where("uid=? AND deleted=?", uid, false).In("category_id", categoryAndSubCategoryIds).Limit(1).Exist(&models.Transaction{})
+		exists, err := sess.Cols("deleted", "category_id").Where("deleted=?", false).In("category_id", categoryAndSubCategoryIds).Limit(1).Exist(&models.Transaction{})
 
 		if err != nil {
 			return err
@@ -395,7 +445,7 @@ func (s *TransactionCategoryService) DeleteCategory(c core.Context, uid int64, c
 			return errs.ErrTransactionCategoryInUseCannotBeDeleted
 		}
 
-		exists, err = sess.Cols("uid", "deleted", "category_id", "template_type", "scheduled_frequency_type", "scheduled_end_time").Where("uid=? AND deleted=? AND (template_type=? OR (template_type=? AND scheduled_frequency_type<>? AND (scheduled_end_time IS NULL OR scheduled_end_time>=?)))", uid, false, models.TRANSACTION_TEMPLATE_TYPE_NORMAL, models.TRANSACTION_TEMPLATE_TYPE_SCHEDULE, models.TRANSACTION_SCHEDULE_FREQUENCY_TYPE_DISABLED, now).In("category_id", categoryAndSubCategoryIds).Limit(1).Exist(&models.TransactionTemplate{})
+		exists, err = sess.Cols("deleted", "category_id").Where("deleted=?", false).In("category_id", categoryAndSubCategoryIds).Limit(1).Exist(&models.TransactionTemplate{})
 
 		if err != nil {
 			return err
@@ -403,7 +453,7 @@ func (s *TransactionCategoryService) DeleteCategory(c core.Context, uid int64, c
 			return errs.ErrTransactionCategoryInUseCannotBeDeleted
 		}
 
-		deletedRows, err := sess.Cols("deleted", "deleted_unix_time").Where("uid=? AND deleted=?", uid, false).In("category_id", categoryAndSubCategoryIds).Update(updateModel)
+		deletedRows, err := sess.Cols("deleted", "deleted_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("category_id", categoryAndSubCategoryIds).Update(updateModel)
 
 		if err != nil {
 			return err

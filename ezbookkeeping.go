@@ -57,7 +57,7 @@ func main() {
 	err := cmd.Run(context.Background(), os.Args)
 
 	if err != nil {
-		log.Fatalf("Failed to run ezBookkeeping with %s: %v", os.Args, err)
+		log.Fatalf("Failed to run ezBookkeeping: %v", err)
 	}
 }
 

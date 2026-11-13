@@ -2,6 +2,10 @@ variable "DEFAULT_TAG" {
   default = "ezbookkeeping:local"
 }
 
+variable "BUILD_COMMIT" {
+  default = ""
+}
+
 // Special target: https://github.com/docker/metadata-action#bake-definition
 target "docker-metadata-action" {
   tags = ["${DEFAULT_TAG}"]
@@ -16,6 +20,9 @@ target "image" {
   inherits = ["docker-metadata-action"]
   context = "./"
   dockerfile = "Dockerfile"
+  args = {
+    BUILD_COMMIT = "${BUILD_COMMIT}"
+  }
 }
 
 target "image-local" {

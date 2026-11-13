@@ -17,21 +17,22 @@ const (
 
 // TransactionCategory represents transaction category data stored in database
 type TransactionCategory struct {
-	CategoryId       int64                   `xorm:"PK"`
-	Uid              int64                   `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
-	Deleted          bool                    `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
-	Type             TransactionCategoryType `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
-	ParentCategoryId int64                   `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
-	Name             string                  `xorm:"VARCHAR(64) NOT NULL"`
-	DisplayOrder     int32                   `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
-	Icon             int64                   `xorm:"NOT NULL"`
-	IconType         core.IconType
-	Color            string `xorm:"VARCHAR(6) NOT NULL"`
-	Hidden           bool   `xorm:"NOT NULL"`
-	Comment          string `xorm:"VARCHAR(255) NOT NULL"`
-	CreatedUnixTime  int64
-	UpdatedUnixTime  int64
-	DeletedUnixTime  int64
+	CategoryId             int64                   `xorm:"PK"`
+	Uid                    int64                   `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
+	Deleted                bool                    `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
+	Type                   TransactionCategoryType `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
+	ParentCategoryId       int64                   `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
+	Name                   string                  `xorm:"VARCHAR(64) NOT NULL"`
+	DisplayOrder           int32                   `xorm:"INDEX(IDX_category_uid_deleted_type_parent_category_id_order) NOT NULL"`
+	Icon                   int64                   `xorm:"NOT NULL"`
+	IconType               core.IconType
+	Color                  string `xorm:"VARCHAR(6) NOT NULL"`
+	Hidden                 bool   `xorm:"NOT NULL"`
+	FamilyInternalTransfer bool   `xorm:"NOT NULL DEFAULT 0"`
+	Comment                string `xorm:"VARCHAR(255) NOT NULL"`
+	CreatedUnixTime        int64
+	UpdatedUnixTime        int64
+	DeletedUnixTime        int64
 }
 
 // TransactionCategoryListRequest represents all parameters of transaction category listing request
@@ -109,32 +110,34 @@ type TransactionCategoryDeleteRequest struct {
 
 // TransactionCategoryInfoResponse represents a view-object of transaction category
 type TransactionCategoryInfoResponse struct {
-	Id            int64                                `json:"id,string"`
-	Name          string                               `json:"name"`
-	ParentId      int64                                `json:"parentId,string"`
-	Type          TransactionCategoryType              `json:"type"`
-	Icon          int64                                `json:"icon,string"`
-	IconType      core.IconType                        `json:"iconType"`
-	Color         string                               `json:"color"`
-	Comment       string                               `json:"comment"`
-	DisplayOrder  int32                                `json:"displayOrder"`
-	Hidden        bool                                 `json:"hidden"`
-	SubCategories TransactionCategoryInfoResponseSlice `json:"subCategories,omitempty"`
+	FamilyInternalTransfer bool                                 `json:"familyInternalTransfer"`
+	Id                     int64                                `json:"id,string"`
+	Name                   string                               `json:"name"`
+	ParentId               int64                                `json:"parentId,string"`
+	Type                   TransactionCategoryType              `json:"type"`
+	Icon                   int64                                `json:"icon,string"`
+	IconType               core.IconType                        `json:"iconType"`
+	Color                  string                               `json:"color"`
+	Comment                string                               `json:"comment"`
+	DisplayOrder           int32                                `json:"displayOrder"`
+	Hidden                 bool                                 `json:"hidden"`
+	SubCategories          TransactionCategoryInfoResponseSlice `json:"subCategories,omitempty"`
 }
 
 // ToTransactionCategoryInfoResponse returns a view-object according to database model
 func (c *TransactionCategory) ToTransactionCategoryInfoResponse() *TransactionCategoryInfoResponse {
 	return &TransactionCategoryInfoResponse{
-		Id:           c.CategoryId,
-		Name:         c.Name,
-		ParentId:     c.ParentCategoryId,
-		Type:         c.Type,
-		Icon:         c.Icon,
-		IconType:     c.IconType,
-		Color:        c.Color,
-		Comment:      c.Comment,
-		DisplayOrder: c.DisplayOrder,
-		Hidden:       c.Hidden,
+		FamilyInternalTransfer: c.FamilyInternalTransfer,
+		Id:                     c.CategoryId,
+		Name:                   c.Name,
+		ParentId:               c.ParentCategoryId,
+		Type:                   c.Type,
+		Icon:                   c.Icon,
+		IconType:               c.IconType,
+		Color:                  c.Color,
+		Comment:                c.Comment,
+		DisplayOrder:           c.DisplayOrder,
+		Hidden:                 c.Hidden,
 	}
 }
 

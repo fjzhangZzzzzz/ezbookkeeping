@@ -12,6 +12,7 @@ import OAuth2CallbackPage from '@/views/desktop/OAuth2CallbackPage.vue';
 import UnlockPage from '@/views/desktop/UnlockPage.vue';
 
 import HomePage from '@/views/desktop/HomePage.vue';
+import FamilyPage from '@/views/desktop/FamilyPage.vue';
 
 import TransactionListPage from '@/views/desktop/transactions/ListPage.vue';
 
@@ -104,6 +105,7 @@ function checkNotLogin(): NavigationGuardReturn {
 const router = createRouter({
     history: createWebHashHistory(),
     routes: [
+        { path: '/family', component: FamilyPage, beforeEnter: checkLogin },
         {
             path: '/',
             component: HomePage,

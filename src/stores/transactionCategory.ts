@@ -14,7 +14,7 @@ import {
 } from '@/models/transaction_category.ts';
 
 import { isEquals } from '@/lib/common.ts';
-import { getFirstVisibleCategoryId } from '@/lib/category.ts';
+import { hasAnyVisibleCategory } from '@/lib/category.ts';
 import services, { type ApiResponsePromise } from '@/lib/services.ts';
 import logger from '@/lib/logger.ts';
 
@@ -54,8 +54,7 @@ export const useTransactionCategoriesStore = defineStore('transactionCategories'
             return false;
         }
 
-        const firstVisibleCategoryId = getFirstVisibleCategoryId(allTransactionCategories.value[CategoryType.Expense]);
-        return firstVisibleCategoryId !== '';
+        return hasAnyVisibleCategory(allTransactionCategories.value[CategoryType.Expense]);
     });
 
     const hasVisibleIncomeCategories = computed<boolean>(() => {
@@ -63,8 +62,7 @@ export const useTransactionCategoriesStore = defineStore('transactionCategories'
             return false;
         }
 
-        const firstVisibleCategoryId = getFirstVisibleCategoryId(allTransactionCategories.value[CategoryType.Income]);
-        return firstVisibleCategoryId !== '';
+        return hasAnyVisibleCategory(allTransactionCategories.value[CategoryType.Income]);
     });
 
     const hasVisibleTransferCategories = computed<boolean>(() => {
@@ -72,8 +70,7 @@ export const useTransactionCategoriesStore = defineStore('transactionCategories'
             return false;
         }
 
-        const firstVisibleCategoryId = getFirstVisibleCategoryId(allTransactionCategories.value[CategoryType.Transfer]);
-        return firstVisibleCategoryId !== '';
+        return hasAnyVisibleCategory(allTransactionCategories.value[CategoryType.Transfer]);
     });
 
     function loadTransactionCategoryList(allCategories: Record<number, TransactionCategory[]>): void {

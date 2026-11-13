@@ -1050,28 +1050,10 @@ func (a *AccountsApi) getToDeleteSubAccountIds(accountModifyReq *models.AccountM
 }
 
 func (a *AccountsApi) isAccountsIconTypeValid(c *core.WebContext, uid int64, accounts []*models.Account) bool {
-	iconIds := make([]int64, 0)
-
 	for _, account := range accounts {
-		if !account.IconType.IsValid() {
+		if account.IconType != core.ICON_TYPE_SYSTEM {
 			return false
 		}
-
-		if account.IconType == core.ICON_TYPE_USER_CUSTOM {
-			iconIds = append(iconIds, account.Icon)
-		}
 	}
-
-	if len(iconIds) < 1 {
-		return true
-	}
-
-	iconExists, err := a.icons.ExistsCustomIcons(c, uid, iconIds)
-
-	if err != nil {
-		log.Errorf(c, "[accounts.isAccountsIconTypeValid] failed to check custom icons for user \"uid:%d\", because %s", uid, err.Error())
-		return false
-	}
-
-	return iconExists
+	return true
 }

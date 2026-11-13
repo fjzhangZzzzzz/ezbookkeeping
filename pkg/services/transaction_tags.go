@@ -14,6 +14,33 @@ import (
 
 const pageCountForLoadAllTransactionTagIndexes = 1000
 
+// validateTagGroups ensures hidden or missing groups cannot supply tags to new entries.
+func validateTagGroups(sess datastore.DatabaseSession, tags []*models.TransactionTag) error {
+	groupIds := make([]int64, 0, len(tags))
+	for _, tag := range tags {
+		if tag.TagGroupId > 0 {
+			groupIds = append(groupIds, tag.TagGroupId)
+		}
+	}
+	if len(groupIds) == 0 {
+		return nil
+	}
+	var groups []*models.TransactionTagGroup
+	if err := sess.Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("tag_group_id", groupIds).Find(&groups); err != nil {
+		return err
+	}
+	visible := make(map[int64]bool, len(groups))
+	for _, group := range groups {
+		visible[group.TagGroupId] = !group.Hidden
+	}
+	for _, id := range groupIds {
+		if !visible[id] {
+			return errs.ErrCannotUseHiddenTransactionTag
+		}
+	}
+	return nil
+}
+
 // TransactionTagService represents transaction tag service
 type TransactionTagService struct {
 	ServiceUsingDB
@@ -38,7 +65,7 @@ func (s *TransactionTagService) GetTotalTagCountByUid(c core.Context, uid int64)
 		return 0, errs.ErrUserIdInvalid
 	}
 
-	count, err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", uid, false).Count(&models.TransactionTag{})
+	count, err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Count(&models.TransactionTag{})
 
 	return count, err
 }
@@ -50,7 +77,7 @@ func (s *TransactionTagService) GetAllTagsByUid(c core.Context, uid int64) ([]*m
 	}
 
 	var tags []*models.TransactionTag
-	err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", uid, false).Find(&tags)
+	err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Find(&tags)
 
 	return tags, err
 }
@@ -66,7 +93,7 @@ func (s *TransactionTagService) GetTagByTagId(c core.Context, uid int64, tagId i
 	}
 
 	tag := &models.TransactionTag{}
-	has, err := s.UserDataDB(uid).NewSession(c).ID(tagId).Where("uid=? AND deleted=?", uid, false).Get(tag)
+	has, err := s.UserDataDB(uid).NewSession(c).ID(tagId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(tag)
 
 	if err != nil {
 		return nil, err
@@ -88,7 +115,7 @@ func (s *TransactionTagService) GetTagsByTagIds(c core.Context, uid int64, tagId
 	}
 
 	var tags []*models.TransactionTag
-	err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", uid, false).In("tag_id", tagIds).Find(&tags)
+	err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("tag_id", tagIds).Find(&tags)
 
 	if err != nil {
 		return nil, err
@@ -105,7 +132,7 @@ func (s *TransactionTagService) GetMaxDisplayOrder(c core.Context, uid int64, ta
 	}
 
 	tag := &models.TransactionTag{}
-	has, err := s.UserDataDB(uid).NewSession(c).Cols("uid", "deleted", "display_order").Where("uid=? AND deleted=? AND tag_group_id=?", uid, false, tagGroupId).OrderBy("display_order desc").Limit(1).Get(tag)
+	has, err := s.UserDataDB(uid).NewSession(c).Cols("uid", "deleted", "display_order").Where("uid=? AND deleted=? AND tag_group_id=?", models.SharedDictionaryOwnerUID, false, tagGroupId).OrderBy("display_order desc").Limit(1).Get(tag)
 
 	if err != nil {
 		return 0, err
@@ -216,7 +243,9 @@ func (s *TransactionTagService) CreateTag(c core.Context, tag *models.Transactio
 	tag.UpdatedUnixTime = time.Now().Unix()
 
 	return s.UserDataDB(tag.Uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		_, err := sess.Insert(tag)
+		sharedTag := *tag
+		sharedTag.Uid = models.SharedDictionaryOwnerUID
+		_, err := sess.Insert(&sharedTag)
 		return err
 	})
 }
@@ -234,7 +263,7 @@ func (s *TransactionTagService) CreateTags(c core.Context, uid int64, tags []*mo
 	}
 
 	var existTags []*models.TransactionTag
-	err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", uid, false).In("name", allTagNames).Find(&existTags)
+	err := s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("name", allTagNames).Find(&existTags)
 
 	if err != nil {
 		return err
@@ -280,7 +309,9 @@ func (s *TransactionTagService) CreateTags(c core.Context, uid int64, tags []*mo
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
 		for i := 0; i < len(newTags); i++ {
 			tag := newTags[i]
-			_, err := sess.Insert(tag)
+			sharedTag := *tag
+			sharedTag.Uid = models.SharedDictionaryOwnerUID
+			_, err := sess.Insert(&sharedTag)
 
 			if err != nil {
 				return err
@@ -310,7 +341,7 @@ func (s *TransactionTagService) ModifyTag(c core.Context, tag *models.Transactio
 	tag.UpdatedUnixTime = time.Now().Unix()
 
 	return s.UserDataDB(tag.Uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		updatedRows, err := sess.ID(tag.TagId).Cols("name", "tag_group_id", "display_order", "updated_unix_time").Where("uid=? AND deleted=?", tag.Uid, false).Update(tag)
+		updatedRows, err := sess.ID(tag.TagId).Cols("name", "tag_group_id", "display_order", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Update(tag)
 
 		if err != nil {
 			return err
@@ -336,7 +367,7 @@ func (s *TransactionTagService) HideTag(c core.Context, uid int64, ids []int64, 
 	}
 
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		updatedRows, err := sess.Cols("hidden", "updated_unix_time").Where("uid=? AND deleted=?", uid, false).In("tag_id", ids).Update(updateModel)
+		updatedRows, err := sess.Cols("hidden", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("tag_id", ids).Update(updateModel)
 
 		if err != nil {
 			return err
@@ -361,7 +392,7 @@ func (s *TransactionTagService) ModifyTagDisplayOrders(c core.Context, uid int64
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
 		for i := 0; i < len(tags); i++ {
 			tag := tags[i]
-			updatedRows, err := sess.ID(tag.TagId).Cols("display_order", "updated_unix_time").Where("uid=? AND deleted=?", uid, false).Update(tag)
+			updatedRows, err := sess.ID(tag.TagId).Cols("display_order", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Update(tag)
 
 			if err != nil {
 				return err
@@ -388,7 +419,7 @@ func (s *TransactionTagService) DeleteTag(c core.Context, uid int64, tagId int64
 	}
 
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		exists, err := sess.Cols("uid", "tag_id").Where("uid=? AND deleted=? AND tag_id=?", uid, false, tagId).Limit(1).Exist(&models.TransactionTagIndex{})
+		exists, err := sess.Cols("tag_id").Where("deleted=? AND tag_id=?", false, tagId).Limit(1).Exist(&models.TransactionTagIndex{})
 
 		if err != nil {
 			return err
@@ -397,7 +428,7 @@ func (s *TransactionTagService) DeleteTag(c core.Context, uid int64, tagId int64
 		}
 
 		var relatedTransactionTemplatesByTag []*models.TransactionTemplate
-		err = sess.Cols("uid", "deleted", "tag_ids", "template_type", "scheduled_frequency_type", "scheduled_end_time").Where("uid=? AND deleted=? AND (template_type=? OR (template_type=? AND scheduled_frequency_type<>? AND (scheduled_end_time IS NULL OR scheduled_end_time>=?))) AND tag_ids LIKE ?", uid, false, models.TRANSACTION_TEMPLATE_TYPE_NORMAL, models.TRANSACTION_TEMPLATE_TYPE_SCHEDULE, models.TRANSACTION_SCHEDULE_FREQUENCY_TYPE_DISABLED, now, "%%"+utils.Int64ToString(tagId)+"%%").Find(&relatedTransactionTemplatesByTag)
+		err = sess.Cols("deleted", "tag_ids").Where("deleted=? AND tag_ids LIKE ?", false, "%"+utils.Int64ToString(tagId)+"%").Find(&relatedTransactionTemplatesByTag)
 
 		if err != nil {
 			return err
@@ -418,7 +449,7 @@ func (s *TransactionTagService) DeleteTag(c core.Context, uid int64, tagId int64
 			}
 		}
 
-		deletedRows, err := sess.ID(tagId).Cols("deleted", "deleted_unix_time").Where("uid=? AND deleted=?", uid, false).Update(updateModel)
+		deletedRows, err := sess.ID(tagId).Cols("deleted", "deleted_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Update(updateModel)
 
 		if err != nil {
 			return err
@@ -464,11 +495,14 @@ func (s *TransactionTagService) DeleteAllTags(c core.Context, uid int64) error {
 
 // ExistsTagName returns whether the given tag name exists
 func (s *TransactionTagService) ExistsTagName(c core.Context, uid int64, name string) (bool, error) {
+	if uid <= 0 {
+		return false, errs.ErrUserIdInvalid
+	}
 	if name == "" {
 		return false, errs.ErrTransactionTagNameIsEmpty
 	}
 
-	return s.UserDataDB(uid).NewSession(c).Cols("name").Where("uid=? AND deleted=? AND name=?", uid, false, name).Exist(&models.TransactionTag{})
+	return s.UserDataDB(uid).NewSession(c).Cols("name").Where("uid=? AND deleted=? AND name=?", models.SharedDictionaryOwnerUID, false, name).Exist(&models.TransactionTag{})
 }
 
 // ModifyTagIndexTransactionTime updates transaction time of given transaction tag indexes

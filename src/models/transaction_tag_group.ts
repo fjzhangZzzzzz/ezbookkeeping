@@ -2,11 +2,13 @@ export class TransactionTagGroup implements TransactionTagGroupInfoResponse {
     public id: string;
     public name: string;
     public displayOrder: number;
+    public hidden: boolean;
 
-    private constructor(id: string, name: string, displayOrder: number) {
+    private constructor(id: string, name: string, displayOrder: number, hidden: boolean) {
         this.id = id;
         this.name = name;
         this.displayOrder = displayOrder;
+        this.hidden = hidden;
     }
 
     public toCreateRequest(): TransactionTagGroupCreateRequest {
@@ -23,11 +25,11 @@ export class TransactionTagGroup implements TransactionTagGroupInfoResponse {
     }
 
     public clone(): TransactionTagGroup {
-        return new TransactionTagGroup(this.id, this.name, this.displayOrder);
+        return new TransactionTagGroup(this.id, this.name, this.displayOrder, this.hidden);
     }
 
     public static of(tagGroupResponse: TransactionTagGroupInfoResponse): TransactionTagGroup {
-        return new TransactionTagGroup(tagGroupResponse.id, tagGroupResponse.name, tagGroupResponse.displayOrder);
+        return new TransactionTagGroup(tagGroupResponse.id, tagGroupResponse.name, tagGroupResponse.displayOrder, !!tagGroupResponse.hidden);
     }
 
     public static ofMulti(tagGroupResponses: TransactionTagGroupInfoResponse[]): TransactionTagGroup[] {
@@ -41,7 +43,7 @@ export class TransactionTagGroup implements TransactionTagGroupInfoResponse {
     }
 
     public static createNewTagGroup(name?: string): TransactionTagGroup {
-        return new TransactionTagGroup('', name || '', 0);
+        return new TransactionTagGroup('', name || '', 0, false);
     }
 }
 
@@ -67,8 +69,14 @@ export interface TransactionTagGroupDeleteRequest {
     readonly id: string;
 }
 
+export interface TransactionTagGroupHideRequest {
+    readonly id: string;
+    readonly hidden: boolean;
+}
+
 export interface TransactionTagGroupInfoResponse {
     readonly id: string;
     readonly name: string;
     readonly displayOrder: number;
+    readonly hidden: boolean;
 }

@@ -118,6 +118,7 @@ import type {
     TransactionTagGroupCreateRequest,
     TransactionTagGroupModifyRequest,
     TransactionTagGroupMoveRequest,
+    TransactionTagGroupHideRequest,
     TransactionTagGroupDeleteRequest,
     TransactionTagGroupInfoResponse
 } from '@/models/transaction_tag_group.ts';
@@ -853,6 +854,9 @@ export default {
     },
     moveTransactionTagGroup: (req: TransactionTagGroupMoveRequest): ApiResponsePromise<boolean> => {
         return axios.post<ApiResponse<boolean>>('v1/transaction/tags/groups/move.json', req);
+    },
+    hideTransactionTagGroup: (req: TransactionTagGroupHideRequest): ApiResponsePromise<boolean> => {
+        return axios.post<ApiResponse<boolean>>('v1/transaction/tags/groups/hide.json', req);
     },
     deleteTransactionTagGroup: (req: TransactionTagGroupDeleteRequest): ApiResponsePromise<boolean> => {
         return axios.post<ApiResponse<boolean>>('v1/transaction/tags/groups/delete.json', req);

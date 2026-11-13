@@ -16,6 +16,7 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
     public comment: string;
     public displayOrder: number;
     public visible: boolean;
+    public familyInternalTransfer = false;
     public subCategories?: TransactionCategory[];
 
     private constructor(id: string, name: string, parentId: string, type: CategoryType, icon: string, iconType: number, color: ColorValue, comment: string, displayOrder: number, visible: boolean, subCategories?: TransactionCategory[]) {
@@ -51,7 +52,8 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
             this.color === other.color &&
             this.comment === other.comment &&
             this.displayOrder === other.displayOrder &&
-            this.visible === other.visible;
+            this.visible === other.visible &&
+            this.familyInternalTransfer === other.familyInternalTransfer;
 
         if (!isEqual) {
             return false;
@@ -84,10 +86,11 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
         this.color = other.color;
         this.comment = other.comment;
         this.visible = other.visible;
+        this.familyInternalTransfer = other.familyInternalTransfer;
     }
 
     public clone(): TransactionCategory {
-        return new TransactionCategory(
+        const cloned = new TransactionCategory(
             this.id,
             this.name,
             this.parentId,
@@ -99,6 +102,8 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
             this.displayOrder,
             this.visible
         );
+        cloned.familyInternalTransfer = this.familyInternalTransfer;
+        return cloned;
     }
 
     public toCreateRequest(clientSessionId: string): TransactionCategoryCreateRequest {
@@ -128,7 +133,7 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
     }
 
     public static of(categoryResponse: TransactionCategoryInfoResponse): TransactionCategory {
-        return new TransactionCategory(
+        const category = new TransactionCategory(
             categoryResponse.id,
             categoryResponse.name,
             categoryResponse.parentId,
@@ -141,6 +146,8 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
             !categoryResponse.hidden,
             categoryResponse.subCategories ? TransactionCategory.ofMulti(categoryResponse.subCategories) : undefined
         );
+        category.familyInternalTransfer = !!categoryResponse.familyInternalTransfer;
+        return category;
     }
 
     public static ofMulti(categoryResponses: TransactionCategoryInfoResponse[]): TransactionCategory[] {
@@ -232,6 +239,7 @@ export interface TransactionCategoryDeleteRequest {
 }
 
 export interface TransactionCategoryInfoResponse {
+    readonly familyInternalTransfer?: boolean;
     readonly id: string;
     readonly name: string;
     readonly parentId: string;

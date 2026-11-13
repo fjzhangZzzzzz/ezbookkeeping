@@ -4,6 +4,7 @@ import "net/http"
 
 // Error codes related to settings
 var (
+	ErrInvalidSecretKey                               = NewSystemError(SystemSubcategorySetting, 30, http.StatusInternalServerError, "secret_key must be explicitly configured with at least 32 characters")
 	ErrInvalidServerMode                              = NewSystemError(SystemSubcategorySetting, 0, http.StatusInternalServerError, "invalid server mode")
 	ErrInvalidProtocol                                = NewSystemError(SystemSubcategorySetting, 1, http.StatusInternalServerError, "invalid server protocol")
 	ErrInvalidLogMode                                 = NewSystemError(SystemSubcategorySetting, 2, http.StatusInternalServerError, "invalid log mode")

@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/urfave/cli/v3"
 
@@ -43,11 +45,11 @@ var UserData = &cli.Command{
 					Usage:    "New user nickname",
 				},
 				&cli.StringFlag{
-					Name:     "password",
-					Aliases:  []string{"p"},
-					Required: true,
-					Usage:    "New user password",
+					Name:    "password",
+					Aliases: []string{"p"},
+					Usage:   "New user password",
 				},
+				&cli.BoolFlag{Name: "password-stdin", Usage: "Read the password from standard input instead of process arguments"},
 				&cli.StringFlag{
 					Name:     "default-currency",
 					Aliases:  []string{"c"},
@@ -81,11 +83,11 @@ var UserData = &cli.Command{
 					Usage:    "Specific user name",
 				},
 				&cli.StringFlag{
-					Name:     "password",
-					Aliases:  []string{"p"},
-					Required: true,
-					Usage:    "User new password",
+					Name:    "password",
+					Aliases: []string{"p"},
+					Usage:   "User new password",
 				},
+				&cli.BoolFlag{Name: "password-stdin", Usage: "Read the password from standard input instead of process arguments"},
 			},
 		},
 		{
@@ -408,7 +410,10 @@ func addNewUser(c *core.CliContext) error {
 	username := c.String("username")
 	email := c.String("email")
 	nickname := c.String("nickname")
-	password := c.String("password")
+	password, err := readUserPassword(c)
+	if err != nil {
+		return err
+	}
 	defaultCurrency := c.String("default-currency")
 
 	user, err := clis.UserData.AddNewUser(c, username, email, nickname, password, defaultCurrency)
@@ -451,7 +456,10 @@ func modifyUserPassword(c *core.CliContext) error {
 	}
 
 	username := c.String("username")
-	password := c.String("password")
+	password, err := readUserPassword(c)
+	if err != nil {
+		return err
+	}
 	err = clis.UserData.ModifyUserPassword(c, username, password)
 
 	if err != nil {
@@ -1004,4 +1012,26 @@ func printTokenInfo(token *models.TokenRecord) {
 	fmt.Printf("[ExpiredAt] %s (%d)\n", utils.FormatUnixTimeToLongDateTimeInServerTimezone(token.ExpiredUnixTime), token.ExpiredUnixTime)
 	fmt.Printf("[LastSeen] %s (%d)\n", utils.FormatUnixTimeToLongDateTimeInServerTimezone(token.LastSeenUnixTime), token.LastSeenUnixTime)
 	fmt.Printf("[UserAgent] %s\n", token.UserAgent)
+}
+
+// readUserPassword avoids secrets in command history and process argument lists.
+func readUserPassword(c *core.CliContext) (string, error) {
+	password := c.String("password")
+	if c.Bool("password-stdin") {
+		if password != "" {
+			return "", fmt.Errorf("choose either --password or --password-stdin")
+		}
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, 1025))
+		if err != nil {
+			return "", err
+		}
+		if len(data) > 1024 {
+			return "", fmt.Errorf("password input is too long")
+		}
+		password = strings.TrimRight(string(data), "\r\n")
+	}
+	if password == "" {
+		return "", errs.ErrPasswordIsEmpty
+	}
+	return password, nil
 }

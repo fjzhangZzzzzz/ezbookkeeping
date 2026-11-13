@@ -165,3 +165,14 @@ ezbookkeeping
 /data/
 /storage/
 /log/
+
+# Local implementation validation caches and disposable snapshots
+/.work/
+/.cache/
+/.tools/
+
+# Browser automation raw sessions may include temporary test credentials
+/.playwright-cli/
+
+# Local QA artifacts are retained outside application source releases
+/output/

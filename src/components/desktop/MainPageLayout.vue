@@ -34,6 +34,7 @@
                         <div class="app-top-toolbar d-inline-flex"
                              :class="{ 'app-top-toolbar-without-navbar': noNavbar }">
                             <slot name="top-toolbar">
+                                <router-link to="/family"><v-btn variant="text">家庭账本</v-btn></router-link>
                                 <router-link to="/" :aria-current="isTopNavigationActive('/') ? 'page' : undefined">
                                     <v-btn class="top-navigation-button" density="comfortable" variant="text"
                                            :aria-label="tt('Overview')" :icon="true"

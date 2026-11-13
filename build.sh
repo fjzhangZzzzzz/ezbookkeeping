@@ -130,7 +130,7 @@ check_type_dependencies() {
 
 set_build_parameters() {
     VERSION="$(grep '"version": ' package.json | awk -F ':' '{print $2}' | tr -d ' ' | tr -d ',' | tr -d '"')"
-    COMMIT_HASH="$(git rev-parse --short=7 HEAD)"
+    COMMIT_HASH="${BUILD_COMMIT:-$(git rev-parse --short=7 HEAD)}"
 
     if [ -z "$BUILD_UNIXTIME" ]; then
         BUILD_UNIXTIME="$(date '+%s')"
@@ -143,7 +143,8 @@ set_build_parameters() {
 
 build_backend() {
     echo "Pulling backend dependencies..."
-    go get .
+    go mod download
+    export GOFLAGS="${GOFLAGS} -mod=readonly"
 
     if [ "$NO_LINT" = "0" ]; then
         echo "Executing backend lint checking..."
@@ -193,7 +194,7 @@ build_backend() {
 
 build_frontend() {
     echo "Pulling frontend dependencies..."
-    npm install
+    npm ci
 
     if [ "$NO_LINT" = "0" ]; then
         echo "Executing frontend lint checking..."
@@ -274,7 +275,7 @@ build_docker() {
 
     echo "Building docker image \"$docker_tag\" ($RELEASE_TYPE)..."
 
-    docker build . -t "$docker_tag" --build-arg RELEASE_BUILD=$RELEASE
+    docker build . -t "$docker_tag" --build-arg RELEASE_BUILD="$RELEASE" --build-arg BUILD_COMMIT="$COMMIT_HASH"
 }
 
 main() {

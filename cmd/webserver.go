@@ -327,6 +327,12 @@ func startWebServer(c *core.CliContext) error {
 		apiV1Route.Use(bindMiddleware(middlewares.TokenAuthorizationByHeader(config), config))
 		apiV1Route.Use(bindMiddleware(middlewares.APITokenIpLimit(config), config))
 		{
+			// The single-household view is read-only and only available to interactive sessions.
+			apiV1Route.GET("/family/overview.json", bindApi(api.Family.OverviewHandler, config, core.USER_TOKEN_TYPE_NORMAL))
+			apiV1Route.GET("/family/transactions/list.json", bindApi(api.Family.TransactionsHandler, config, core.USER_TOKEN_TYPE_NORMAL))
+			apiV1Route.GET("/family/export.csv", bindCsv(api.Family.ExportHandler, config))
+			apiV1Route.GET("/family/pictures/:fileName", bindImage(api.Family.PictureHandler, config))
+
 			// Tokens
 			apiV1Route.GET("/tokens/list.json", bindApi(api.Tokens.TokenListHandler, config))
 			apiV1Route.POST("/tokens/generate/api.json", bindApi(api.Tokens.TokenGenerateAPIHandler, config, core.USER_TOKEN_TYPE_NORMAL))
@@ -444,6 +450,7 @@ func startWebServer(c *core.CliContext) error {
 			apiV1Route.GET("/transaction/tags/groups/get.json", bindApi(api.TransactionTagGroups.TagGroupGetHandler, config))
 			apiV1Route.POST("/transaction/tags/groups/add.json", bindApi(api.TransactionTagGroups.TagGroupCreateHandler, config))
 			apiV1Route.POST("/transaction/tags/groups/modify.json", bindApi(api.TransactionTagGroups.TagGroupModifyHandler, config))
+			apiV1Route.POST("/transaction/tags/groups/hide.json", bindApi(api.TransactionTagGroups.TagGroupHideHandler, config))
 			apiV1Route.POST("/transaction/tags/groups/move.json", bindApi(api.TransactionTagGroups.TagGroupMoveHandler, config))
 			apiV1Route.POST("/transaction/tags/groups/delete.json", bindApi(api.TransactionTagGroups.TagGroupDeleteHandler, config))
 

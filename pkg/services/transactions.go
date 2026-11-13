@@ -629,7 +629,40 @@ func (s *TransactionService) CreateTransaction(c core.Context, transaction *mode
 	userDataDb := s.UserDataDB(transaction.Uid)
 
 	return userDataDb.DoTransaction(c, func(sess datastore.DatabaseSession) error {
-		return s.doCreateTransaction(c, userDataDb, sess, transaction, transactionTagIndexes, tagIds, pictureIds, pictureUpdateModel)
+		request := transaction.ClientRequest
+		if request != nil {
+			if request.Uid != transaction.Uid || request.RequestId == "" || len(request.RequestId) > 128 {
+				return errs.ErrTransactionRequestConflict
+			}
+			previous, err := findTransactionRequest(sess, transaction.Uid, request.RequestId)
+			if err != nil {
+				return err
+			}
+			if previous != nil {
+				if previous.Fingerprint != request.Fingerprint {
+					return errs.ErrTransactionRequestConflict
+				}
+				existing := &models.Transaction{}
+				has, err := sess.ID(previous.TransactionId).Where("uid=? AND deleted=?", transaction.Uid, false).Get(existing)
+				if err != nil {
+					return err
+				}
+				if !has {
+					return errs.ErrTransactionNotFound
+				}
+				*transaction = *existing
+				return nil
+			}
+		}
+		if err := s.doCreateTransaction(c, userDataDb, sess, transaction, transactionTagIndexes, tagIds, pictureIds, pictureUpdateModel); err != nil {
+			return err
+		}
+		if request != nil {
+			request.TransactionId = transaction.TransactionId
+			_, err := sess.Insert(request)
+			return err
+		}
+		return nil
 	})
 }
 
@@ -3504,7 +3537,7 @@ func (s *TransactionService) isCategoryValid(sess datastore.DatabaseSession, tra
 		}
 	} else {
 		category := &models.TransactionCategory{}
-		has, err := sess.ID(transaction.CategoryId).Where("uid=? AND deleted=?", transaction.Uid, false).Get(category)
+		has, err := sess.ID(transaction.CategoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(category)
 
 		if err != nil {
 			return err
@@ -3527,7 +3560,7 @@ func (s *TransactionService) isCategoryValid(sess datastore.DatabaseSession, tra
 		}
 
 		parentCategory := &models.TransactionCategory{}
-		has, err = sess.ID(category.ParentCategoryId).Where("uid=? AND deleted=?", transaction.Uid, false).Get(parentCategory)
+		has, err = sess.ID(category.ParentCategoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(parentCategory)
 
 		if err != nil {
 			return err
@@ -3546,9 +3579,12 @@ func (s *TransactionService) isCategoryValid(sess datastore.DatabaseSession, tra
 func (s *TransactionService) isTagsValid(sess datastore.DatabaseSession, uid int64, transactionTagIndexes []*models.TransactionTagIndex, tagIds []int64) error {
 	if len(transactionTagIndexes) > 0 {
 		var tags []*models.TransactionTag
-		err := sess.Where("uid=? AND deleted=?", uid, false).In("tag_id", tagIds).Find(&tags)
+		err := sess.Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).In("tag_id", tagIds).Find(&tags)
 
 		if err != nil {
+			return err
+		}
+		if err := validateTagGroups(sess, tags); err != nil {
 			return err
 		}
 
