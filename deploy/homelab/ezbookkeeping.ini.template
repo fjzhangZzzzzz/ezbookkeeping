@@ -31,6 +31,15 @@ transaction_from_ai_text_recognition = false
 transaction_from_ai_image_recognition = false
 insights_explorer_coding_assistant = false
 
+[uuid]
+generator_type = internal
+server_id = 0
+
+[duplicate_checker]
+checker_type = in_memory
+cleanup_interval = 60
+duplicate_submissions_interval = 300
+
 [cron]
 enable_remove_expired_tokens = true
 enable_create_scheduled_transaction = false
@@ -64,3 +73,11 @@ enable_scheduled_transaction = false
 [map]
 map_provider =
 map_data_fetch_proxy = false
+amap_security_verification_method = internal_proxy
+
+[exchange_rates]
+data_source = user_custom
+
+[data]
+enable_export = true
+enable_import = true

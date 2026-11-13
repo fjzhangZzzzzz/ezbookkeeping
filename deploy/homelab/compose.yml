@@ -1,7 +1,7 @@
 name: homelab-ezbookkeeping
 services:
   ezbookkeeping:
-    image: ${HOMELAB_EZBOOKKEEPING_IMAGE:?set the locked image reference including @sha256 digest}
+    image: ${HOMELAB_EZBOOKKEEPING_IMAGE:?set the locked local Docker image ID}
     pull_policy: never
     restart: unless-stopped
     ports:
