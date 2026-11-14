@@ -1,10 +1,16 @@
 # 实施状态
 
-## 最新职责与交接（2026-11-13）
+## 最新发布与交接（2026-11-14）
 
 - 用户明确本项目负责应用开发、测试及 GitHub 版本发布；Pocket ID、公网部署、准入、备份和恢复验收转交 `homelab-infra` 工作空间，本会话不再推进运维操作。
 - 用户已通知 DNS 配置完成；真实 Pocket ID 客户端/首绑、首批真实账号开通、公网 HTTPS、实体手机/PWA 和真实 Backrest 快照恢复仍待 homelab 验收。此前 NXDOMAIN 等内容是历史检查点，不代表当前 DNS 状态。
-- 应用 GitHub 发布正在办理，已验运行镜像仍来自 `462ff2b3f66659daa92ca2d19255924d1e2a3b70`；后续文档提交不冒称镜像重建。接手入口、工件标识和待办见 [homelab 交接](homelab-handoff.md)。下文保留实施过程，以本节及交接中的最新状态为准。
+- [GitHub 预发行 `family-v0.1.2`](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.2) 已公开，非草稿，标签及运行源码为 `e531c40dfa68478d5a5068f6a5d4bbe80d7f829a`。应用显示版本已统一为 `0.1.2`，上游 `2.2.0-dev`/`82920c62` 来源另记在 `family-release.json` 及发布清单。
+- [Actions 43551697609](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43551697609) 的 build/publish 均真实成功：同一源码完整 Linux Dockerfile、Go vet/测试及构建、前端类型检查/lint、17 文件 38,689 项测试及 Vite 生产打包。此前 4 GiB 容器中的 Vite 内存失败是历史结果，本次未复用旧 Windows 前端资产或离线镜像；仅关闭第三方汇率在线探测，未跳过本地业务测试。
+- 当前主交付镜像为 `ghcr.io/fjzhangzzzzzz/ezbookkeeping-family@sha256:3ed43b67a25ae98e5d3dd8976fbe124be2a3e448d96e93ff97cdde142f0766b0`，单 `linux/amd64`，包含后端、桌面/移动 Web 及 PWA；无 Android APK 或独立管理员后台。版本标签 `0.1.2` 和完整 `sha-e531c40dfa68478d5a5068f6a5d4bbe80d7f829a` 指向同一 registry manifest，发布任务已验证其匿名可读。
+- 真实镜像 smoke 通过非 root/只读根、前后端版本及完整提交、22 项静态资源/PWA、CLI stdin 合成用户、密码登录、SQLite 记账/余额/家庭汇总、幂等重试、重启后会话/数据/重试记录与 SQLite integrity 检查。此 smoke 没有运行真实浏览器，不替代下述历史浏览器证据或 homelab 现场验收。
+- Release 附件为 `ezbookkeeping-family-0.1.2-build-info.json`（SHA256 `f0a629bfdc603fc6fcb096d9f875a41afd73279f1c77483eed01f96156735300`）及 `SHA256SUMS`；清单记录来源、镜像 digest、Actions 与 smoke。校验和不是数字签名。`family-v0.1.0` 保留源码预发行，`family-v0.1.1` 只保留未运行 CI 的源码标签；均未覆盖。
+- 新 push 事件探针及上述发布流程已成功，当前 Actions 可执行。此前 `0.1.1` 标签事件未产生运行的单一原因未精确归因，不能据此断言用户未开启 Actions；默认 `main` 分支及其设置未修改。后续文档提交不改变已发布镜像来源。
+- 接手入口、工件标识和运维待办见 [homelab 交接](homelab-handoff.md)。下文保留早期实施及隔离验收过程，以本节及交接中的最新状态为准；应用发布不代表生产上线或备份恢复验收。
 
 ## 阶段 0：基线与本地验证（早期记录，最新结论见后文）
 

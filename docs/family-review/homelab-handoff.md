@@ -1,15 +1,17 @@
 # 交接给 homelab 工作空间
 
-2026-11-13，用户明确：本项目负责应用开发、测试及向 GitHub 发布修改版本；Pocket ID 接入、公网准入、部署、备份和恢复验收均由 `homelab-infra` 工作空间办理。本会话不再执行运维操作。
+2026-11-14 更新。用户明确：本项目负责应用开发、测试及向 GitHub 发布修改版本；Pocket ID 接入、公网准入、部署、备份和恢复验收均由 `homelab-infra` 工作空间办理。本会话不再执行运维操作。
 
 ## 应用交付
 
-- 用户 fork：<https://github.com/fjzhangZzzzzz/ezbookkeeping>，源码分支 `family/initial`。本次计划发布预发布标签 `family-v0.1.0`，入口为 [GitHub Release](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.0)；编写此文时尚未发布，最终结果须以该页面与发布代理的远端核验为准。
-- 计划随 Release 提供已验 Windows 打包的前端 tar、逐文件清单、构建证明及校验摘要。这些静态文件不是可独立部署的应用镜像；下述离线运行镜像仍按其独立来源标识交接。
-- 本轮交接前应用分支为 `family/initial`，文档提交 `27fd017f45c9755d43b75fd04472eaeebec60aba`；下述已验运行工件的源码是 `462ff2b3f66659daa92ca2d19255924d1e2a3b70`。新增文档或发布标签不意味着已重建镜像。
-- 已验候选为 `linux/amd64` 离线镜像，image ID：`sha256:e7601cbf24091f538cbe147f4664ed02a5fb1b5c6a6315fe3534a6a1f07148f8`；`docker save` 明文归档 SHA256：`b7281709f90fc6a4c00ef9b29c2aec919c02d4fe474a2c4f21c9b4fc51da27eb`。未推送 registry，不把 image ID 或归档 SHA 称作 registry manifest digest。
-- Linux 后端完整测试和构建通过。Linux 前端安装、类型检查、lint、测试通过，Vite 在 4 GiB 构建容器内因内存不足失败；最终镜像组合了同一冻结源码在 Windows 构建并逐文件校验的前端与已验 Linux 后端。不能声称原 Dockerfile 完整 Linux 构建已通过。
-- 同镜像已通过隔离 SQLite、密码登录、家庭汇总、个人 CSV 导出/解析/实际导入、附件/持久性和真实浏览器桌面及移动视口记账闭环。真实 Pocket ID 绑定、公网 HTTPS、实体手机/PWA、真实 Backrest 快照恢复尚未验收。
+- 当前交付为 [GitHub 预发行 `family-v0.1.2`](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.2)，非草稿；源码分支 `family/initial`，标签及运行源码均为 `e531c40dfa68478d5a5068f6a5d4bbe80d7f829a`。后续交接文档提交不改变镜像的源码标识。
+- 主部署产物为 `linux/amd64` 完整应用镜像，包含 Go 后端、桌面 Web、移动 Web 和 PWA；不包含 Android APK 或独立管理员 Web 后台，创建和启停账号仍使用 CLI。镜像版本为 `ghcr.io/fjzhangzzzzzz/ezbookkeeping-family:0.1.2`，另提供 `sha-e531c40dfa68478d5a5068f6a5d4bbe80d7f829a` 标签。
+- homelab 应锁定 registry manifest digest：`ghcr.io/fjzhangzzzzzz/ezbookkeeping-family@sha256:3ed43b67a25ae98e5d3dd8976fbe124be2a3e448d96e93ff97cdde142f0766b0`。发布任务已验证匿名读取该 manifest；运行 image ID 为 `sha256:de52b7b2771196fdab5bcfa3758b7ac55d9bd061d4586ffab37588016bca4b3c`，与 registry digest 区分记录。
+- Release 的两份附件为 `ezbookkeeping-family-0.1.2-build-info.json` 和 `SHA256SUMS`，前者记录源码、镜像 digest、上游来源、Actions run 及 smoke 结果；其 SHA256 为 `f0a629bfdc603fc6fcb096d9f875a41afd73279f1c77483eed01f96156735300`。校验和用于完整性检查，不是数字签名。源码压缩包用于维护源码，前端 tar 不再作为主要部署产物。
+- [GitHub Actions 43551697609](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43551697609) 的 build 与 publish 均成功。此次由同一源码完整执行 Linux Dockerfile：Go vet/测试及后端构建、前端类型检查/lint、17 个文件 38,689 项测试和 Vite 生产打包，未复用旧 Windows 前端。仅关闭第三方汇率在线探测，未跳过本地业务测试。
+- 本次实际镜像 smoke 验证 UID/GID 1000、只读根、前后端版本/完整提交、22 项引用静态资源、PWA 文件、stdin 开通合成用户、密码登录、SQLite 账户与支出写入、家庭汇总、幂等重试、重启后的会话/数据/重试记录及 SQLite 完整性。该检查没有运行真实浏览器；真实 Pocket ID 绑定、公网 HTTPS、实体手机/PWA 和实际 Backrest 快照恢复仍待 homelab 验收。
+
+`family-v0.1.0` 的源码预发行、冻结源码 `462ff2b3` 与旧离线 image ID `e7601cbf` 属于此前隔离验收记录，来源细节保留在下列历史证据中。`family-v0.1.1` 保留源码标签，未产生 Actions 运行或应用发行；当前接手使用 `0.1.2`，不覆盖旧标签或将旧离线镜像当作本版产物。
 
 详细证据：[实施状态](implementation-status.md)、[独立 QA](independent-qa.md)、[构建来源与限制](linux-build-validation.md)。产品范围以[简化需求](simplified-scope.md)为准；应用侧部署输入见 [deploy/homelab](../../deploy/homelab/README.md)，由 homelab 工作空间按当前规范采纳。
 
@@ -41,7 +43,7 @@
 
 1. 在 `C:\Users\fjzha\Projects\homelab-infra` 重新读取当前 `AGENTS.md`、HEAD、工作树及发布约定。历史本地集成提交为 `564cc4f737aed1248c5d006f99ec31ae409f8162`（`2.4.149`），当时未推送、未发布、未激活；其后状态由 homelab 核实，保护并发用户修改，不直接套用旧发布号或覆盖已有标签。
 2. 复核 DNS、专用 OIDC 客户端、受限凭据和精确可信代理范围；按当前基础设施流程审阅及发布运维配置。应用 GitHub Release 不代表基础设施已发布或服务已上线。
-3. 在批准的范围内完成 edge → control `18882` 准入、Caddy HTTPS、单实例 SQLite 容器和只读根文件系统部署；不要以示例端口或配置语法检查代替实际连通与业务验收。
+3. 核对本页与 Release 清单的源码、`linux/amd64` 平台及完整 registry digest，按当前基础设施流程引入匹配的镜像及恢复材料；在批准的范围内完成 edge → control `18882` 准入、Caddy HTTPS、单实例 SQLite 容器和只读根文件系统部署。不要以示例端口或配置语法检查代替实际连通与业务验收。
 4. 安全开通首批本地用户，验收账密兜底、Pocket ID/已有 Passkey 首次绑定和后续登录确为同一 UID；验证会话保持、退出/撤销，以及实体手机使用。
 5. 沿用现有 Backrest 作为唯一备份调度/执行入口，不增加第二套 cron/timer。将数据、附件、必要配置/密钥、匹配的源码与镜像恢复材料纳入实际计划；仅在实施窗口按当前规范暂停/恢复计划，不在等待人工配置期间暂停备份。
 6. 完成真实快照和隔离业务恢复，从快照恢复匹配的源码、镜像、配置/密钥、数据库和附件；不能借用宿主现存工件冒充快照完整。重新开放恢复实例前撤销恢复出的旧会话并复核停用用户。升级失败跨 schema 时按匹配备份恢复，不把切换旧镜像当作数据回滚。
