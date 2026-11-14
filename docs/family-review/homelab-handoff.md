@@ -12,7 +12,7 @@
 
 ## 当前生产：0.1.3；0.1.4 尚未部署
 
-生产实测为 `0.1.3`，源码 `7d8ce0e16f0b5912a954518cea6e6c991c61f649`，固定镜像 `ghcr.io/fjzhangzzzzzz/ezbookkeeping-family@sha256:73283d3aee2a7c25504a83fca475bde7b2b6c641a2274e58f063d260a4eafdeb`，config ID `sha256:f6ab5d4344f7812a6b67eed74f71cd8420e736fd56332f50323428fe7694f786`。当前正式运维包为 homelab `2.4.160`；实际部署与恢复依据仍以 homelab 当前清单为权威。
+生产实测为 `0.1.3`，源码 `7d8ce0e16f0b5912a954518cea6e6c991c61f649`，固定镜像 `ghcr.io/fjzhangzzzzzz/ezbookkeeping-family@sha256:73283d3aee2a7c25504a83fca475bde7b2b6c641a2274e58f063d260a4eafdeb`，config ID `sha256:f6ab5d4344f7812a6b67eed74f71cd8420e736fd56332f50323428fe7694f786`。当前正式运维包为 homelab `2.4.161`；实际部署与恢复依据仍以 homelab 当前清单为权威。
 
 真实 Backrest 快照 `680cd66cf86ad909833135fcae2dca0ec1a434f626fcf1bb09020c848181d186` 已完成标准同点恢复与 0.1.3 隔离业务验证：同快照源码/镜像、原本地密码/UID、账户余额、交易和附件 SHA 匹配，隔离副本跨用户只读/禁用/会话撤销已核。该验证没有完成真实 Pocket ID + TLS 的登录恢复，不将其冒称已通过；真实手机及真实原生 Passkey、自托管公开更新安装也仍待验。已有唯一真实账号和业务数据不得重复创建或改密。
 

@@ -10,7 +10,7 @@
 
 - 后端以正式 `registry@sha256` 锁定；来源提交、manifest digest、config/image ID 与离线归档 SHA 分别记录，不能把旧离线恢复资料当新镜像。原生 OAuth bridge、SQLite schema 与既有业务 API 未改。
 - 独立签名 APK 和 CI 原始 `update.json` / `SHA256SUMS` 由 Ansible 校验，不重写元数据、不覆盖同名不同内容工件。公开目录固定为 `/srv/homelab/ezbookkeeping/android`，只读挂载到同一 Go 容器 `/ezbookkeeping/public/android`；相对选择和不可变版本目录由独立组件管理。
-- 自部署 HTTPS 的 `/android/update.json` 提供待安装版本，APK 只从 `/android/releases/<versionName>/<apkAssetName>` 下载。首次部署挂载按后端组件 prepare/激活流程；之后工件选版不重启后端，不激活共享 Caddy 或尚未上线的 Glance 路由，不扩大现有网络准入。
+- 自部署 HTTPS 的 `/android/update.json` 提供待安装版本，APK 只从 `/android/releases/<versionName>/<apkAssetName>` 下载。首次部署挂载按后端组件 prepare/激活流程；之后工件选版不重启后端，不激活共享 Caddy 或改动 Glance 路由，不扩大现有网络准入。
 - 元数据缓存必须重验，版本 APK 为 immutable；匿名 GET/HEAD、真实 SHA/MIME/缓存头、无目录索引/越界、同版本幂等和失败回退分别验证。Android 签名、较高 versionCode 和用户确认安装不因服务端发布而跳过。旧公开 0.1.0/code2 保持不可变，手工一次升级到同签名 0.1.1/code3 后使用自托管检查。
 
 ## 备份、回退与现场边界
