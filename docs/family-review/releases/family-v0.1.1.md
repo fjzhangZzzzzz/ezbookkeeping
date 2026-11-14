@@ -1,5 +1,7 @@
 # ezBookkeeping Family 0.1.1
 
+状态：仅保留源码标签，首次标签推送未产生 Actions 运行，未发布此版本的镜像或 GitHub Release。后续完整发行使用新版本，不移动既有标签。以下为原计划说明，不是构建通过凭证。
+
 家庭版发布流程改为 GitHub Actions 单架构完整应用构建。镜像包含 Go 后端、桌面 Web、移动 Web 和 PWA；不包含独立管理员 Web 后台或 Android APK。
 
 ## 部署产物
