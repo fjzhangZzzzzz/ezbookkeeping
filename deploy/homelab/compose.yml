@@ -1,4 +1,4 @@
-# 仅供参考；正式配置由 homelab-infra Ansible 管理，不得直接覆盖或执行。
+# 仅供参考；现行部署/选版以 homelab-infra 清单及 Ansible 为准，不得直接覆盖或执行。
 name: homelab-ezbookkeeping
 services:
   ezbookkeeping:

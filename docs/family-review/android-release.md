@@ -22,7 +22,7 @@ Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properti
 
 新 Release 包含 `ezbookkeeping-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流只使用免费公开 runner，不启用付费 runner、缓存或额外服务。
 
-正式 `android-v0.1.1` / code `3` 已由 [tag CI 43621801593](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621801593) 完成 verify/build/publish；源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`，实际 APK SHA256 `133b73c664de942842dbff5e6f105d8a16bd9bdfdccdc1e8b13d01735af2fc29`。独立签名/包版本和匿名公开三件套与正式 CI 原件核验通过；发布不代表已在自部署环境挂载、真实手机安装或升级会话验收。
+正式 `android-v0.1.1` / code `3` 已由 [tag CI 43621801593](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621801593) 完成 verify/build/publish；源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`，实际 APK SHA256 `133b73c664de942842dbff5e6f105d8a16bd9bdfdccdc1e8b13d01735af2fc29`。独立签名/包版本和匿名公开三件套与正式 CI 原件核验通过；目前已在自部署 books HTTPS 激活；用户已确认实体手机安装正式包、显示自托管更新源并检查最新版；这仍不能替代真实已登录跨版本升级验收。
 
 ## update.json 契约与信任边界
 
@@ -38,6 +38,8 @@ update.json 和 SHA256SUMS 是来源描述及完整性清单，**不是签名信
 
 ## 验收范围
 
-发布前检查本地构建、正式签名/指纹、metadata 与 APK 一致、更新筛选和拒绝错误包；Actions 构建和 Release 发布分别记录结果。真实 Android 安装、Pocket ID 系统浏览器回调、退出/再次登录、附件与下一版本升级仍需设备验收，不能由构建成功推定通过。
+自托管实际系统安装已在专用模拟器验证：内部 `0.1.1-internal-selfhost` / code2 → 官方 `0.1.1` / code3，正常界面检测、用户确认下载、客户端校验、系统来源许可、PackageInstaller Update 与安装成功；实际升级不使用 adb install。读回已安装 APK 完整 SHA256 与正式 CI 原件一致，唯一 signer 匹配固定 pin，重开应用并再次检查显示当前兼容最新版。初始内部旧包为独立获准准备，不是旧公开 0.1.0 客户端；该测试未输入凭据，不证明真实用户登录跨升级保持。
+
+发布前检查本地构建、正式签名/指纹、metadata 与 APK 一致、更新筛选和拒绝错误包；Actions 构建和 Release 发布分别记录结果。用户已明确确认实体手机正式包/更新源/查最新版、本地密码及原 Pocket ID Passkey 同原数据、桌面撤销手机会话生效。仍待补验的是现有登录用户下的 CNY资金账户记账、附图、关闭重开保持登录及退出重登；“资金账户”没有新登录账密，不创建额外 CLI 用户。真实已登录跨版本保持和真实 Pocket ID + TLS 恢复仍未验，不能由这些结果推导通过。服务端 0.1.4/Android 公共工件的真实同点隔离业务恢复已完成，准确范围见 [homelab 交接](homelab-handoff.md)。
 
 参考：[GitHub Secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)、[GitHub CLI stdin](https://cli.github.com/manual/gh_secret_set)、[keytool 密码环境变量](https://docs.oracle.com/en/java/javase/21/docs/specs/man/keytool.html)。

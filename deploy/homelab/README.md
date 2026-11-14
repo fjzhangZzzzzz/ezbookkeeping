@@ -2,7 +2,7 @@
 
 本目录只提供应用侧配置契约和 Compose 参考，**不得直接覆盖正式配置或绕过 Ansible 执行**。主机与准入、服务及备份范围、版本与摘要的唯一权威分别是 `homelab-infra/inventory/hosts.yml`、`inventory/services.yml`、`inventory/artifacts.lock.json`；现行操作见该仓库 `docs/runbooks/ezbookkeeping.md` 及 Backrest Runbook。先读其 AGENTS、当前 HEAD/工作树和清单，再按正式配置包 prepare/激活流程操作。
 
-当前源码、镜像、Android 发行与生产版本的区别见[应用交接](../../docs/family-review/homelab-handoff.md)；不从历史离线镜像或旧本地草案重新初始化。0.1.4 和 Android 0.1.1 已发布，生产仍为 0.1.3，后续部署和验收由 homelab 记录。
+当前源码、镜像、Android 发行与生产版本的区别见[应用交接](../../docs/family-review/homelab-handoff.md)；不从历史离线镜像或旧本地草案重新初始化。0.1.4 与 Android 0.1.1/code3 已经 homelab 2.4.162 正式部署，公网静态分发及专用模拟器自托管系统升级已通过；新真实快照的同点隔离业务恢复与正式 HTTPS 密码仅读烟测也已通过。用户已确认手机正式包/更新检查、密码及 Passkey 登录和桌面撤销手机会话；资金账户记账/附图/保持登录等仍待补验，进度以交接及 homelab 记录为准。
 
 ## 现有路径与配置
 
@@ -24,4 +24,4 @@
 
 Backrest 是唯一备份调度和执行入口，Restic 为后端，Ansible 提供停写一致性和恢复校验；不另加 cron/timer，不覆盖产品中的既有计划。升级前和日常真实快照应包含匹配数据/附件、配置密钥、源码/镜像及 Android 公共工件和选择依据。隔离恢复必须用同快照内容，开放前撤销恢复会话并复核停用成员；不能借现场数据补缺，也不能跨 schema 只切回旧镜像。
 
-健康检查不代替业务。正式验收分别记录源码、镜像、部署和验收状态，核对 HTTPS/密码/OIDC 同 UID、交易附件、会话、真实快照恢复及实体手机/自更新。模拟器或构建成功不能代替真实手机/Passkey，真实 OIDC+TLS 恢复仍须现场补验。
+健康检查不代替业务。正式验收分别记录源码、镜像、部署和验收状态，核对 HTTPS/密码/OIDC 同 UID、交易附件、会话、真实快照恢复及实体手机/自更新。手机验收中的“资金账户”是现有登录用户的记账对象，不是新登录用户，不能为此创建新用户名/密码。已确认的手机登录不代表真实已登录跨版本升级或真实 OIDC+TLS 恢复，这两项仍须现场补验。
