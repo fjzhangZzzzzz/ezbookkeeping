@@ -1,0 +1,148 @@
+name: Android signed release
+on:
+  workflow_dispatch:
+  push:
+    branches: ['family/initial', 'android/**']
+    tags: ['android-v*']
+    paths: ['android/**', '.github/workflows/android-release.yml']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android-release.yml']
+permissions:
+  contents: read
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify pinned Gradle wrapper
+        run: |
+          printf '%s\n' '81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f  android/gradle/wrapper/gradle-wrapper.jar' | sha256sum --check
+          grep -Fx 'distributionSha256Sum=20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78' android/gradle/wrapper/gradle-wrapper.properties
+      - name: Install exact Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Test unsigned-source debug build without secrets
+        working-directory: android
+        run: bash ./gradlew --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug
+  build:
+    needs: verify
+    if: github.repository == 'fjzhangZzzzzz/ezbookkeeping' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/android-v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify pinned Gradle wrapper
+        run: |
+          printf '%s\n' '81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f  android/gradle/wrapper/gradle-wrapper.jar' | sha256sum --check
+          grep -Fx 'distributionSha256Sum=20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78' android/gradle/wrapper/gradle-wrapper.properties
+      - name: Install exact Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Decode dedicated keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$KEYSTORE_BASE64"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release.p12"
+      - name: Lint and build signed native APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/android-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: bash ./gradlew --no-daemon --console=plain lintRelease assembleRelease
+      - name: Verify exact APK and generate update metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          EXPECTED_CERTIFICATE: 6fe857a17e79298dee70334a4900df8935312bf312ef9f9ad6a23897a9f3735d
+        run: |
+          set -euo pipefail
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          "$TOOLS/apksigner" verify --verbose --print-certs android/app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/apk-signature.txt"
+          "$TOOLS/aapt" dump badging android/app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/apk-badging.txt"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, shutil
+          env = os.environ
+          signature = pathlib.Path(env['RUNNER_TEMP'], 'apk-signature.txt').read_text()
+          certificates = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)$', signature, re.M)
+          assert len(certificates) == 1 and certificates[0].lower() == env['EXPECTED_CERTIFICATE']
+          badging = pathlib.Path(env['RUNNER_TEMP'], 'apk-badging.txt').read_text()
+          package = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", badging, re.M)
+          assert package and package[1] == 'top.fjzhang233.books'
+          version = package[3]
+          assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version)
+          if env['EVENT_NAME'] == 'push':
+              assert env['RELEASE_TAG'] == 'android-v' + version
+          assert 'application-debuggable' not in badging
+          min_sdk = re.search(r"^sdkVersion:'(\d+)'", badging, re.M)
+          assert min_sdk and int(package[2]) > 0
+          apk = pathlib.Path('android/app/build/outputs/apk/release/app-release.apk')
+          output = pathlib.Path('android-release-artifact')
+          output.mkdir()
+          name = 'ezbookkeeping-android-' + version + '.apk'
+          shutil.copyfile(apk, output / name)
+          metadata = {'schemaVersion': 1, 'channel': 'stable', 'packageId': package[1],
+              'versionName': version, 'versionCode': int(package[2]), 'minSdk': int(min_sdk[1]),
+              'apkAssetName': name, 'apkSha256': hashlib.sha256(apk.read_bytes()).hexdigest(),
+              'signingCertificateSha256': certificates[0].lower(), 'sourceCommit': env['GITHUB_SHA']}
+          (output / 'update.json').write_text(json.dumps(metadata, indent=2) + '\n')
+          with (output / 'SHA256SUMS').open('w') as sums:
+              for path in sorted(output.iterdir()):
+                  if path.name != 'SHA256SUMS':
+                      sums.write(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n')
+          PY
+      - name: Remove runner signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/android-release.p12"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-signed-${{ github.sha }}
+          path: android-release-artifact/
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-signed-${{ github.sha }}
+          path: android-release-artifact
+      - name: Publish new immutable Android release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        working-directory: android-release-artifact
+        run: |
+          set -euo pipefail
+          sha256sum --check SHA256SUMS
+          python3 - <<'PY'
+          import json, os, re
+          manifest = json.load(open('update.json'))
+          assert re.fullmatch(r'android-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', os.environ['RELEASE_TAG'])
+          assert os.environ['RELEASE_TAG'] == 'android-v' + manifest['versionName']
+          PY
+          gh release create "$RELEASE_TAG" --verify-tag --title "Android ${RELEASE_TAG#android-v}" --notes "Native Kotlin/Compose Android client. Android verifies the dedicated release signing identity; see update.json and SHA256SUMS." -- *.apk update.json SHA256SUMS

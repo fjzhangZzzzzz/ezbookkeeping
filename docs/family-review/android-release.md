@@ -1,6 +1,8 @@
 # Android 签名、发布与更新
 
-Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjzhang233.books`，首版 `versionName=0.1.0`、`versionCode=1`、`minSdk=26`；版本唯一来源为 Android Gradle 配置。升级必须增加 versionCode，保持包名及 release 签名身份。服务端 `family-v0.1.2` 不因 Android 发布而覆盖或重打标签。
+Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjzhang233.books`，首个公开版 `versionName=0.1.0`、`versionCode=2`、`minSdk=26`；版本唯一来源为 Android Gradle 配置。升级必须增加 versionCode，保持包名及 release 签名身份。服务端 `family-v0.1.2` 不因 Android 发布而覆盖或重打标签。
+
+本地早期签名验证包使用 `versionName=0.1.0`、`versionCode=1`，从未发布到 GitHub Release，不是历史公开发行，也不代表最终界面。该包仅保留在 ignored `output/android-upgrade-fixture/` 作为未登录 OTA 演练的旧版本输入；首个正式 `android-v0.1.0` 使用 code 2，后续正式版本继续递增。同一 versionName 不阻碍 code 1 → 2 更新，包名、专用签名和实际 APK/metadata 版本必须匹配。演练验证 GitHub 发现、下载、包校验与系统安装确认，不据此宣称真实用户登录会话跨版本保留；该项仍需本人下一次升级确认。
 
 ## 签名材料
 

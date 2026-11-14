@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="412dp" android:height="240dp" android:viewportWidth="1080" android:viewportHeight="628">
+    <!-- Original project landscape artwork; no third-party photograph or Qianji asset. -->
+    <path android:fillColor="#758287" android:pathData="M0,0H1080V628H0Z"/>
+    <path android:fillColor="#66767A" android:pathData="M0,240L115,195L214,224L355,122L470,190L573,153L681,215L798,136L925,219L1080,154V628H0Z"/>
+    <path android:fillColor="#4A6267" android:pathData="M0,322L108,280L234,313L353,237L462,283L598,248L731,303L865,245L1008,290L1080,268V628H0Z"/>
+    <path android:fillColor="#28494F" android:pathData="M0,355L82,323L171,345L268,307L365,354L474,329L580,367L690,338L804,363L920,316L1080,364V628H0Z"/>
+    <path android:fillColor="#587074" android:pathData="M0,416Q270,386 540,418Q810,442 1080,405V628H0Z"/>
+    <path android:fillColor="#4A666B" android:pathData="M0,486Q270,450 540,488Q810,517 1080,475V628H0Z"/>
+    <path android:fillColor="#24454B" android:pathData="M0,551Q254,516 493,563Q792,611 1080,529V628H0Z"/>
+    <path android:strokeColor="#A4B7B9" android:strokeAlpha="0.26" android:strokeWidth="2" android:pathData="M88,454H338M557,467H913M227,508H495M668,534H1026M32,576H275"/>
+</vector>

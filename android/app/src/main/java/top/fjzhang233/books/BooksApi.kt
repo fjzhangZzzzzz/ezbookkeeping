@@ -1,0 +1,125 @@
+package top.fjzhang233.books
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.time.YearMonth
+import java.time.ZoneId
+import java.util.concurrent.TimeUnit
+
+data class LedgerPage(val items:List<JSONObject>,val hasMore:Boolean)
+class ApiFailure(val code: Int, message: String, val sessionExpired: Boolean = false) : IOException(message)
+fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
+fun JSONObject.array(key: String): List<JSONObject> = optJSONArray(key)?.objects().orEmpty()
+fun JSONObject.id(key: String = "id"): String = optString(key, "0")
+fun money(minor: String): String = runCatching { BigDecimal(minor).movePointLeft(2).setScale(2).toPlainString() }.getOrDefault("—")
+fun parseMinor(input: String): Long {
+    require(Regex("[0-9]+(?:\\.[0-9]{1,2})?").matches(input.trim())) { "金额最多两位小数" }
+    return BigDecimal(input.trim()).movePointRight(2).setScale(0, RoundingMode.UNNECESSARY).longValueExact().also { require(it > 0) { "金额必须大于零" } }
+}
+
+class BooksApi(private val base: String, private val tokenProvider: () -> String?) {
+    val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(false).followSslRedirects(false).build()
+    init {
+        val origin=base.toHttpUrl()
+        require(origin.username.isEmpty() && origin.password.isEmpty() && origin.encodedPath=="/" && origin.query==null && origin.fragment==null)
+        require((origin.isHttps && origin.host=="books.fjzhang233.top" && origin.port==443) || (BuildConfig.DEBUG && origin.scheme=="http" && origin.host in setOf("10.0.2.2","127.0.0.1")))
+    }
+    suspend fun call(path: String, payload: JSONObject? = null, auth: Boolean = true, overrideToken: String? = null): Any = withContext(Dispatchers.IO) {
+        request(path, payload?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()), auth, overrideToken)
+    }
+    private fun request(path: String, body: RequestBody?, auth: Boolean, overrideToken: String? = null): Any {
+        require(path.startsWith("/api/"))
+        val req = Request.Builder().url(base.trimEnd('/') + path).header("X-Timezone-Name", "Asia/Shanghai")
+            .header("X-Timezone-Offset", "480").header("User-Agent", "FamilyBooks/${BuildConfig.VERSION_NAME} (Android ${android.os.Build.VERSION.RELEASE.orEmpty().filter { it in ' '..'~' && it != '(' && it != ')' }.take(40).ifEmpty { '?'.toString() }})")
+        if (auth) (overrideToken ?: tokenProvider())?.let { req.header("Authorization", "Bearer $it") }
+        if (body != null) req.post(body)
+        client.newCall(req.build()).execute().use { response ->
+            if (response.code == 404 && path.contains("native")) throw ApiFailure(404, "服务端尚未支持原生 Pocket ID 登录，请先使用本地密码或升级服务端")
+            val obj = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrElse { throw ApiFailure(response.code, "服务响应异常，请稍后重试") }
+            if (!response.isSuccessful || !obj.optBoolean("success")) {
+                val code = obj.optInt("errorCode", response.code)
+                val expired = response.code == 401 && auth && overrideToken == null && tokenProvider() != null
+                val message = if (expired) "登录已过期或被撤销，请重新登录" else when (code) {
+                    217001 -> "尚未关联此 Pocket ID，请先用本地密码登录后关联"
+                    216001 -> "已有其他关联，请在网页安全设置中核对"
+                    201001, 201002, 201003 -> "用户名或密码不正确"
+                    201011 -> "本地密码不正确，请重新输入"
+                    else -> if (response.code == 401) "认证未通过，请核对密码或二步验证码" else "操作未完成（$code），请检查输入或稍后重试"
+                }
+                throw ApiFailure(code, message, expired)
+            }
+            return obj.opt("result") ?: JSONObject.NULL
+        }
+    }
+    suspend fun upload(bytes: ByteArray, mime: String): JSONObject = withContext(Dispatchers.IO) {
+        require(bytes.size <= 10 * 1024 * 1024) { "图片不能超过 10 MB" }
+        require(mime in setOf("image/jpeg", "image/png", "image/webp")) { "请选择 JPG、PNG 或 WebP 图片" }
+        val ext = when(mime) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
+        val multipart = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("picture", "attachment.$ext", bytes.toRequestBody(mime.toMediaType())).build()
+        request("/api/v1/transaction/pictures/upload.json", multipart, true) as JSONObject
+    }
+    suspend fun picture(path: String): ByteArray = withContext(Dispatchers.IO) {
+        require(path.startsWith("/api/v1/family/pictures/"))
+        val req = Request.Builder().url(base.trimEnd('/') + path).header("Authorization", "Bearer ${tokenProvider().orEmpty()}").build()
+        client.newCall(req).execute().use { response ->
+            if (response.code == 401) throw ApiFailure(401,"登录已过期或被撤销，请重新登录",true)
+            if (!response.isSuccessful) throw ApiFailure(response.code, "图片加载失败")
+            val body = response.body ?: throw IOException("图片为空")
+            val max = 12 * 1024 * 1024; require(body.contentLength() <= max)
+            val out = java.io.ByteArrayOutputStream()
+            body.byteStream().use { stream -> val buffer = ByteArray(8192); while(true) { val n = stream.read(buffer); if(n < 0) break; require(out.size() + n <= max); out.write(buffer, 0, n) } }
+            out.toByteArray()
+        }
+    }
+    suspend fun login(user: String, password: String, passcode: String): JSONObject = call("/api/authorize.json", JSONObject().put("loginName", user).put("password", password).put("passcode", passcode), false) as JSONObject
+    suspend fun refresh(): JSONObject = call("/api/v1/tokens/refresh.json", JSONObject()) as JSONObject
+    suspend fun accounts(): List<JSONObject> {
+        val top = (call("/api/v1/accounts/list.json?visible_only=false") as JSONArray).objects()
+        return top.flatMap { if (it.array("subAccounts").isEmpty()) listOf(it) else it.array("subAccounts") }
+    }
+    suspend fun categories(): List<JSONObject> {
+        val result = call("/api/v1/transaction/categories/list.json") as JSONObject
+        return result.keys().asSequence().flatMap { key -> result.array(key).asSequence() }.flatMap { parent ->
+            sequenceOf(parent) + parent.array("subCategories").asSequence()
+        }.toList()
+    }
+    suspend fun tags() = (call("/api/v1/transaction/tags/list.json") as JSONArray).objects()
+    suspend fun tagGroups() = (call("/api/v1/transaction/tags/groups/list.json") as JSONArray).objects()
+    suspend fun transactions(page:Int,month:String?=null,day:String?=null):List<JSONObject> = ledgerPage(page,month,day).items
+    suspend fun ledgerPage(page: Int, month:String?=null, day:String?=null): LedgerPage {
+        val bounds=day?.let{dayBounds(it)}?:month?.let { monthBounds(it) }
+        val range=if(bounds==null) "" else "&min_time=${Math.multiplyExact(bounds.first,1000)}&max_time=${Math.addExact(Math.multiplyExact(bounds.second,1000),999)}"
+        val result=call("/api/v1/transactions/list.json?count=30&page=$page&with_pictures=true&with_count=true$range") as JSONObject
+        val items=result.array("items");val total=result.optLong("totalCount",-1)
+        return LedgerPage(items,if(total>=0)page.toLong()*30<total else items.size==30)
+    }
+    suspend fun dailyAmounts(month:String):List<JSONObject> {
+        val bounds=monthBounds(month)
+        return dailyRange(bounds.first,bounds.second)
+    }
+    suspend fun dailyRange(start:Long,end:Long):List<JSONObject> = (call("/api/v1/transactions/amounts/daily.json?start_time=$start&end_time=$end&use_transaction_timezone=false") as JSONArray).objects()
+
+    suspend fun transaction(id: String) = call("/api/v1/transactions/get.json?id=$id&with_pictures=true") as JSONObject
+    suspend fun family(month: String) = call("/api/v1/family/overview.json?month=$month") as JSONObject
+    suspend fun familyTransactions(month: String, cursor: String = "") = call("/api/v1/family/transactions/list.json?month=$month&cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}") as JSONObject
+    companion object {
+        fun dayBounds(day:String):Pair<Long,Long>{val value=java.time.LocalDate.parse(day);val zone=ZoneId.of("Asia/Shanghai");return value.atStartOfDay(zone).toEpochSecond() to value.plusDays(1).atStartOfDay(zone).toEpochSecond()-1}
+        fun monthBounds(month:String):Pair<Long,Long> {
+            val value=YearMonth.parse(month);val zone=ZoneId.of("Asia/Shanghai")
+            return value.atDay(1).atStartOfDay(zone).toEpochSecond() to value.plusMonths(1).atDay(1).atStartOfDay(zone).toEpochSecond()-1
+        }
+        fun month(): String = YearMonth.now(ZoneId.of("Asia/Shanghai")).toString() }
+}
