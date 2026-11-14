@@ -4,7 +4,7 @@
 
 ## 构建与测试
 
-工具链固定 Java 17、Gradle Wrapper 8.13、AGP 8.13.2、Kotlin/Compose Compiler 2.2.21、SDK 36，最低 Android 8 / API 26。首个公开 Android `0.1.0` 使用 `versionCode=2`；code 1 为未公开阶段验证包，不重用其代码号。Wrapper JAR 和分发 ZIP 均采用官方 SHA256。使用系统 Gradle 不代替已核验 wrapper。
+工具链固定 Java 17、Gradle Wrapper 8.13、AGP 8.13.2、Kotlin/Compose Compiler 2.2.21、SDK 36，最低 Android 8 / API 26。当前 Android `0.1.1` 使用 `versionCode=3`。已公开的 `0.1.0` / code 2 及其签名保持不可变；后续版本号和代码号单调递增。Wrapper JAR 和分发 ZIP 均采用官方 SHA256。使用系统 Gradle 不代替已核验 wrapper。
 
 ```sh
 cd android
@@ -30,7 +30,13 @@ Release 签名只读取环境 `ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWO
 
 ## 更新
 
-匿名查询固定公开仓库的 Releases 列表，筛选 `android-vX.Y.Z` 正式通道，排除草稿和预发行；不使用会误取后端版本的 `/releases/latest`。应用前台有界检查并允许手动刷新，发现新版本仅提示，确认后下载。下载限大小、支持取消、约束 HTTPS 官方跳转，不携带任何账户认证；本地复验 SHA、包名、versionName/versionCode、最低系统版本及固定/已安装签名后才进入系统安装确认。SHA 是完整性信息，不能代替签名身份。已下载状态仅持久化非秘密版本元数据和缓存文件名，返回安装权限设置后重新校验。无静默安装、降级、通知权限或常驻更新服务。
+客户端只向固定部署环境 `https://books.fjzhang233.top/android/update.json` 匿名检查更新，不查询 GitHub，也没有 GitHub 回退。首次启动和回前台有界检查，手动检查始终重新请求，不把失败或旧缓存当成当前部署版本。manifest 请求显式 `Cache-Control: no-cache`，响应最大 64 KiB；ETag 存在时仅自动检查使用条件重验，不依赖服务器提供 ETag。schemaVersion 1 / stable 的原字段由 CI 生成不可变原件，再由 Ansible 选择部署；客户端不接受元数据中的任意下载 URL，而从严格版本号和文件名唯一导出 `/android/releases/<versionName>/ezbookkeeping-android-<versionName>.apk`。manifest 与 APK 拒绝所有 HTTP 跳转、附加 query/fragment、凭据 URL 和跨源请求，绝不携带应用 Bearer、Cookie 或 OIDC 凭据。
+
+APK 独立于 Go 后端镜像，通过固定父目录只读挂载，由后端 `/android/` 静态路由提供。切换 manifest 不意味着修改不可变 APK；同版本不同摘要必须由部署端拒绝。GitHub Release 仅是 CI 发行及灾备来源，不是客户端的运行时检查或下载入口。正式证书仍为既有专用签名身份。
+
+发现新版本仅提示，确认后才下载。下载限 100 MiB、使用唯一临时文件并支持取消；本地复验 SHA、实际包名、versionName/versionCode、最低系统版本及固定/已安装签名后才进入系统安装确认。SHA 只是完整性信息，不能代替签名身份。已下载状态仅持久化非秘密版本元数据和缓存文件名，返回安装权限设置后重新校验。自托管使用独立缓存命名空间并清除旧 GitHub pending；无静默安装、降级、通知权限或常驻更新服务。
+
+旧 `0.1.0` / code 2 的已发布更新器固定查询 GitHub，无法通过服务器配置自动换源。迁移时须从 books 的正式 HTTPS 路径手动下载安装一次 `0.1.1` / code 3，同签名保留数据；此后的检查和下载全部使用自托管源。自托管 OTA 正向验收使用 ignored 隔离源码副本构建明确标注 internal 的同签名低代码号前驱，不覆盖公开 code 2，不在主线提供任意版本覆盖开关；只验证新更新链路，不用重复已通过的金融/UI 回归。
 
 ## Android 界面与交互验收
 
@@ -45,7 +51,7 @@ Release 签名只读取环境 `ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWO
 | 再记、保存与返回 | 再记成功留在编辑页，清金额/备注并保留已选分类、日期时间及本产品账户；普通保存成功关闭并刷新流水、余额、汇总。切换收支保留已输入金额且选择有效分类。非空 X 按参考直接离开且不保存；系统返回按明确草稿规则处理，不误存或退出到其他应用；抽屉 Back 先关闭抽屉。成功/错误反馈不持久挤占布局或遮挡主要操作。 |
 | 真实照片回路 | 通过系统 PhotoPicker 选择指定合成 PNG → 新建未保存草稿内实际看见解码图片 → 移除后计数/预览同步 → 重新选择 → 保存 → 从已保存流水重新打开同附件。不得用旧已保存图片、仅计数/文件存在或 API-only 代替新草稿预览。仅授予所选文件访问，不请求不必要的全盘权限。 |
 | 持久化交叉核对 | 保存动作须与 API/只读数据核对：恰一条目标交易、正确类型和最小单位金额、账户余额相对基线变化、正确标签/附件关联；原附件 SHA256 与指定输入一致。失败重试验证幂等，无重复扣款；保留基线和脱敏结果，不把凭据、token或带认证参数的 URL 放入证据。 |
-| 本产品独立能力 | 家庭共享视图、仅修改本人数据、禁用/会话撤销、Pocket ID与密码同 UID、设备会话及 GitHub 更新确认下载/系统安装，分别按本产品契约验收，不从钱迹截图或界面相似推导通过。真实手机/Passkey和覆盖升级结果单列，不能由模拟器代替。 |
+| 本产品独立能力 | 家庭共享视图、仅修改本人数据、禁用/会话撤销、Pocket ID与密码同 UID、设备会话及 自托管更新确认下载/系统安装，分别按本产品契约验收，不从钱迹截图或界面相似推导通过。真实手机/Passkey和覆盖升级结果单列，不能由模拟器代替。 |
 
 每组证据记录实际 APK SHA256/版本、设备基线、捕获前后前台包名双守卫、同一状态原 PNG/XML及 SHA256，并关联真实点击轨迹和必要 API 结果。先核包名，排除误退 Activity 后拍到参考应用的图；不以源码已改或构建成功代替验收。对照保留原像素，不裁剪、遮罩或移位掩盖整体布局，给出可直接打开的并排图与简明评审，JSON仅用于追溯。
 

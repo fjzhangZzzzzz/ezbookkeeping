@@ -11,8 +11,8 @@ import androidx.compose.ui.unit.dp
         Text("家庭账本",style=MaterialTheme.typography.headlineMedium)
         Text("原生 Android · ${BuildConfig.VERSION_NAME}")
         Text("独立账户，家庭共享。使用现有家庭账本服务。")
-        Text("更新来源：GitHub · ${UpdatePolicy.REPOSITORY}\n通道：正式 Android 版本",style=MaterialTheme.typography.bodySmall)
-        Button(onClick={vm.check(true)},enabled=!vm.checking&&!vm.downloading,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) { Text(if(vm.checking) "检查中…" else "检查 GitHub 更新") }
+        Text("更新来源：${UpdatePolicy.ORIGIN}\n通道：部署环境的正式 Android 版本",style=MaterialTheme.typography.bodySmall)
+        Button(onClick={vm.check(true)},enabled=!vm.checking&&!vm.downloading,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) { Text(if(vm.checking) "检查中…" else "检查更新") }
         if(vm.checking) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(vm.message.isNotBlank()) Text(vm.message)
         vm.release?.let { update ->

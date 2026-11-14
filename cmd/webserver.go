@@ -139,6 +139,8 @@ func startWebServer(c *core.CliContext) error {
 	router.Static("/img", filepath.Join(config.StaticRootPath, "img"))
 	router.Static("/fonts", filepath.Join(config.StaticRootPath, "fonts"))
 
+	registerAndroidDistribution(router, config.StaticRootPath)
+
 	router.StaticFile("robots.txt", filepath.Join(config.StaticRootPath, "robots.txt"))
 	router.StaticFile("favicon.ico", filepath.Join(config.StaticRootPath, "favicon.ico"))
 	router.StaticFile("favicon.png", filepath.Join(config.StaticRootPath, "favicon.png"))

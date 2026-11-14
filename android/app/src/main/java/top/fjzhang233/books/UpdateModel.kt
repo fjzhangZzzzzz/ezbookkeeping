@@ -10,7 +10,7 @@ import java.io.File
 
 class UpdateModel(app: Application) : AndroidViewModel(app) {
     private val updater = ReleaseUpdater(app)
-    private val prefs = app.getSharedPreferences("pending-update", 0)
+    private val prefs = app.getSharedPreferences("pending-self-hosted-update-v1", 0)
     var message by mutableStateOf(""); private set
     var release by mutableStateOf<AndroidRelease?>(null); private set
     var downloading by mutableStateOf(false); private set
@@ -22,11 +22,13 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
     private var waitingPermission = prefs.getBoolean("waiting", false)
     private var lastCheck = 0L
     private var initializing = true
-    init { viewModelScope.launch {
+    init {
+      app.getSharedPreferences("pending-update", 0).edit().clear().apply()
+      viewModelScope.launch {
         runCatching {
             val text = prefs.getString("release", null) ?: return@runCatching
-            val meta = JSONObject(text); val version = meta.getString("versionName"); val tag = "android-v$version"
-            val parsed = UpdatePolicy.parse(meta, tag, "https://github.com/${UpdatePolicy.REPOSITORY}/releases/download/$tag/${meta.getString("apkAssetName")}", BuildConfig.VERSION_CODE.toLong(), android.os.Build.VERSION.SDK_INT)
+            val meta = JSONObject(text)
+            val parsed = UpdatePolicy.parse(meta, BuildConfig.VERSION_CODE.toLong(), android.os.Build.VERSION.SDK_INT)
             val file = File(File(app.cacheDir, "updates"), parsed.assetName)
             if(file.isFile) withContext(Dispatchers.IO) { updater.verifyDownloaded(file, parsed) }
             if(release == null || release!!.versionCode <= parsed.versionCode) { release = parsed; apk = file.takeIf(File::isFile); ready = file.isFile }
@@ -37,10 +39,12 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
         if (initializing || checking || downloading || (!manual && System.currentTimeMillis()-lastCheck < 5*60_000)) return
         checking = true; if(manual) message = ""; lastCheck = System.currentTimeMillis()
         viewModelScope.launch {
-            try { updater.check(manual)?.let { found ->
-                if(release?.versionCode != found.versionCode) { ready=false; apk=null; waitingPermission=false; prefs.edit().clear().apply() }
-                release = found; persist(found)
-            }; if (manual) message = if(release == null) "当前已是最新兼容版本" else "发现 ${release!!.versionName}，确认后开始下载" }
+            try {
+                val found = updater.check(manual)
+                if(release != found) { ready=false; apk=null; waitingPermission=false; prefs.edit().clear().apply() }
+                release = found; found?.let(::persist)
+                if (manual) message = if(found == null) "当前已是部署环境中的最新兼容版本" else "部署环境提供 ${found.versionName}，确认后开始下载"
+            }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { if(manual) message = "无法检查更新，请检查网络后重试" }
             finally { checking = false }
