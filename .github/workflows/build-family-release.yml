@@ -31,10 +31,12 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           python3 - <<'PY'
-          import json, os, re, subprocess
+          import json, os, pathlib, re, subprocess
           tag = os.environ['RELEASE_TAG']
           assert re.fullmatch(r'family-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag), 'Invalid family release tag'
           version = tag.removeprefix('family-v')
+          notes = pathlib.Path('docs/family-review/releases') / (tag + '.md')
+          assert notes.is_file() and notes.read_text(encoding='utf-8').strip(), 'Missing or empty release notes: ' + str(notes)
           package = json.load(open('package.json'))
           lock = json.load(open('package-lock.json'))
           assert package['version'] == lock['version'] == lock['packages']['']['version'] == version
