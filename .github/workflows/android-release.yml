@@ -29,7 +29,11 @@ jobs:
           printf '%s\n' '81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f  android/gradle/wrapper/gradle-wrapper.jar' | sha256sum --check
           grep -Fx 'distributionSha256Sum=20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78' android/gradle/wrapper/gradle-wrapper.properties
       - name: Install exact Android SDK
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        run: |
+          set -euo pipefail
+          SDK_MANAGER="${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDK_MANAGER"
+          "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" 'platforms;android-36' 'build-tools;36.0.0'
       - name: Test unsigned-source debug build without secrets
         working-directory: android
         run: bash ./gradlew --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug
@@ -51,7 +55,11 @@ jobs:
           printf '%s\n' '81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f  android/gradle/wrapper/gradle-wrapper.jar' | sha256sum --check
           grep -Fx 'distributionSha256Sum=20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78' android/gradle/wrapper/gradle-wrapper.properties
       - name: Install exact Android SDK
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        run: |
+          set -euo pipefail
+          SDK_MANAGER="${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDK_MANAGER"
+          "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" 'platforms;android-36' 'build-tools;36.0.0'
       - name: Decode dedicated keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
