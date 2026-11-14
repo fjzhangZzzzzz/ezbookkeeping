@@ -77,7 +77,11 @@ func (p *OIDCProvider) GetUserInfo(c core.Context, oauth2Token *oauth2.Token) (*
 	idToken, err := p.oidcVerifier.Verify(c, rawIDToken)
 
 	if err != nil {
-		log.Errorf(c, "[oidc_provider.GetUserInfo] failed to verify \"id_token\" field in oauth 2.0 token, because %s", err.Error())
+		if c.Value(core.NativeOAuth2ContextKey) != nil {
+			log.Errorf(c, "[oidc_provider] native provider request or identity verification failed")
+		} else {
+			log.Errorf(c, "[oidc_provider.GetUserInfo] failed to verify \"id_token\" field in oauth 2.0 token, because %s", err.Error())
+		}
 		return nil, errs.ErrInvalidOAuth2Token
 	}
 
@@ -85,7 +89,11 @@ func (p *OIDCProvider) GetUserInfo(c core.Context, oauth2Token *oauth2.Token) (*
 	err = idToken.Claims(&claims)
 
 	if err != nil {
-		log.Errorf(c, "[oidc_provider.GetUserInfo] failed to parse claims in oauth 2.0 token, because %s", err.Error())
+		if c.Value(core.NativeOAuth2ContextKey) != nil {
+			log.Errorf(c, "[oidc_provider] native provider request or identity verification failed")
+		} else {
+			log.Errorf(c, "[oidc_provider.GetUserInfo] failed to parse claims in oauth 2.0 token, because %s", err.Error())
+		}
 		return nil, errs.ErrInvalidOAuth2Token
 	}
 
@@ -99,14 +107,22 @@ func (p *OIDCProvider) GetUserInfo(c core.Context, oauth2Token *oauth2.Token) (*
 		}), oauth2.StaticTokenSource(oauth2Token))
 
 		if err != nil {
-			log.Errorf(c, "[oidc_provider.GetUserInfo] failed to get user info, because %s", err.Error())
+			if c.Value(core.NativeOAuth2ContextKey) != nil {
+				log.Errorf(c, "[oidc_provider] native provider request or identity verification failed")
+			} else {
+				log.Errorf(c, "[oidc_provider.GetUserInfo] failed to get user info, because %s", err.Error())
+			}
 			return nil, errs.ErrCannotRetrieveUserInfo
 		}
 
 		err = userInfo.Claims(&claims)
 
 		if err != nil {
-			log.Errorf(c, "[oidc_provider.GetUserInfo] failed to parse user info, because %s", err.Error())
+			if c.Value(core.NativeOAuth2ContextKey) != nil {
+				log.Errorf(c, "[oidc_provider] native provider request or identity verification failed")
+			} else {
+				log.Errorf(c, "[oidc_provider.GetUserInfo] failed to parse user info, because %s", err.Error())
+			}
 			return nil, errs.ErrCannotRetrieveUserInfo
 		}
 
@@ -148,7 +164,11 @@ func (p *OIDCProvider) getOAuth2Config(c core.Context) (*oauth2.Config, error) {
 	oidcProvider, err := oidc.NewProvider(ctx, p.oidcIssuerURL)
 
 	if err != nil {
-		log.Errorf(c, "[oidc_provider.getOAuth2Config] failed to create oidc provider, because %s", err.Error())
+		if c.Value(core.NativeOAuth2ContextKey) != nil {
+			log.Errorf(c, "[oidc_provider] native provider request or identity verification failed")
+		} else {
+			log.Errorf(c, "[oidc_provider.getOAuth2Config] failed to create oidc provider, because %s", err.Error())
+		}
 		return nil, err
 	}
 

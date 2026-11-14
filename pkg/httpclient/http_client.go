@@ -3,6 +3,7 @@ package httpclient
 import (
 	"bytes"
 	"crypto/tls"
+	"github.com/mayswind/ezbookkeeping/pkg/core"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,7 +25,7 @@ func (t *defaultTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	resp, err := t.baseTransport.RoundTrip(req)
 
-	if t.enableHttpResponseLog && err == nil {
+	if t.enableHttpResponseLog && err == nil && req.Context().Value(core.NativeOAuth2ContextKey) == nil {
 		ctx := req.Context()
 
 		if handler, ok := ctx.Value(logHandleKey).(HttpResponseLogHandlerFunc); ok {

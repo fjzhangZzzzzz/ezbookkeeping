@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/mayswind/ezbookkeeping/pkg/auth/nativeoauth"
 	"github.com/mayswind/ezbookkeeping/pkg/auth/oauth2"
 	"github.com/mayswind/ezbookkeeping/pkg/core"
 	"github.com/mayswind/ezbookkeeping/pkg/duplicatechecker"
@@ -115,6 +116,13 @@ func (a *OAuth2AuthenticationApi) CallbackHandler(c *core.WebContext) (string, *
 		return a.redirectToFailedCallbackPage(c, errs.NewIncompleteOrIncorrectSubmissionError(err))
 	}
 
+	if nativeErr := NativeOAuth2.attachCallback(c, oauth2CallbackReq.State); nativeErr != nil {
+		return "", nativeErr
+	}
+	if nativeFlowID(c) != "" && oauth2CallbackReq.Code == "" {
+		return a.redirectToFailedCallbackPage(c, errs.ErrNativeOAuth2Failed)
+	}
+
 	if oauth2CallbackReq.State == "" {
 		return a.redirectToFailedCallbackPage(c, errs.ErrMissingOAuth2State)
 	}
@@ -179,14 +187,22 @@ func (a *OAuth2AuthenticationApi) CallbackHandler(c *core.WebContext) (string, *
 	oauth2Token, err := oauth2.GetOAuth2Token(c, oauth2CallbackReq.Code, verifier)
 
 	if err != nil {
-		log.Errorf(c, "[oauth2_authentications.CallbackHandler] failed to retrieve oauth 2.0 token, because %s", err.Error())
+		if nativeFlowID(c) != "" {
+			log.Errorf(c, "[oauth2_authentications.CallbackHandler] native identity-provider operation failed")
+		} else {
+			log.Errorf(c, "[oauth2_authentications.CallbackHandler] failed to retrieve oauth 2.0 token, because %s", err.Error())
+		}
 		return a.redirectToFailedCallbackPage(c, errs.Or(err, errs.ErrCannotRetrieveOAuth2Token))
 	}
 
 	oauth2UserInfo, err := oauth2.GetOAuth2UserInfo(c, oauth2Token)
 
 	if err != nil {
-		log.Errorf(c, "[oauth2_authentications.CallbackHandler] failed to retrieve oauth 2.0 user info, because %s", err.Error())
+		if nativeFlowID(c) != "" {
+			log.Errorf(c, "[oauth2_authentications.CallbackHandler] native identity-provider operation failed")
+		} else {
+			log.Errorf(c, "[oauth2_authentications.CallbackHandler] failed to retrieve oauth 2.0 user info, because %s", err.Error())
+		}
 		return a.redirectToFailedCallbackPage(c, errs.Or(err, errs.ErrInvalidOAuth2Token))
 	}
 
@@ -195,7 +211,9 @@ func (a *OAuth2AuthenticationApi) CallbackHandler(c *core.WebContext) (string, *
 		return a.redirectToFailedCallbackPage(c, errs.ErrCannotRetrieveUserInfo)
 	}
 
-	log.Infof(c, "[oauth2_authentications.CallbackHandler] oauth 2.0 user info, userName: %s, email: %s", oauth2UserInfo.UserName, oauth2UserInfo.Email)
+	if nativeFlowID(c) == "" {
+		log.Infof(c, "[oauth2_authentications.CallbackHandler] oauth 2.0 user info, userName: %s, email: %s", oauth2UserInfo.UserName, oauth2UserInfo.Email)
+	}
 
 	if oauth2UserInfo.UserName == "" && oauth2UserInfo.Email == "" {
 		return a.redirectToFailedCallbackPage(c, errs.ErrOAuth2UserNameAndEmailEmpty)
@@ -364,7 +382,12 @@ func (a *OAuth2AuthenticationApi) CallbackHandler(c *core.WebContext) (string, *
 			return a.redirectToFailedCallbackPage(c, errs.ErrOperationFailed)
 		}
 
-		token, _, err := a.tokens.CreateOAuth2CallbackRequireVerifyToken(c, user, string(tokenContext))
+		var token string
+		if nativeFlowID(c) != "" {
+			token, err = nativeCallbackToken(c, user, string(tokenContext), true)
+		} else {
+			token, _, err = a.tokens.CreateOAuth2CallbackRequireVerifyToken(c, user, string(tokenContext))
+		}
 
 		if err != nil {
 			log.Errorf(c, "[oauth2_authentications.CallbackHandler] failed to create oauth 2.0 callback verify token, because %s", err.Error())
@@ -382,7 +405,12 @@ func (a *OAuth2AuthenticationApi) CallbackHandler(c *core.WebContext) (string, *
 			return a.redirectToFailedCallbackPage(c, errs.ErrOperationFailed)
 		}
 
-		token, _, err := a.tokens.CreateOAuth2CallbackToken(c, user, string(tokenContext))
+		var token string
+		if nativeFlowID(c) != "" {
+			token, err = nativeCallbackToken(c, user, string(tokenContext), false)
+		} else {
+			token, _, err = a.tokens.CreateOAuth2CallbackToken(c, user, string(tokenContext))
+		}
 
 		if err != nil {
 			log.Errorf(c, "[oauth2_authentications.CallbackHandler] failed to create oauth 2.0 callback token, because %s", err.Error())
@@ -428,17 +456,29 @@ func (a *OAuth2AuthenticationApi) generateExternalAuthUrl(c *core.WebContext, pl
 }
 
 func (a *OAuth2AuthenticationApi) redirectToSuccessCallbackPage(c *core.WebContext, platform string, externalAuthType core.UserExternalAuthType, token string) (string, *errs.Error) {
+	if nativeFlowID(c) != "" {
+		return NativeOAuth2.redirect(c, nativeoauth.Payload{CallbackToken: token})
+	}
 	return fmt.Sprintf(oauth2CallbackPageUrlSuccessFormat, a.CurrentConfig().RootUrl, platform, externalAuthType, url.QueryEscape(token)), nil
 }
 
 func (a *OAuth2AuthenticationApi) redirectToVerifyCallbackPage(c *core.WebContext, platform string, externalAuthType core.UserExternalAuthType, userName string, token string) (string, *errs.Error) {
+	if nativeFlowID(c) != "" {
+		return NativeOAuth2.redirect(c, nativeoauth.Payload{CallbackToken: token, RequiresPassword: true})
+	}
 	return fmt.Sprintf(oauth2CallbackPageUrlNeedVerifyFormat, a.CurrentConfig().RootUrl, platform, externalAuthType, userName, url.QueryEscape(token)), nil
 }
 
 func (a *OAuth2AuthenticationApi) redirectToFailedCallbackPage(c *core.WebContext, err *errs.Error) (string, *errs.Error) {
+	if nativeFlowID(c) != "" {
+		return NativeOAuth2.redirect(c, nativeoauth.Payload{ErrorCode: err.Code()})
+	}
 	return fmt.Sprintf(oauth2CallbackPageUrlFailedFormat, a.CurrentConfig().RootUrl, err.Code(), url.QueryEscape(utils.GetDisplayErrorMessage(err))), nil
 }
 
 func (a *OAuth2AuthenticationApi) redirectToErrorMessageCallbackPage(c *core.WebContext, message string) (string, *errs.Error) {
+	if nativeFlowID(c) != "" {
+		return NativeOAuth2.redirect(c, nativeoauth.Payload{ErrorCode: errs.ErrNativeOAuth2Failed.Code()})
+	}
 	return fmt.Sprintf(oauth2CallbackPageUrlErrorMessageFormat, a.CurrentConfig().RootUrl, url.QueryEscape(message)), nil
 }

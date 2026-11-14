@@ -393,6 +393,7 @@ func (a *AuthorizationsApi) TwoFactorAuthorizeByRecoveryCodeHandler(c *core.WebC
 
 // OAuth2CallbackAuthorizeHandler verifies and authorizes current OAuth 2.0 callback login
 func (a *AuthorizationsApi) OAuth2CallbackAuthorizeHandler(c *core.WebContext) (any, *errs.Error) {
+	nativeNoStore(c)
 	if !a.CurrentConfig().EnableOAuth2Login {
 		return nil, errs.ErrOAuth2NotEnabled
 	}
@@ -531,7 +532,8 @@ func (a *AuthorizationsApi) OAuth2CallbackAuthorizeHandler(c *core.WebContext) (
 	err = a.tokens.DeleteTokenByClaims(c, oldTokenClaims)
 
 	if err != nil {
-		log.Warnf(c, "[authorizations.OAuth2CallbackAuthorizeHandler] failed to revoke temporary token \"utid:%s\" for user \"uid:%d\", because %s", oldTokenClaims.UserTokenId, user.Uid, err.Error())
+		log.Warnf(c, "[authorizations.OAuth2CallbackAuthorizeHandler] temporary callback already consumed or unavailable")
+		return nil, errs.ErrCurrentInvalidToken
 	}
 
 	var token string

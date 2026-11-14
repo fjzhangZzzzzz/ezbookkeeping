@@ -268,6 +268,7 @@ func startWebServer(c *core.CliContext) error {
 		{
 			oauth2Route.GET("/login", bindRedirect(api.OAuth2Authentications.LoginHandler, config))
 			oauth2Route.GET("/callback", bindRedirect(api.OAuth2Authentications.CallbackHandler, config))
+			oauth2Route.GET("/native/start", bindRedirect(api.NativeOAuth2.BrowserStartHandler, config))
 		}
 	}
 
@@ -290,10 +291,14 @@ func startWebServer(c *core.CliContext) error {
 		}
 
 		if config.EnableOAuth2Login {
+			apiRoute.POST("/native/oauth2/start.json", bindApi(api.NativeOAuth2.StartHandler, config))
+			apiRoute.POST("/native/oauth2/exchange.json", bindApi(api.NativeOAuth2.ExchangeHandler, config))
+			apiRoute.POST("/native/oauth2/cancel.json", bindApi(api.NativeOAuth2.CancelHandler, config))
 			oauth2Route := apiRoute.Group("/oauth2")
 			oauth2Route.Use(bindMiddleware(middlewares.TokenOAuth2CallbackAuthorization(config), config))
 			{
 				oauth2Route.POST("/authorize.json", bindApiWithTokenUpdate(api.Authorizations.OAuth2CallbackAuthorizeHandler, config))
+				oauth2Route.POST("/cancel.json", bindApi(api.NativeOAuth2.CancelCallbackHandler, config))
 			}
 		}
 
@@ -359,6 +364,7 @@ func startWebServer(c *core.CliContext) error {
 				apiV1Route.GET("/users/external_auth/list.json", bindApi(api.UserExternalAuths.ExternalAuthListHandler, config))
 				apiV1Route.POST("/users/external_auth/unlink.json", bindApi(api.UserExternalAuths.UnlinkExternalAuthHandler, config, core.USER_TOKEN_TYPE_NORMAL))
 				apiV1Route.POST("/users/external_auth/oauth2/link.json", bindApi(api.OAuth2Authentications.LinkHandler, config, core.USER_TOKEN_TYPE_NORMAL))
+				apiV1Route.POST("/users/external_auth/oauth2/native_link.json", bindApi(api.NativeOAuth2.LinkStartHandler, config, core.USER_TOKEN_TYPE_NORMAL))
 			}
 
 			// Application Cloud Settings
