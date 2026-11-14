@@ -1,8 +1,8 @@
 # Android 签名、发布与更新
 
-Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjzhang233.books`，首个公开版 `versionName=0.1.0`、`versionCode=2`、`minSdk=26`；版本唯一来源为 Android Gradle 配置。升级必须增加 versionCode，保持包名及 release 签名身份。服务端 `family-v0.1.2` 不因 Android 发布而覆盖或重打标签。
+Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjzhang233.books`，首个公开版为 `0.1.0` / versionCode `2`；`0.1.1` / code `3` 开始从自部署环境检查与下载更新，`minSdk=26`。版本唯一来源为 Android Gradle 配置，升级必须增加 versionCode 并保持包名及同一 release 签名身份。各自的不可变 tag、Release 和附件不因另一产品发布而覆盖或重打。
 
-本地早期签名验证包使用 `versionName=0.1.0`、`versionCode=1`，从未发布到 GitHub Release，不是历史公开发行，也不代表最终界面。该包仅保留在 ignored `output/android-upgrade-fixture/` 作为未登录 OTA 演练的旧版本输入；首个正式 `android-v0.1.0` 使用 code 2，后续正式版本继续递增。同一 versionName 不阻碍 code 1 → 2 更新，包名、专用签名和实际 APK/metadata 版本必须匹配。演练验证 GitHub 发现、下载、包校验与系统安装确认，不据此宣称真实用户登录会话跨版本保留；该项仍需本人下一次升级确认。
+本地早期签名验证包 `0.1.0` / code `1` 从未公开发布，仅保留于 ignored `output/android-upgrade-fixture/` 作为合成旧版本输入。旧 GitHub OTA 完整演练未完成，不能称已验证发现、下载及系统安装闭环，也不能转用于现行自托管渠道。已公开的 `android-v0.1.0` / code `2` 工件不改写；其内置检查地址不会随服务端变更，应由用户从自家 HTTPS 地址手动安装同签名 `0.1.1` / code `3` 一次，之后使用自托管更新。保留登录会话和真实用户数据须另行实际验证，不从同签名推导已验收。
 
 ## 签名材料
 
@@ -22,11 +22,17 @@ Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properti
 
 新 Release 包含 `ezbookkeeping-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流只使用免费公开 runner，不启用付费 runner、缓存或额外服务。
 
+正式 `android-v0.1.1` / code `3` 已由 [tag CI 43621801593](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621801593) 完成 verify/build/publish；源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`，实际 APK SHA256 `133b73c664de942842dbff5e6f105d8a16bd9bdfdccdc1e8b13d01735af2fc29`。独立签名/包版本和匿名公开三件套与正式 CI 原件核验通过；发布不代表已在自部署环境挂载、真实手机安装或升级会话验收。
+
 ## update.json 契约与信任边界
 
 schemaVersion=1，channel 固定 stable；字段 packageId、versionName、整数 versionCode、整数 minSdk、apkAssetName、apkSha256、signingCertificateSha256、sourceCommit。tag 必须精确等于 `android-v` + versionName，APK asset 名必须精确匹配 `ezbookkeeping-android-` + versionName + `.apk`。sourceCommit 是构建源码 commit，不能替代 APK SHA 或签名。
 
-客户端从固定仓库的正式非 draft、非 prerelease Android Release 检查更新，忽略 family-v 标签及低版本。只取同一 Release 上的指定 APK asset，不接受 metadata 提供任意下载地址。校验协议格式、包名、minSdk、更高 versionCode、下载 SHA256、下载 APK 包名和版本，以及实际 APK signer 与固定公开 pin/当前安装 signer 一致后，才交给 Android 系统安装器；用户仍需确认安装及按系统要求允许安装来源。
+客户端只匿名访问固定自部署地址 `https://books.fjzhang233.top/android/update.json`，不发送应用 Bearer Token；APK 路径由已验证的 versionName 与 apkAssetName 固定导出为 `/android/releases/<versionName>/<apkAssetName>`。不接受任意下载 URL、跨源跳转或 GitHub API/asset 回退。检查元数据时要求重新验证缓存并限制响应大小，忽略相同及更低 versionCode；更新提示后由用户确认下载，再交系统安装器确认安装及所需的安装来源权限。
+
+安装前校验协议格式、包名、minSdk、更高 versionCode、下载 SHA256、实际 APK 包名和版本，以及实际 signer 与应用内固定公开 pin/当前安装 signer 一致。GitHub 仅保留不可变 CI/发行来源和部署取件渠道，不再是客户端检查或下载地址。
+
+APK 和原始 CI `update.json` / `SHA256SUMS` 为独立工件，不嵌入后端镜像，也不在 homelab 重写 metadata。Ansible 验证正式来源后选择版本；稳定宿主父目录 `/srv/homelab/ezbookkeeping/android` 只读挂载到 Go 容器 `/ezbookkeeping/public/android`，`current` 使用根内相对链接指向 `releases/<versionName>`，根 `update.json` 指向 `current/update.json`。服务端 `0.1.4` 提供清晰 `/android` 静态路由，未挂工件时返回 404；manifest 要求缓存重验，版本化 APK 使用不可变缓存，不列举目录或暴露其它文件。独立 APK 切换不重建后端镜像、不新增服务端口、不激活共享 Caddy；首次增加挂载按 homelab 标准组件流程完成。备份恢复包括匹配后端、公共工件与选择依据；切回旧 manifest 不会降级已安装的高 versionCode 客户端。
 
 update.json 和 SHA256SUMS 是来源描述及完整性清单，**不是签名信任根**；不能用其中自报的证书替代应用内固定 pin、当前安装证书和 Android 安装器的签名校验。不能降级或通过换包名绕开版本/签名保护。签名轮换另行设计和批准，当前不支持静默轮换。
 

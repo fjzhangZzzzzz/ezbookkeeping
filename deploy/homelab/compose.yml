@@ -1,8 +1,9 @@
+# 仅供参考；正式配置由 homelab-infra Ansible 管理，不得直接覆盖或执行。
 name: homelab-ezbookkeeping
 services:
   ezbookkeeping:
-    image: ${HOMELAB_EZBOOKKEEPING_IMAGE:?set the locked local Docker image ID}
-    pull_policy: never
+    image: ${HOMELAB_EZBOOKKEEPING_IMAGE:?set the locked full registry reference@sha256:digest}
+    pull_policy: missing
     restart: unless-stopped
     ports:
       - "10.144.144.2:18882:8080"
@@ -12,6 +13,7 @@ services:
       - /etc/homelab/ezbookkeeping/ezbookkeeping.ini:/run/ezbookkeeping/ezbookkeeping.ini:ro
       - /var/lib/homelab/ezbookkeeping/data:/ezbookkeeping/data
       - /var/lib/homelab/ezbookkeeping/storage:/ezbookkeeping/storage
+      - /srv/homelab/ezbookkeeping/android:/ezbookkeeping/public/android:ro
     user: "1000:1000"
     read_only: true
     cap_drop: [ALL]

@@ -2,15 +2,15 @@
 
 ## 当前交付与部署边界
 
-- 最新服务端为[公开预发行 `family-v0.1.3`](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.3)，准确源码 `7d8ce0e16f0b5912a954518cea6e6c991c61f649`；固定 `linux/amd64` 镜像 `ghcr.io/fjzhangzzzzzz/ezbookkeeping-family@sha256:73283d3aee2a7c25504a83fca475bde7b2b6c641a2274e58f063d260a4eafdeb`，config/image ID `sha256:f6ab5d4344f7812a6b67eed74f71cd8420e736fd56332f50323428fe7694f786`。完整标识与升级入口以 [homelab 交接](homelab-handoff.md) 为准，不能把后续文档提交当作镜像来源。
-- [Actions 43593592805](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43593592805) 的完整 Linux build、Go/前端检查及准确镜像 smoke 成功，原流水线已推送镜像且匿名核验。最终 publish 因原标签缺发行说明文件失败；维护者使用原成功构建 artifact 和既有镜像补建 Release，未重建镜像、改写标签或把整条原流水线称为成功。发行附件 `publication` 字段及[中文发行说明](releases/family-v0.1.3.md)保留该事实；此说明和提前检查 notes 的 CI 门禁是标签后的维护，不伪造原标签内容。
-- 0.1.3 已实现供 Kotlin/Compose 客户端使用的 PKCE 原生认证交接，保留本地密码、首次确认及适用的 2FA、同 UID 和既有 Web 登录；修复临时令牌消费失败仍授权的并发边界，隔离上游敏感日志。没有修改 schema 或依赖。完整 Go 测试/vet、manager race、合成 OIDC/SQLite、取消/固定 TTL/错误密码重试/并发单次授权及旧 Web 回归通过，第三方实时汇率探测依既有 CI 条件跳过。接口和安全边界见[原生认证交接](native-oauth2.md)。
-- **生产仍是 0.1.2，0.1.3 尚未部署。** homelab 的 0.1.2 真实 HTTPS、唯一真实用户账密/Pocket ID 同 UID 绑定及退出再登录、样本记账和附件、Backrest 实际快照与隔离业务恢复已通过；这些结论不能转移给尚未上线的 0.1.3。生产配置、来源和恢复记录由 homelab 维护，不从下文早期“未部署/未开户”记录重复执行。
-- Android 首版（工程 `versionName=0.1.0`）目前为本地开发/构建和模拟器验收，尚未发布、未真实手机验收。独立 APK、签名和 GitHub Release 更新流程见 [Android 发行](android-release.md)。服务端 0.1.3 Release 不含 APK；PWA 安装调查已按用户选择原生客户端暂停，不能宣称实体手机/PWA 安装已通过。
+- 最新服务端为[公开预发行 `family-v0.1.4`](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.4)，源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`；固定 `linux/amd64` digest `sha256:6794136afc1738b806890f93596763749ac2ad96a51eb1e5ac69ab99afc36fa4`，config ID `sha256:0746be1306aeb3a24494430013bbf40b59cafe76abd187c5aa2eaced7238f658`。完整来源和恢复索引见 [homelab 交接](homelab-handoff.md)，后续文档提交不能替代镜像源码标识。
+- [Actions 43621154413](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621154413) 完整 Linux Go/Web 检查、构建、准确镜像 smoke 和 publish 全绿；独立匿名公开 Release/GHCR manifest/config 核验及原 CI 归档全部 13 层校验通过。0.1.4 只增加自部署 Android 静态工件分发，不内嵌 APK、不修改 schema 或原生认证 bridge。旧 0.1.3 发布补建经过仅索引[该版发行说明](releases/family-v0.1.3.md)，不混同本次成功流水线。
+- **生产实测为 0.1.3，运维包 2.4.160；0.1.4 尚未部署。** 正式源 `7d8ce0e16f0b5912a954518cea6e6c991c61f649`、image ID `f6ab5d4344f7812a6b67eed74f71cd8420e736fd56332f50323428fe7694f786` 的真实快照 `680cd66cf86ad909833135fcae2dca0ec1a434f626fcf1bb09020c848181d186` 已完成标准同点恢复与隔离业务比对：原 UID/密码/余额/交易/附件保持，副本禁用及会话撤销通过；不代表真实 Pocket ID + TLS 恢复登录通过。
+- Android `0.1.0` / code `2` 已公开，旧标签和资产不改写；`0.1.1` / code `3` 改为固定 books HTTPS 自托管更新、同签名、用户确认下载及系统安装，正式 [tag CI 43621801593](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621801593) 的 verify/build/publish 已全绿，`android-v0.1.1` 已公开；实际 APK SHA256 `133b73c664de942842dbff5e6f105d8a16bd9bdfdccdc1e8b13d01735af2fc29`。独立 apksigner/aapt、原 metadata/SHA256SUMS 与匿名 Release/正式 CI 字节比对通过，来源同 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`，未在生产挂载或真机安装。GitHub 仅为 CI/发行取件来源，不是新客户端更新渠道，旧 GitHub OTA 演练未完成不能称已验。契约见 [Android 发行](android-release.md)。
+- 原生界面已按真钱迹 Android 4.5.5-1242 深色专用模拟器实拍对照；最终本地组包括真实合成记账/附件、进程冷启、会话撤销与系统浏览器合成 OIDC。真实手机/真实原生 Pocket ID Passkey、公开自托管更新安装与跨升级登录保持、真实 OIDC+TLS 恢复仍待对应现场验收，不从构建或模拟器推定。PWA 安装调查按原生客户端选择暂停。
 
 ## 历史版本与早期证据
 
-下文保留初始改造、0.1.0 离线镜像和后续 0.1.2 以前的检查点，只说明对应版本当时的边界。旧源码、旧镜像、NXDOMAIN、未建账号、未部署或未做真实备份的记载不是当前操作指令。0.1.2 已部署验收与 0.1.3 仅发布的最新区别以上节及 homelab 交接为准。
+下文保留初始改造、0.1.0 离线镜像和后续 0.1.2 以前的检查点，只说明对应版本当时的边界。旧源码、旧镜像、NXDOMAIN、未建账号、未部署或未做真实备份的记载不是当前操作指令。当前发布/部署边界以上节及 homelab 交接为准。
 
 ## 阶段 0：基线与本地验证（早期记录，最新结论见后文）
 
