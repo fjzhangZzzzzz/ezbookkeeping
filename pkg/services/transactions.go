@@ -654,6 +654,9 @@ func (s *TransactionService) CreateTransaction(c core.Context, transaction *mode
 				return nil
 			}
 		}
+		if err := checkTransactionCategoryRevision(userDataDb, sess, transaction.ExpectedCategoryRevision); err != nil {
+			return err
+		}
 		if err := s.doCreateTransaction(c, userDataDb, sess, transaction, transactionTagIndexes, tagIds, pictureIds, pictureUpdateModel); err != nil {
 			return err
 		}
@@ -927,7 +930,11 @@ func (s *TransactionService) ModifyTransaction(c core.Context, transaction *mode
 		}
 	}
 
-	err := s.UserDataDB(transaction.Uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
+	userDataDB := s.UserDataDB(transaction.Uid)
+	err := userDataDB.DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		if err := checkTransactionCategoryRevision(userDataDB, sess, transaction.ExpectedCategoryRevision); err != nil {
+			return err
+		}
 		// Get and verify current transaction
 		oldTransaction := &models.Transaction{}
 		has, err := sess.ID(transaction.TransactionId).Where("uid=? AND deleted=?", transaction.Uid, false).Get(oldTransaction)

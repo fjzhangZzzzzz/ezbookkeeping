@@ -1,0 +1,20 @@
+<resources>
+    <!-- Only the native widgets inside the entry date/time dialog use this theme. -->
+    <style name="BooksEntryPickerTheme" parent="android:style/Theme.Material">
+        <item name="android:colorAccent">#55A1FF</item>
+        <item name="android:colorControlActivated">#55A1FF</item>
+        <item name="android:colorBackground">#1A1A1A</item>
+        <item name="android:timePickerStyle">@style/BooksEntryTimePicker</item>
+        <item name="android:datePickerStyle">@style/BooksEntryDatePicker</item>
+    </style>
+    <style name="BooksEntryTimePicker" parent="android:style/Widget.Material.TimePicker">
+        <item name="android:headerBackground">#1A1A1A</item>
+        <item name="android:numbersBackgroundColor">#000000</item>
+        <item name="android:numbersSelectorColor">#55A1FF</item>
+        <item name="android:numbersTextColor">@color/entry_clock_numbers_dark</item>
+        <item name="android:numbersInnerTextColor">@color/entry_clock_inner_dark</item>
+    </style>
+    <style name="BooksEntryDatePicker" parent="android:style/Widget.Material.DatePicker">
+        <item name="android:headerBackground">#1A1A1A</item>
+    </style>
+</resources>

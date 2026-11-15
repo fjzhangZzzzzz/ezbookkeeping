@@ -1,13 +1,16 @@
 package top.fjzhang233.books
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable fun UpdatePage(vm: UpdateModel) {
-    Column(Modifier.fillMaxSize().padding(24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
+        ThemeSettings()
         Text("家庭账本",style=MaterialTheme.typography.headlineMedium)
         Text("原生 Android · ${BuildConfig.VERSION_NAME}")
         Text("独立账户，家庭共享。使用现有家庭账本服务。")

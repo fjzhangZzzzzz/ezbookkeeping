@@ -134,6 +134,46 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     const allVisibleCategorizedAccounts = computed<CategorizedAccountWithDisplayBalance[]>(() => getCategorizedAccountsWithDisplayBalance(allVisibleAccounts.value, showAccountBalance.value, customAccountCategoryOrder.value));
     const allCategories = computed<Record<number, TransactionCategory[]>>(() => transactionCategoriesStore.allTransactionCategories);
     const allCategoriesMap = computed<Record<string, TransactionCategory>>(() => transactionCategoriesStore.allTransactionCategoriesMap);
+    let originalCategoryId = '';
+    let observedCategory: { id: string, name: string, parentId: string, parentName: string } | null = null;
+
+    function currentCategoryDescription(id: string) {
+        const category = allCategoriesMap.value[id];
+        if (!category) return null;
+        const parent = allCategoriesMap.value[category.parentId];
+        return { id, name: category.name, parentId: category.parentId, parentName: parent?.name ?? '' };
+    }
+
+    watch(() => [transaction.value.categoryId, !!allCategoriesMap.value[transaction.value.categoryId]], ([id]) => {
+        const categoryId = String(id || '');
+        if (!observedCategory || observedCategory.id !== categoryId) {
+            observedCategory = currentCategoryDescription(categoryId);
+        }
+    }, { immediate: true });
+
+    async function reviewCategoryBeforeSubmit(): Promise<boolean> {
+        const id = transaction.value.categoryId;
+        if (!id || id === '0') return true;
+        transactionCategoriesStore.updateTransactionCategoryListInvalidState(true);
+        try { await transactionCategoriesStore.loadAllCategories({ force: false }); } catch {
+            window.alert('无法刷新分类，请稍后重试；交易草稿已保留。');
+            return false;
+        }
+        if (transaction.value.categoryId !== id) return false;
+        const category = allCategoriesMap.value[id];
+        const parent = category && allCategoriesMap.value[category.parentId];
+        if (!category || ((category.hidden || parent?.hidden) && !(mode.value === TransactionEditPageMode.Edit && originalCategoryId === id))) {
+            window.alert('所选分类已隐藏或不存在，请重新选择；交易草稿已保留。');
+            return false;
+        }
+        const current = currentCategoryDescription(id);
+        if (observedCategory && current && (observedCategory.name !== current.name || observedCategory.parentId !== current.parentId || observedCategory.parentName !== current.parentName)) {
+            if (!window.confirm(`所选分类已变化：${observedCategory.parentName} / ${observedCategory.name} → ${current.parentName} / ${current.name}。确认继续使用？`)) return false;
+        }
+        observedCategory = current;
+        return true;
+    }
+
     const allTagsMap = computed<Record<string, TransactionTag>>(() => transactionTagsStore.allTransactionTagsMap);
     const firstVisibleAccountId = computed<string | undefined>(() => allVisibleAccounts.value && allVisibleAccounts.value[0] ? allVisibleAccounts.value[0].id : undefined);
 
@@ -429,6 +469,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     }
 
     function setTransactionModel(newTransaction: Transaction | null, options: SetTransactionOptions | undefined, setContextData: boolean): void {
+        originalCategoryId = newTransaction?.id ? newTransaction.categoryId : '';
         setTransactionModelByTransaction(
             transaction.value,
             newTransaction,
@@ -451,6 +492,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             },
             setContextData
         );
+        observedCategory = currentCategoryDescription(transaction.value.categoryId);
     }
 
     function updateTransactionModelFromRecognizedResponse(response: RecognizedTransactionResponse): void {
@@ -633,6 +675,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         inputEmptyProblemMessage,
         inputIsEmpty,
         // functions
+        reviewCategoryBeforeSubmit,
         createNewTransactionModel,
         setTransactionModel,
         updateTransactionModelFromRecognizedResponse,

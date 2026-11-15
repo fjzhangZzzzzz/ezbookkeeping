@@ -4,6 +4,8 @@ import "net/http"
 
 // Error codes related to transaction categories
 var (
+	ErrTransactionCategoryRevisionRequired                 = NewNormalError(NormalSubcategoryCategory, 12, http.StatusUpgradeRequired, "category management client upgrade required")
+	ErrTransactionCategoryRevisionConflict                 = NewNormalError(NormalSubcategoryCategory, 13, http.StatusConflict, "category revision conflict")
 	ErrTransactionCategoryIdInvalid                        = NewNormalError(NormalSubcategoryCategory, 0, http.StatusBadRequest, "transaction category id is invalid")
 	ErrTransactionCategoryNotFound                         = NewNormalError(NormalSubcategoryCategory, 1, http.StatusBadRequest, "transaction category not found")
 	ErrTransactionCategoryTypeInvalid                      = NewNormalError(NormalSubcategoryCategory, 2, http.StatusBadRequest, "transaction category type is invalid")

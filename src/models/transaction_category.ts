@@ -186,6 +186,7 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
 }
 
 export interface TransactionCategoryCreateRequest {
+    readonly expectedRevision?: string;
     readonly name: string;
     readonly type: number;
     readonly parentId: string;
@@ -197,6 +198,7 @@ export interface TransactionCategoryCreateRequest {
 }
 
 export interface TransactionCategoryCreateBatchRequest {
+    readonly expectedRevision?: string;
     readonly categories: TransactionCategoryCreateWithSubCategories[];
 }
 
@@ -210,6 +212,7 @@ export interface TransactionCategoryCreateWithSubCategories {
 }
 
 export interface TransactionCategoryModifyRequest {
+    readonly expectedRevision?: string;
     readonly id: string;
     readonly name: string;
     readonly parentId: string;
@@ -221,11 +224,13 @@ export interface TransactionCategoryModifyRequest {
 }
 
 export interface TransactionCategoryHideRequest {
+    readonly expectedRevision?: string;
     readonly id: string;
     readonly hidden: boolean;
 }
 
 export interface TransactionCategoryMoveRequest {
+    readonly expectedRevision?: string;
     readonly newDisplayOrders: TransactionCategoryNewDisplayOrderRequest[];
 }
 
@@ -235,6 +240,7 @@ export interface TransactionCategoryNewDisplayOrderRequest {
 }
 
 export interface TransactionCategoryDeleteRequest {
+    readonly expectedRevision?: string;
     readonly id: string;
 }
 

@@ -4,9 +4,11 @@ package services
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/mayswind/ezbookkeeping/pkg/datastore"
+	"github.com/mayswind/ezbookkeeping/pkg/errs"
 	"github.com/mayswind/ezbookkeeping/pkg/models"
 	"github.com/mayswind/ezbookkeeping/pkg/settings"
 	"github.com/mayswind/ezbookkeeping/pkg/utils"
@@ -19,10 +21,41 @@ func TestSharedDictionarySQLite(t *testing.T) {
 	require.NoError(t, datastore.InitializeDataStore(config))
 	db := datastore.Container.UserDataStore.Choose(0)
 	t.Cleanup(func() { require.NoError(t, db.NewSession(nil).(*datastore.XOrmSession).Engine().Close()) })
-	require.NoError(t, db.SyncStructs(&models.Account{}, &models.TransactionCategory{}, &models.TransactionTag{}, &models.TransactionTagGroup{}, &models.TransactionTagIndex{}, &models.Transaction{}, &models.TransactionTemplate{}, &models.TransactionPictureInfo{}))
+	require.NoError(t, db.SyncStructs(&models.User{}, &models.Account{}, &models.TransactionCategory{}, &models.TransactionCategoryRevision{}, &models.TransactionTag{}, &models.TransactionTagGroup{}, &models.TransactionTagIndex{}, &models.Transaction{}, &models.TransactionTemplate{}, &models.TransactionPictureInfo{}))
 	require.NoError(t, uuid.InitializeUuidGenerator(&settings.Config{UuidGeneratorType: settings.InternalUuidGeneratorType}))
 	require.NoError(t, EnsureSharedDictionary(nil))
+	initialRevision, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
 	require.NoError(t, EnsureSharedDictionary(nil))
+	unchangedRevision, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, initialRevision, unchangedRevision)
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	for _, name := range []string{"concurrent-one", "concurrent-two"} {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			results <- TransactionCategories.CreateCategory(nil, &models.TransactionCategory{Uid: 1, Type: models.CATEGORY_TYPE_EXPENSE, Name: name, Color: "000000"}, initialRevision)
+		}(name)
+	}
+	wg.Wait()
+	close(results)
+	successes, conflicts := 0, 0
+	for err := range results {
+		if err == nil {
+			successes++
+		} else if err == errs.ErrTransactionCategoryRevisionConflict {
+			conflicts++
+		} else {
+			require.NoError(t, err)
+		}
+	}
+	require.Equal(t, 1, successes)
+	require.Equal(t, 1, conflicts)
+	afterConcurrent, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, initialRevision+1, afterConcurrent)
 	var systemCategories []*models.TransactionCategory
 	require.NoError(t, db.NewSession(nil).Where("family_internal_transfer=?", true).Find(&systemCategories))
 	require.Len(t, systemCategories, 2)
@@ -31,8 +64,41 @@ func TestSharedDictionarySQLite(t *testing.T) {
 	parent := &models.TransactionCategory{CategoryId: 10, Uid: models.SharedDictionaryOwnerUID, Type: models.CATEGORY_TYPE_EXPENSE, Name: "parent", Color: "000000"}
 	child := &models.TransactionCategory{CategoryId: 11, Uid: models.SharedDictionaryOwnerUID, Type: models.CATEGORY_TYPE_EXPENSE, ParentCategoryId: 10, Name: "child", Color: "000000"}
 	tag := &models.TransactionTag{TagId: 20, Uid: models.SharedDictionaryOwnerUID, Name: "shared"}
-	_, err := db.NewSession(nil).Insert(parent, child, tag)
+	_, err = db.NewSession(nil).Insert(parent, child, tag)
 	require.NoError(t, err)
+	before, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	wrongChild := &models.TransactionCategory{Uid: 1, Type: models.CATEGORY_TYPE_INCOME, ParentCategoryId: parent.CategoryId, Name: "wrong", Color: "000000"}
+	require.ErrorIs(t, TransactionCategories.CreateCategory(nil, wrongChild, before), errs.ErrTransactionCategoryTypeInvalid)
+	wrongParent := &models.TransactionCategory{Uid: 1, Type: models.CATEGORY_TYPE_EXPENSE, Name: "batch parent", Color: "000000"}
+	wrongBatchChild := &models.TransactionCategory{Uid: 1, Type: models.CATEGORY_TYPE_INCOME, Name: "batch child", Color: "000000"}
+	_, err = TransactionCategories.CreateCategories(nil, 1, map[*models.TransactionCategory][]*models.TransactionCategory{nil: {wrongParent}, wrongParent: {wrongBatchChild}}, before)
+	require.ErrorIs(t, err, errs.ErrTransactionCategoryTypeInvalid)
+	_, err = TransactionCategories.GetCategoryByCategoryId(nil, 1, wrongParent.CategoryId)
+	require.ErrorIs(t, err, errs.ErrTransactionCategoryNotFound)
+	incomeParent := &models.TransactionCategory{CategoryId: 12, Uid: models.SharedDictionaryOwnerUID, Type: models.CATEGORY_TYPE_INCOME, Name: "income", Color: "000000"}
+	_, err = db.NewSession(nil).Insert(incomeParent)
+	require.NoError(t, err)
+	movedChild := *child
+	movedChild.Uid = 1
+	movedChild.ParentCategoryId = incomeParent.CategoryId
+	require.ErrorIs(t, TransactionCategories.ModifyCategory(nil, &movedChild, before), errs.ErrTransactionCategoryTypeInvalid)
+	unchanged, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, before, unchanged)
+	stale := before - 1
+	require.ErrorIs(t, TransactionCategories.CreateCategory(nil, &models.TransactionCategory{Uid: 1, Color: "000000"}, 0), errs.ErrTransactionCategoryRevisionRequired)
+	_, err = TransactionCategories.CreateCategories(nil, 1, map[*models.TransactionCategory][]*models.TransactionCategory{}, stale)
+	require.ErrorIs(t, err, errs.ErrTransactionCategoryRevisionConflict)
+	require.ErrorIs(t, TransactionCategories.HideCategory(nil, 1, []int64{parent.CategoryId}, true, stale), errs.ErrTransactionCategoryRevisionConflict)
+	require.ErrorIs(t, TransactionCategories.ModifyCategoryDisplayOrders(nil, 1, []*models.TransactionCategory{{CategoryId: parent.CategoryId}}, stale), errs.ErrTransactionCategoryRevisionConflict)
+	require.ErrorIs(t, TransactionCategories.DeleteCategory(nil, 1, child.CategoryId, stale), errs.ErrTransactionCategoryRevisionConflict)
+	afterStale, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, before, afterStale)
+	require.NoError(t, TransactionCategories.HideCategory(nil, 1, []int64{parent.CategoryId}, true, before))
+	require.NoError(t, TransactionCategories.HideCategory(nil, 1, []int64{parent.CategoryId}, false, before+1))
+	require.NoError(t, TransactionCategories.ModifyCategoryDisplayOrders(nil, 1, []*models.TransactionCategory{{CategoryId: parent.CategoryId, DisplayOrder: 5}}, before+2))
 
 	for _, uid := range []int64{1, 2} {
 		got, err := TransactionCategories.GetCategoryByCategoryId(nil, uid, child.CategoryId)
@@ -44,10 +110,22 @@ func TestSharedDictionarySQLite(t *testing.T) {
 	_, err = TransactionCategories.GetCategoryByCategoryId(nil, 0, child.CategoryId)
 	require.Error(t, err)
 	created := &models.TransactionCategory{Uid: 1, Type: models.CATEGORY_TYPE_EXPENSE, Name: "created", Color: "000000"}
-	require.NoError(t, TransactionCategories.CreateCategory(nil, created))
+	revision, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.NoError(t, TransactionCategories.CreateCategory(nil, created, revision))
 	created.Uid = 2
 	created.Name = "renamed"
-	require.NoError(t, TransactionCategories.ModifyCategory(nil, created))
+	revision, err = TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.NoError(t, TransactionCategories.ModifyCategory(nil, created, revision))
+	afterRevision, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, revision+1, afterRevision)
+	created.Name = "stale"
+	require.ErrorIs(t, TransactionCategories.ModifyCategory(nil, created, revision), errs.ErrTransactionCategoryRevisionConflict)
+	actualRevision, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, afterRevision, actualRevision)
 	sharedCreated, err := TransactionCategories.GetCategoryByCategoryId(nil, 1, created.CategoryId)
 	require.NoError(t, err)
 	require.Equal(t, "renamed", sharedCreated.Name)
@@ -68,8 +146,8 @@ func TestSharedDictionarySQLite(t *testing.T) {
 	require.Error(t, Transactions.isTagsValid(db.NewSession(nil), 1, []*models.TransactionTagIndex{{TagId: createdTag.TagId}}, []int64{createdTag.TagId}))
 	require.NoError(t, TransactionTagGroups.HideTagGroup(nil, 1, group.TagGroupId, false))
 	require.NoError(t, Transactions.isTagsValid(db.NewSession(nil), 1, []*models.TransactionTagIndex{{TagId: createdTag.TagId}}, []int64{createdTag.TagId}))
-	require.Error(t, TransactionCategories.HideCategory(nil, 1, []int64{protected.ParentCategoryId}, true))
-	require.Error(t, TransactionCategories.DeleteCategory(nil, 1, protected.CategoryId))
+	require.Error(t, TransactionCategories.HideCategory(nil, 1, []int64{protected.ParentCategoryId}, true, revision+1))
+	require.Error(t, TransactionCategories.DeleteCategory(nil, 1, protected.CategoryId, revision+1))
 
 	account := &models.Account{AccountId: 40, Uid: 2, Type: models.ACCOUNT_TYPE_SINGLE_ACCOUNT, Name: "account"}
 	_, err = db.NewSession(nil).Insert(account)
@@ -78,7 +156,27 @@ func TestSharedDictionarySQLite(t *testing.T) {
 	require.NoError(t, Transactions.isCategoryValid(db.NewSession(nil), transaction))
 	require.NoError(t, Transactions.isTagsValid(db.NewSession(nil), 2, []*models.TransactionTagIndex{{TagId: tag.TagId}}, []int64{tag.TagId}))
 	require.NoError(t, Transactions.CreateTransaction(nil, transaction, []int64{tag.TagId}, nil))
-	require.Error(t, TransactionCategories.DeleteCategory(nil, 1, child.CategoryId))
+	_, err = db.NewSession(nil).Insert(
+		&models.User{Uid: 1, Username: "one", Email: "one@example.invalid"},
+		&models.User{Uid: 2, Username: "two", Email: "two@example.invalid"},
+		&models.User{Uid: 3, Username: "disabled", Email: "disabled@example.invalid", Disabled: true},
+	)
+	require.NoError(t, err)
+	_, err = db.NewSession(nil).Insert(&models.Transaction{TransactionId: 999, Uid: 3, CategoryId: child.CategoryId, TransactionTime: 999999})
+	require.NoError(t, err)
+	_, err = db.NewSession(nil).Insert(
+		&models.Transaction{TransactionId: 1000, Uid: 2, CategoryId: child.CategoryId, Type: models.TRANSACTION_DB_TYPE_TRANSFER_OUT, TransactionTime: 1000001},
+		&models.Transaction{TransactionId: 1001, Uid: 2, CategoryId: child.CategoryId, Type: models.TRANSACTION_DB_TYPE_TRANSFER_IN, TransactionTime: 1000002},
+	)
+	require.NoError(t, err)
+
+	impactRevision, count, err := TransactionCategories.CategoryImpact(nil, 1, parent.CategoryId)
+	require.NoError(t, err)
+	require.Equal(t, revision+1, impactRevision)
+	require.EqualValues(t, 2, count)
+	_, _, err = TransactionCategories.CategoryImpact(nil, 3, parent.CategoryId)
+	require.ErrorIs(t, err, errs.ErrNotPermittedToPerformThisAction)
+	require.Error(t, TransactionCategories.DeleteCategory(nil, 1, child.CategoryId, revision+1))
 	require.Error(t, TransactionTags.DeleteTag(nil, 1, tag.TagId))
 	validTemplate := &models.TransactionTemplate{Uid: 2, TemplateType: models.TRANSACTION_TEMPLATE_TYPE_NORMAL, Type: models.TRANSACTION_TYPE_EXPENSE, CategoryId: child.CategoryId, AccountId: account.AccountId, TagIds: "20"}
 	require.NoError(t, TransactionTemplates.isTemplateValid(db.NewSession(nil), validTemplate))
@@ -90,7 +188,7 @@ func TestSharedDictionarySQLite(t *testing.T) {
 	template := &models.TransactionTemplate{TemplateId: 30, Uid: 2, TemplateType: models.TRANSACTION_TEMPLATE_TYPE_SCHEDULE, CategoryId: child.CategoryId, TagIds: "20"}
 	_, err = db.NewSession(nil).Insert(template)
 	require.NoError(t, err)
-	require.Error(t, TransactionCategories.DeleteCategory(nil, 1, child.CategoryId))
+	require.Error(t, TransactionCategories.DeleteCategory(nil, 1, child.CategoryId, revision+1))
 	require.Error(t, TransactionTags.DeleteTag(nil, 1, tag.TagId))
 
 	require.NoError(t, TransactionTemplates.DeleteAllTemplates(nil, 2))

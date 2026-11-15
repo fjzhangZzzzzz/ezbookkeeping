@@ -168,6 +168,7 @@ import { TransactionCategory } from '@/models/transaction_category.ts';
 
 import { getCategoryIconType } from '@/lib/icon.ts';
 import { generateRandomUUID } from '@/lib/misc.ts';
+import services from '@/lib/services.ts';
 
 const props = defineProps<{
     f7route: Router.Route;
@@ -191,8 +192,10 @@ const {
 } = useCategoryEditPageBase(query['type'] ? parseInt(query['type']) as CategoryType : undefined, query['parentId']);
 
 const transactionCategoriesStore = useTransactionCategoriesStore();
+const editRevision = ref<string | null>(transactionCategoriesStore.categoryRevision);
 
 const loadingError = ref<unknown | null>(null);
+const initCategory = ref<TransactionCategory | null>(null);
 const showPrimaryCategorySheet = ref<boolean>(false);
 const showIconSelectionSheet = ref<boolean>(false);
 const showColorSelectionSheet = ref<boolean>(false);
@@ -216,6 +219,7 @@ function init(): void {
             categoryId: editCategoryId.value
         }).then(response => {
             category.value.fillFrom(response);
+            initCategory.value = response.clone();
             loading.value = false;
         }).catch(error => {
             if (error.processed) {
@@ -249,7 +253,30 @@ function init(): void {
     }
 }
 
-function save(): void {
+async function save(): Promise<void> {
+    if (editCategoryId.value && initCategory.value &&
+        (category.value.name !== initCategory.value.name || category.value.parentId !== initCategory.value.parentId || category.value.visible !== initCategory.value.visible)) {
+        try {
+            const impact = await services.getTransactionCategoryImpact(editCategoryId.value);
+            if (!impact.data.success || !impact.data.result || impact.data.result.revision !== editRevision.value) {
+                transactionCategoriesStore.updateTransactionCategoryListInvalidState(true);
+                await transactionCategoriesStore.loadAllCategories({ force: false });
+                editRevision.value = transactionCategoriesStore.categoryRevision;
+                const current = transactionCategoriesStore.allTransactionCategoriesMap[editCategoryId.value];
+                const parent = current?.parentId ? transactionCategoriesStore.allTransactionCategoriesMap[current.parentId] : undefined;
+                window.alert(`分类已变化，当前名称：${current?.name ?? '已删除'}；当前上级：${parent?.name ?? '无'}。请对照草稿重新确认。`);
+                return;
+            }
+            if (!window.confirm(`此修改将影响活跃成员的 ${impact.data.result.transactionCount} 笔历史交易。确认继续？`)) return;
+        } catch {
+            window.alert('无法获取影响范围，请稍后重试；草稿已保留。');
+            return;
+        }
+    }
+    submit();
+}
+
+function submit(): void {
     const router = props.f7router;
     const problemMessage = inputEmptyProblemMessage.value;
 
@@ -264,7 +291,8 @@ function save(): void {
     transactionCategoriesStore.saveCategory({
         category: category.value,
         isEdit: !!editCategoryId.value,
-        clientSessionId: clientSessionId.value
+        clientSessionId: clientSessionId.value,
+        editRevision: editRevision.value ?? undefined
     }).then(() => {
         submitting.value = false;
         hideLoading();
@@ -277,6 +305,12 @@ function save(): void {
 
         router.back();
     }).catch(error => {
+        if (error?.message?.startsWith('分类已在其他设备修改')) {
+            editRevision.value = transactionCategoriesStore.categoryRevision;
+            const current = editCategoryId.value ? transactionCategoriesStore.allTransactionCategoriesMap[editCategoryId.value] : undefined;
+            const parent = current?.parentId ? transactionCategoriesStore.allTransactionCategoriesMap[current.parentId] : undefined;
+            window.alert(`分类已变化，当前名称：${current?.name ?? '已删除'}；当前上级：${parent?.name ?? '无'}。请对照草稿重新确认。`);
+        }
         submitting.value = false;
         hideLoading();
 

@@ -10,7 +10,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Only the opaque application session is stored. Passwords never reach persistent storage. */
+/** Encrypt small private session, PKCE and request state. Passwords never reach persistent storage. */
 class TokenStore(context: Context, preferenceName: String = "session", keyName: String = "session") {
     private val prefs = context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
     private val alias = "family-books-$keyName-v1"
@@ -22,13 +22,18 @@ class TokenStore(context: Context, preferenceName: String = "session", keyName: 
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    fun read(): String? = try {
+    fun readChecked():String? {
+        return run {
+
         val blob = prefs.getString("encrypted", null)?.let { Base64.decode(it, Base64.NO_WRAP) }
         if (blob == null) null else Cipher.getInstance("AES/GCM/NoPadding").run {
             init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, blob.copyOfRange(0, 12)))
             doFinal(blob.copyOfRange(12, blob.size)).toString(Charsets.UTF_8)
         }
-    } catch (_: Exception) { clear(); null }
+        }
+    }
+    fun read():String? = try { readChecked() } catch(_:Exception) { clear();null }
+    fun clearChecked(){check(prefs.edit().clear().commit()){ "Unable to clear encrypted request" }}
     fun write(token: String) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         check(prefs.edit().putString("encrypted", Base64.encodeToString(cipher.iv + cipher.doFinal(token.toByteArray()), Base64.NO_WRAP)).commit())

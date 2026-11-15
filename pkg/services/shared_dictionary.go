@@ -20,6 +20,7 @@ func EnsureSharedDictionary(c core.Context) error {
 	defer sharedDictionaryInitializationLock.Unlock()
 
 	return TransactionCategories.UserDataDB(models.SharedDictionaryOwnerUID).DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		changed := false
 		for _, item := range []struct {
 			typ  models.TransactionCategoryType
 			name string
@@ -42,6 +43,7 @@ func EnsureSharedDictionary(c core.Context) error {
 			now := time.Now().Unix()
 			parent := &models.TransactionCategory{CategoryId: ids[0], Uid: models.SharedDictionaryOwnerUID, Type: item.typ, Name: "家庭内部往来", DisplayOrder: 10000, Icon: 1, Color: "808080", CreatedUnixTime: now, UpdatedUnixTime: now}
 			child := &models.TransactionCategory{CategoryId: ids[1], Uid: models.SharedDictionaryOwnerUID, Type: item.typ, ParentCategoryId: ids[0], Name: item.name, Icon: 1, Color: "808080", FamilyInternalTransfer: true, CreatedUnixTime: now, UpdatedUnixTime: now}
+			changed = true
 			if _, err := sess.Insert(parent, child); err != nil {
 				return err
 			}
@@ -70,9 +72,23 @@ func EnsureSharedDictionary(c core.Context) error {
 			now := time.Now().Unix()
 			parent := &models.TransactionCategory{CategoryId: ids[0], Uid: models.SharedDictionaryOwnerUID, Type: item.typ, Name: item.parentName, Icon: 1, Color: "808080", CreatedUnixTime: now, UpdatedUnixTime: now}
 			child := &models.TransactionCategory{CategoryId: ids[1], Uid: models.SharedDictionaryOwnerUID, Type: item.typ, ParentCategoryId: ids[0], Name: item.childName, Icon: 1, Color: "808080", CreatedUnixTime: now, UpdatedUnixTime: now}
+			changed = true
 			if _, err := sess.Insert(parent, child); err != nil {
 				return err
 			}
+		}
+		row := &models.TransactionCategoryRevision{}
+		found, err := sess.ID(1).Get(row)
+		if err != nil {
+			return err
+		}
+		if !found {
+			_, err = sess.Insert(&models.TransactionCategoryRevision{Id: 1, Revision: 1})
+			return err
+		}
+		if changed {
+			_, err = sess.ID(1).SetExpr("revision", "revision+1").Update(&models.TransactionCategoryRevision{})
+			return err
 		}
 		return nil
 	})

@@ -51,6 +51,11 @@
                         </f7-badge>
                     </ItemIcon>
                 </template>
+                <template #after>
+                    <f7-link v-if="sortable" :icon-f7="category.hidden ? 'eye' : 'eye_slash'"
+                             :aria-label="category.hidden ? tt('Show') : tt('Hide')"
+                             @click.stop="hide(category, !category.hidden)"></f7-link>
+                </template>
                 <f7-swipeout-actions :left="textDirection === TextDirection.LTR"
                                      :right="textDirection === TextDirection.RTL"
                                      v-if="sortable">
@@ -271,53 +276,44 @@ function edit(category: TransactionCategory): void {
     props.f7router.navigate('/category/edit?id=' + category.id);
 }
 
-function hide(category: TransactionCategory, hidden: boolean): void {
-    showLoading();
-
-    transactionCategoriesStore.hideCategory({
-        category: category,
-        hidden: hidden
-    }).then(() => {
+async function hide(category: TransactionCategory, hidden: boolean): Promise<void> {
+    try {
+        const impact = await transactionCategoriesStore.previewImpact(category.id);
+        if (!window.confirm(`此操作影响活跃成员的 ${impact.transactionCount} 笔历史交易。确认${hidden ? '隐藏' : '显示'}分类？`)) return;
+        showLoading();
+        await transactionCategoriesStore.hideCategory({ category, hidden, revision: impact.revision });
+    } catch (error: unknown) {
+        const detail = error as { processed?: boolean, message?: string };
+        if (!detail?.processed) showToast(detail?.message || String(error));
+    } finally {
         hideLoading();
-    }).catch(error => {
-        hideLoading();
-
-        if (!error.processed) {
-            showToast(error.message || error);
-        }
-    });
+    }
 }
 
-function remove(category: TransactionCategory | null, confirm: boolean): void {
-    if (!category) {
-        showAlert('An error occurred');
-        return;
-    }
-
+async function remove(category: TransactionCategory | null, confirm: boolean): Promise<void> {
+    if (!category) { showAlert('An error occurred'); return; }
     if (!confirm) {
         categoryToDelete.value = category;
         showDeleteActionSheet.value = true;
         return;
     }
-
     showDeleteActionSheet.value = false;
     categoryToDelete.value = null;
-    showLoading();
-
-    transactionCategoriesStore.deleteCategory({
-        category: category,
-        beforeResolve: (done) => {
-            onSwipeoutDeleted(getCategoryDomId(category), done);
-        }
-    }).then(() => {
+    try {
+        const impact = await transactionCategoriesStore.previewImpact(category.id);
+        if (!window.confirm(`该分类关联活跃成员的 ${impact.transactionCount} 笔历史交易。仅未被引用的分类可删除，确认删除？`)) return;
+        showLoading();
+        await transactionCategoriesStore.deleteCategory({
+            category,
+            revision: impact.revision,
+            beforeResolve: (done) => onSwipeoutDeleted(getCategoryDomId(category), done)
+        });
+    } catch (error: unknown) {
+        const detail = error as { processed?: boolean, message?: string };
+        if (!detail?.processed) showToast(detail?.message || String(error));
+    } finally {
         hideLoading();
-    }).catch(error => {
-        hideLoading();
-
-        if (!error.processed) {
-            showToast(error.message || error);
-        }
-    });
+    }
 }
 
 function setSortable(): void {

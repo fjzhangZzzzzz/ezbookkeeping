@@ -649,6 +649,7 @@ const {
     inputEmptyProblemMessage,
     inputIsEmpty,
     createNewTransactionModel,
+    reviewCategoryBeforeSubmit,
     setTransactionModel,
     updateTransactionModelFromRecognizedResponse,
     updateTransactionModelByAfterSaveAction,
@@ -742,6 +743,7 @@ function open(options: TransactionEditOptions): Promise<TransactionEditResponse 
     setTransactionModel(newTransaction, options, true);
     initTransaction.value = Transaction.of(transaction.value);
 
+    transactionCategoriesStore.updateTransactionCategoryListInvalidState(true);
     const promises: Promise<unknown>[] = [
         accountsStore.loadAllAccounts({ force: false }),
         transactionCategoriesStore.loadAllCategories({ force: false }),
@@ -890,7 +892,10 @@ function open(options: TransactionEditOptions): Promise<TransactionEditResponse 
     });
 }
 
-function save(afterAction: AfterSaveAction): void {
+async function save(afterAction: AfterSaveAction): Promise<void> {
+    if (props.type === TransactionEditPageType.Transaction && !await reviewCategoryBeforeSubmit()) return;
+    const reviewedCategoryId = transaction.value.categoryId;
+    const reviewedCategoryRevision = reviewedCategoryId && reviewedCategoryId !== '0' ? transactionCategoriesStore.categoryRevision ?? undefined : undefined;
     const problemMessage = inputEmptyProblemMessage.value;
 
     if (problemMessage) {
@@ -900,13 +905,18 @@ function save(afterAction: AfterSaveAction): void {
 
     if (props.type === TransactionEditPageType.Transaction && (mode.value === TransactionEditPageMode.Add || mode.value === TransactionEditPageMode.Edit)) {
         const doSubmit = function () {
+            if (transaction.value.categoryId !== reviewedCategoryId) {
+                window.alert('分类已变化，请重新确认后保存；交易草稿已保留。');
+                return;
+            }
             submitting.value = true;
 
             transactionsStore.saveTransaction({
                 transaction: transaction.value as Transaction,
                 defaultCurrency: defaultCurrency.value,
                 isEdit: mode.value === TransactionEditPageMode.Edit,
-                clientSessionId: clientSessionId.value
+                clientSessionId: clientSessionId.value,
+                expectedCategoryRevision: reviewedCategoryRevision
             }).then(() => {
                 submitting.value = false;
                 submitted.value = true;
@@ -937,7 +947,11 @@ function save(afterAction: AfterSaveAction): void {
             }).catch(error => {
                 submitting.value = false;
 
-                if (error.error && (error.error.errorCode === KnownErrorCode.TransactionCannotCreateInThisTime || error.error.errorCode === KnownErrorCode.TransactionCannotModifyInThisTime)) {
+                if (error.error?.errorCode === 206013) {
+                    transactionCategoriesStore.updateTransactionCategoryListInvalidState(true);
+                    void transactionCategoriesStore.loadAllCategories({ force: false }).catch(() => {});
+                    window.alert('分类已在其他设备变化，交易尚未保存。请检查分类后重新确认；草稿已保留。');
+                } else if (error.error && (error.error.errorCode === KnownErrorCode.TransactionCannotCreateInThisTime || error.error.errorCode === KnownErrorCode.TransactionCannotModifyInThisTime)) {
                     confirmDialog.value?.open('You have set this time range to prevent editing transactions. Would you like to change the editable transaction range to All?').then(() => {
                         submitting.value = true;
 

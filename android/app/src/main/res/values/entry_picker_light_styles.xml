@@ -1,0 +1,20 @@
+<resources>
+    <!-- Explicit local light widgets; follows app preference rather than mutating global Locale/night mode. -->
+    <style name="BooksEntryPickerThemeLight" parent="android:style/Theme.Material.Light">
+        <item name="android:colorAccent">#0866C8</item>
+        <item name="android:colorControlActivated">#0866C8</item>
+        <item name="android:colorBackground">#FFFFFF</item>
+        <item name="android:timePickerStyle">@style/BooksEntryTimePickerLight</item>
+        <item name="android:datePickerStyle">@style/BooksEntryDatePickerLight</item>
+    </style>
+    <style name="BooksEntryTimePickerLight" parent="android:style/Widget.Material.Light.TimePicker">
+        <item name="android:headerBackground">#183A5B</item>
+        <item name="android:numbersBackgroundColor">#F4F5F7</item>
+        <item name="android:numbersSelectorColor">#0866C8</item>
+        <item name="android:numbersTextColor">@color/entry_clock_numbers_light</item>
+        <item name="android:numbersInnerTextColor">@color/entry_clock_inner_light</item>
+    </style>
+    <style name="BooksEntryDatePickerLight" parent="android:style/Widget.Material.Light.DatePicker">
+        <item name="android:headerBackground">#E9EDF1</item>
+    </style>
+</resources>

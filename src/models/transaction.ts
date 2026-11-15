@@ -531,6 +531,7 @@ export interface TransactionGeoLocationRequest {
 }
 
 export interface TransactionCreateRequest {
+    readonly expectedCategoryRevision?: string;
     readonly type: number;
     readonly categoryId: string;
     readonly time: number;
@@ -548,6 +549,7 @@ export interface TransactionCreateRequest {
 }
 
 export interface TransactionModifyRequest {
+    readonly expectedCategoryRevision?: string;
     readonly id: string;
     readonly type: number;
     readonly categoryId: string;

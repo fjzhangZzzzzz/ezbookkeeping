@@ -19,7 +19,7 @@ import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 data class LedgerPage(val items:List<JSONObject>,val hasMore:Boolean)
-class ApiFailure(val code: Int, message: String, val sessionExpired: Boolean = false) : IOException(message)
+class ApiFailure(val code: Int, message: String, val sessionExpired: Boolean = false, val httpStatus:Int?=null) : IOException(message)
 fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
 fun JSONObject.array(key: String): List<JSONObject> = optJSONArray(key)?.objects().orEmpty()
 fun JSONObject.id(key: String = "id"): String = optString(key, "0")
@@ -32,6 +32,7 @@ fun parseMinor(input: String): Long {
 class BooksApi(private val base: String, private val tokenProvider: () -> String?) {
     val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
+    private val entityClient=client.newBuilder().retryOnConnectionFailure(false).build()
     init {
         val origin=base.toHttpUrl()
         require(origin.username.isEmpty() && origin.password.isEmpty() && origin.encodedPath=="/" && origin.query==null && origin.fragment==null)
@@ -40,26 +41,33 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
     suspend fun call(path: String, payload: JSONObject? = null, auth: Boolean = true, overrideToken: String? = null): Any = withContext(Dispatchers.IO) {
         request(path, payload?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()), auth, overrideToken)
     }
-    private fun request(path: String, body: RequestBody?, auth: Boolean, overrideToken: String? = null): Any {
+    internal suspend fun writeEntityOnce(path:String,payload:JSONObject):Any=withContext(Dispatchers.IO){
+        require(isEntityWritePath(path)){"不支持的资料保存路径"}
+        request(path,payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()),true,null,entityClient)
+    }
+    private fun request(path: String, body: RequestBody?, auth: Boolean, overrideToken: String? = null, callClient:OkHttpClient=client): Any {
         require(path.startsWith("/api/"))
         val req = Request.Builder().url(base.trimEnd('/') + path).header("X-Timezone-Name", "Asia/Shanghai")
             .header("X-Timezone-Offset", "480").header("User-Agent", "FamilyBooks/${BuildConfig.VERSION_NAME} (Android ${android.os.Build.VERSION.RELEASE.orEmpty().filter { it in ' '..'~' && it != '(' && it != ')' }.take(40).ifEmpty { '?'.toString() }})")
         if (auth) (overrideToken ?: tokenProvider())?.let { req.header("Authorization", "Bearer $it") }
         if (body != null) req.post(body)
-        client.newCall(req.build()).execute().use { response ->
+        callClient.newCall(req.build()).execute().use { response ->
             if (response.code == 404 && path.contains("native")) throw ApiFailure(404, "服务端尚未支持原生 Pocket ID 登录，请先使用本地密码或升级服务端")
-            val obj = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrElse { throw ApiFailure(response.code, "服务响应异常，请稍后重试") }
+            val obj = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrElse { throw ApiFailure(response.code, "服务响应异常，请稍后重试",httpStatus=response.code) }
             if (!response.isSuccessful || !obj.optBoolean("success")) {
                 val code = obj.optInt("errorCode", response.code)
                 val expired = response.code == 401 && auth && overrideToken == null && tokenProvider() != null
                 val message = if (expired) "登录已过期或被撤销，请重新登录" else when (code) {
+                    206006 -> "该分类仍被交易或模板使用，不能删除；可选择隐藏"
+                    206013 -> "分类已在其他设备变更，请刷新并重新评审后再保存"
+                    206012 -> "分类管理需要升级客户端"
                     217001 -> "尚未关联此 Pocket ID，请先用本地密码登录后关联"
                     216001 -> "已有其他关联，请在网页安全设置中核对"
                     201001, 201002, 201003 -> "用户名或密码不正确"
                     201011 -> "本地密码不正确，请重新输入"
                     else -> if (response.code == 401) "认证未通过，请核对密码或二步验证码" else "操作未完成（$code），请检查输入或稍后重试"
                 }
-                throw ApiFailure(code, message, expired)
+                throw ApiFailure(code, message, expired,response.code)
             }
             return obj.opt("result") ?: JSONObject.NULL
         }
@@ -86,6 +94,11 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
     }
     suspend fun login(user: String, password: String, passcode: String): JSONObject = call("/api/authorize.json", JSONObject().put("loginName", user).put("password", password).put("passcode", passcode), false) as JSONObject
     suspend fun refresh(): JSONObject = call("/api/v1/tokens/refresh.json", JSONObject()) as JSONObject
+    internal suspend fun externalAuthLinked():Boolean = try {
+        (call("/api/v1/users/external_auth/list.json") as JSONArray).objects().any{it.optString("externalAuthType")=="oidc"&&it.optBoolean("linked")}
+    }catch(error:ApiFailure){
+        if(error.httpStatus==404&&error.code in setOf(404,100001)&&!error.sessionExpired)false else throw error
+    }
     suspend fun accounts(): List<JSONObject> {
         val top = (call("/api/v1/accounts/list.json?visible_only=false") as JSONArray).objects()
         return top.flatMap { if (it.array("subAccounts").isEmpty()) listOf(it) else it.array("subAccounts") }
@@ -95,6 +108,25 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
         return result.keys().asSequence().flatMap { key -> result.array(key).asSequence() }.flatMap { parent ->
             sequenceOf(parent) + parent.array("subCategories").asSequence()
         }.toList()
+    }
+    /** A category tree is usable for management only when surrounded by the same revision. */
+    suspend fun categorySnapshot(): Pair<List<JSONObject>,String?> {
+        suspend fun revision():String? = try {
+            val value=(call("/api/v1/transaction/categories/revision.json") as JSONObject).getString("revision")
+            require(Regex("[0-9]+").matches(value)) { "分类版本无效，请更新服务" }; value
+        } catch(e:ApiFailure) {
+            if(e.httpStatus==404 && e.code in setOf(404,100001)) null else throw e
+        }
+        repeat(3) {
+            val before=revision() ?: return categories() to null
+            val rows=categories()
+            if(revision()==before) return rows to before
+        }
+        throw IllegalArgumentException("分类正在更新，请稍后刷新")
+    }
+    suspend fun categoryImpact(id:String):JSONObject {
+        require(Regex("[1-9][0-9]*").matches(id))
+        return call("/api/v1/transaction/categories/impact.json?id=$id") as JSONObject
     }
     suspend fun tags() = (call("/api/v1/transaction/tags/list.json") as JSONArray).objects()
     suspend fun tagGroups() = (call("/api/v1/transaction/tags/groups/list.json") as JSONArray).objects()
@@ -113,6 +145,14 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
     suspend fun dailyRange(start:Long,end:Long):List<JSONObject> = (call("/api/v1/transactions/amounts/daily.json?start_time=$start&end_time=$end&use_transaction_timezone=false") as JSONArray).objects()
 
     suspend fun transaction(id: String) = call("/api/v1/transactions/get.json?id=$id&with_pictures=true") as JSONObject
+    suspend fun deleteTransaction(id:String){
+        require(Regex("[1-9][0-9]*").matches(id))
+        require(call("/api/v1/transactions/delete.json",JSONObject().put("id",id))==true) { "删除未完成，请刷新核对后重试" }
+    }
+    suspend fun removeUnusedPicture(id:String){
+        require(Regex("[1-9][0-9]*").matches(id))
+        require(call("/api/v1/transaction/pictures/remove_unused.json",JSONObject().put("id",id))==true) { "未用图片清理未完成" }
+    }
     suspend fun family(month: String) = call("/api/v1/family/overview.json?month=$month") as JSONObject
     suspend fun familyTransactions(month: String, cursor: String = "") = call("/api/v1/family/transactions/list.json?month=$month&cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}") as JSONObject
     companion object {

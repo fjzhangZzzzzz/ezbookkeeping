@@ -97,7 +97,7 @@ func updateAllDatabaseTablesStructure(c *core.CliContext) error {
 		return err
 	}
 
-	err = datastore.Container.UserDataStore.SyncStructs(new(models.TransactionCategory))
+	err = datastore.Container.UserDataStore.SyncStructs(new(models.TransactionCategory), new(models.TransactionCategoryRevision))
 
 	if err != nil {
 		return err

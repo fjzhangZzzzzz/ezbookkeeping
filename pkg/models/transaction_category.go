@@ -48,19 +48,21 @@ type TransactionCategoryGetRequest struct {
 
 // TransactionCategoryCreateRequest represents all parameters of single transaction category creation request
 type TransactionCategoryCreateRequest struct {
-	Name            string                  `json:"name" binding:"required,notBlank,max=64"`
-	Type            TransactionCategoryType `json:"type" binding:"required"`
-	ParentId        int64                   `json:"parentId,string" binding:"min=0"`
-	Icon            int64                   `json:"icon,string" binding:"min=1"`
-	IconType        core.IconType           `json:"iconType" binding:"min=0,max=1"`
-	Color           string                  `json:"color" binding:"required,len=6,validHexRGBColor"`
-	Comment         string                  `json:"comment" binding:"max=255"`
-	ClientSessionId string                  `json:"clientSessionId"`
+	ExpectedRevision int64                   `json:"expectedRevision,string"`
+	Name             string                  `json:"name" binding:"required,notBlank,max=64"`
+	Type             TransactionCategoryType `json:"type" binding:"required"`
+	ParentId         int64                   `json:"parentId,string" binding:"min=0"`
+	Icon             int64                   `json:"icon,string" binding:"min=1"`
+	IconType         core.IconType           `json:"iconType" binding:"min=0,max=1"`
+	Color            string                  `json:"color" binding:"required,len=6,validHexRGBColor"`
+	Comment          string                  `json:"comment" binding:"max=255"`
+	ClientSessionId  string                  `json:"clientSessionId"`
 }
 
 // TransactionCategoryCreateBatchRequest represents all parameters of transaction category batch creation request
 type TransactionCategoryCreateBatchRequest struct {
-	Categories []*TransactionCategoryCreateWithSubCategories `json:"categories" binding:"required"`
+	ExpectedRevision int64                                         `json:"expectedRevision,string"`
+	Categories       []*TransactionCategoryCreateWithSubCategories `json:"categories" binding:"required"`
 }
 
 // TransactionCategoryCreateWithSubCategories represents all parameters of multi transaction categories creation request
@@ -76,24 +78,27 @@ type TransactionCategoryCreateWithSubCategories struct {
 
 // TransactionCategoryModifyRequest represents all parameters of transaction category modification request
 type TransactionCategoryModifyRequest struct {
-	Id       int64         `json:"id,string" binding:"required,min=1"`
-	Name     string        `json:"name" binding:"required,notBlank,max=64"`
-	ParentId int64         `json:"parentId,string" binding:"min=0"`
-	Icon     int64         `json:"icon,string" binding:"min=1"`
-	IconType core.IconType `json:"iconType" binding:"min=0,max=1"`
-	Color    string        `json:"color" binding:"required,len=6,validHexRGBColor"`
-	Comment  string        `json:"comment" binding:"max=255"`
-	Hidden   bool          `json:"hidden"`
+	ExpectedRevision int64         `json:"expectedRevision,string"`
+	Id               int64         `json:"id,string" binding:"required,min=1"`
+	Name             string        `json:"name" binding:"required,notBlank,max=64"`
+	ParentId         int64         `json:"parentId,string" binding:"min=0"`
+	Icon             int64         `json:"icon,string" binding:"min=1"`
+	IconType         core.IconType `json:"iconType" binding:"min=0,max=1"`
+	Color            string        `json:"color" binding:"required,len=6,validHexRGBColor"`
+	Comment          string        `json:"comment" binding:"max=255"`
+	Hidden           bool          `json:"hidden"`
 }
 
 // TransactionCategoryHideRequest represents all parameters of transaction category hiding request
 type TransactionCategoryHideRequest struct {
-	Id     int64 `json:"id,string" binding:"required,min=1"`
-	Hidden bool  `json:"hidden"`
+	ExpectedRevision int64 `json:"expectedRevision,string"`
+	Id               int64 `json:"id,string" binding:"required,min=1"`
+	Hidden           bool  `json:"hidden"`
 }
 
 // TransactionCategoryMoveRequest represents all parameters of transaction category moving request
 type TransactionCategoryMoveRequest struct {
+	ExpectedRevision int64                                        `json:"expectedRevision,string"`
 	NewDisplayOrders []*TransactionCategoryNewDisplayOrderRequest `json:"newDisplayOrders" binding:"required,min=1"`
 }
 
@@ -105,7 +110,8 @@ type TransactionCategoryNewDisplayOrderRequest struct {
 
 // TransactionCategoryDeleteRequest represents all parameters of transaction category deleting request
 type TransactionCategoryDeleteRequest struct {
-	Id int64 `json:"id,string" binding:"required,min=1"`
+	ExpectedRevision int64 `json:"expectedRevision,string"`
+	Id               int64 `json:"id,string" binding:"required,min=1"`
 }
 
 // TransactionCategoryInfoResponse represents a view-object of transaction category

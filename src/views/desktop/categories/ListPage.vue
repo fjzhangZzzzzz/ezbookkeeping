@@ -391,49 +391,36 @@ function edit(category: TransactionCategory): void {
     });
 }
 
-function hide(category: TransactionCategory, hidden: boolean): void {
-    updating.value = true;
-    categoryHiding.value[category.id] = true;
-
-    transactionCategoriesStore.hideCategory({
-        category: category,
-        hidden: hidden
-    }).then(() => {
-        updating.value = false;
-        categoryHiding.value[category.id] = false;
-
+async function hide(category: TransactionCategory, hidden: boolean): Promise<void> {
+    try {
+        const impact = await transactionCategoriesStore.previewImpact(category.id);
+        await confirmDialog.value?.open(`此操作影响活跃成员的 ${impact.transactionCount} 笔历史交易。确认${hidden ? '隐藏' : '显示'}分类？`);
+        updating.value = true;
+        categoryHiding.value[category.id] = true;
+        await transactionCategoriesStore.hideCategory({ category, hidden, revision: impact.revision });
         updateCardMinHeight();
-    }).catch(error => {
+    } catch (error) {
+        if (error) snackbar.value?.showError(error as { message: string });
+    } finally {
         updating.value = false;
         categoryHiding.value[category.id] = false;
-
-        if (!error.processed) {
-            snackbar.value?.showError(error);
-        }
-    });
+    }
 }
 
-function remove(category: TransactionCategory): void {
-    confirmDialog.value?.open('Are you sure you want to delete this category?').then(() => {
+async function remove(category: TransactionCategory): Promise<void> {
+    try {
+        const impact = await transactionCategoriesStore.previewImpact(category.id);
+        await confirmDialog.value?.open(`该分类关联活跃成员的 ${impact.transactionCount} 笔历史交易。仅未被引用的分类可删除，确认删除？`);
         updating.value = true;
         categoryRemoving.value[category.id] = true;
-
-        transactionCategoriesStore.deleteCategory({
-            category: category
-        }).then(() => {
-            updating.value = false;
-            categoryRemoving.value[category.id] = false;
-
-            updateCardMinHeight();
-        }).catch(error => {
-            updating.value = false;
-            categoryRemoving.value[category.id] = false;
-
-            if (!error.processed) {
-                snackbar.value?.showError(error);
-            }
-        });
-    });
+        await transactionCategoriesStore.deleteCategory({ category, revision: impact.revision });
+        updateCardMinHeight();
+    } catch (error) {
+        if (error) snackbar.value?.showError(error as { message: string });
+    } finally {
+        updating.value = false;
+        categoryRemoving.value[category.id] = false;
+    }
 }
 
 function saveSortResult(): void {
@@ -496,6 +483,7 @@ watch(lgAndUp, (newValue) => {
     }
 });
 
+transactionCategoriesStore.updateTransactionCategoryListInvalidState(true);
 reload(false);
 </script>
 

@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue';
 import { defineStore } from 'pinia';
+import sha256 from 'crypto-js/sha256';
 
 import { useSettingsStore } from './setting.ts';
 import { useUserStore } from './user.ts';
@@ -120,6 +121,7 @@ export interface TransactionMonthList {
 }
 
 export const useTransactionsStore = defineStore('transactions', () => {
+    let unknownTransactionInMemory = false;
     const settingsStore = useSettingsStore();
     const userStore = useUserStore();
     const accountsStore = useAccountsStore();
@@ -1212,8 +1214,31 @@ export const useTransactionsStore = defineStore('transactions', () => {
         });
     }
 
-    function saveTransaction({ transaction, defaultCurrency, isEdit, clientSessionId }: { transaction: Transaction, defaultCurrency: string, isEdit: boolean, clientSessionId: string }): Promise<Transaction> {
+    function saveTransaction({ transaction, defaultCurrency, isEdit, clientSessionId, expectedCategoryRevision }: { transaction: Transaction, defaultCurrency: string, isEdit: boolean, clientSessionId: string, expectedCategoryRevision?: string }): Promise<Transaction> {
         return new Promise((resolve, reject) => {
+            let unknownKey: string;
+            try {
+                const storedUser = localStorage.getItem('ebk_user_info');
+                let username = '';
+                try { username = storedUser ? JSON.parse(storedUser).username || '' : ''; } catch { /* Use fallback key. */ }
+                unknownKey = 'ebk_transaction_write_unknown_' + sha256(username).toString();
+                const probe = unknownKey + '_probe';
+                localStorage.setItem(probe, '1');
+                localStorage.removeItem(probe);
+                if (unknownTransactionInMemory || localStorage.getItem(unknownKey)) {
+                    if (!window.confirm('上次交易保存结果未知。请先核对账单，确认已经核对并解除阻止？')) {
+                        reject({ message: '请先核对账单，再明确解除保存阻止' });
+                        return;
+                    }
+                    localStorage.removeItem(unknownKey);
+                    unknownTransactionInMemory = false;
+                    reject({ message: '已解除阻止；请退出当前草稿，核对账单后重新发起操作' });
+                    return;
+                }
+            } catch {
+                reject({ message: '无法安全记录未知保存结果，请检查浏览器存储后重试' });
+                return;
+            }
             let promise: ApiResponsePromise<TransactionInfoResponse>;
 
             if (transaction.type !== TransactionType.Expense &&
@@ -1227,10 +1252,18 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 return;
             }
 
+            try {
+                localStorage.setItem(unknownKey, '1');
+                unknownTransactionInMemory = true;
+            } catch {
+                reject({ message: '无法安全记录待核实状态，未发送请求' });
+                return;
+            }
+
             if (!isEdit) {
-                promise = services.addTransaction(transaction.toCreateRequest(clientSessionId));
+                promise = services.addTransaction({ ...transaction.toCreateRequest(clientSessionId), expectedCategoryRevision });
             } else {
-                promise = services.modifyTransaction(transaction.toModifyRequest());
+                promise = services.modifyTransaction({ ...transaction.toModifyRequest(), expectedCategoryRevision });
             }
 
             promise.then(response => {
@@ -1238,13 +1271,19 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
                 if (!data || !data.success || !data.result) {
                     if (!isEdit) {
-                        reject({ message: 'Unable to add transaction' });
+                        reject({ message: '交易保存结果未知，请核对账单后再操作' });
                     } else {
-                        reject({ message: 'Unable to save transaction' });
+                        reject({ message: '交易保存结果未知，请核对账单后再操作' });
                     }
+                    return;
                 }
 
+                if (typeof data.result?.id !== 'string' || !/^[1-9][0-9]{0,18}$/.test(data.result.id) || (data.result.id.length === 19 && data.result.id > '9223372036854775807')) {
+                    reject({ message: '交易保存结果未知，请核对账单后再操作' });
+                    return;
+                }
                 const transaction = Transaction.of(data.result);
+                try { localStorage.removeItem(unknownKey); unknownTransactionInMemory = false; } catch { /* Keep blocking. */ }
 
                 if (!isEdit) {
                     if (!transactionListStateInvalid.value) {
@@ -1267,6 +1306,13 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
                 resolve(transaction);
             }).catch(error => {
+                if (!(error?.response?.status === 409 && error.response.data?.errorCode === 206013)) {
+                    reject({ message: '交易保存结果未知。请先核对账单，再明确解除保存阻止' });
+                    return;
+                }
+                if (error.response.status === 409 && error.response.data?.errorCode === 206013) {
+                    try { localStorage.removeItem(unknownKey); unknownTransactionInMemory = false; } catch { /* Keep blocking. */ }
+                }
                 logger.error('failed to save transaction', error);
 
                 if (error.response && error.response.data && error.response.data.errorMessage) {

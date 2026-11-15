@@ -61,6 +61,7 @@ function reload(done?: () => void): void {
     });
 }
 
+transactionCategoriesStore.updateTransactionCategoryListInvalidState(true);
 transactionCategoriesStore.loadAllCategories({
     force: false
 }).then(() => {

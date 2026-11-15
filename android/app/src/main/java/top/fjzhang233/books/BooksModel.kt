@@ -9,6 +9,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -33,6 +37,23 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var nickname by mutableStateOf("家人"); private set
     var accounts by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var categories by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var categoryRevision by mutableStateOf<String?>(null); private set
+    var categoryReviewRequired by mutableStateOf(false); private set
+    var categoryReviewReady by mutableStateOf(false); private set
+    fun acknowledgeCategoryReview(){if(categoryReviewReady){categoryReviewRequired=false;categoryReviewReady=false}}
+    fun retryCategoryReview()=act { loadCategories(); categoryReviewReady=true }
+    private suspend fun categoryConflict(error:ApiFailure):Nothing {
+        if(error.code==206013 && error.httpStatus==409) {
+            categoryReviewRequired=true;categoryReviewReady=false
+            try { loadCategories();categoryReviewReady=true } catch(e:CancellationException){throw e} catch(_:Exception){}
+        }
+        throw error
+    }
+    private suspend fun loadCategories() {
+        val (rows,revision)=api.categorySnapshot(); categories=rows; categoryRevision=revision
+    }
+    fun refreshCategories() { if(token!=null && !busy) act { loadCategories() } }
+    internal suspend fun refreshCategoriesNow() { loadCategories() }
     var tags by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var tagGroups by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var transactions by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -47,9 +68,111 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var ledgerDay by mutableStateOf<String?>(null); private set
     var editTransaction by mutableStateOf<JSONObject?>(null)
     var showEditor by mutableStateOf(false)
+    var newTransactionDay by mutableStateOf<String?>(null); private set
     var draftPreviews by mutableStateOf<Map<String,ByteArray>>(emptyMap())
     var draftPictures by mutableStateOf<List<String>>(emptyList())
     var draftAttachmentProblem by mutableStateOf(false)
+    var copiedTransaction by mutableStateOf<JSONObject?>(null); private set
+    private data class LocalCopyPicture(val file:File,val mime:String)
+    private var localCopyPictures=emptyMap<String,LocalCopyPicture>()
+    private var copyCacheDirectory:File?=null
+    private var newlyUploadedPictures=emptySet<String>()
+    private val transactionSubmission=TransactionSubmission(
+        BuildConfig.API_BASE_URL.trimEnd('/'),
+        identify={submissionIdentity(api.accounts(),api.family(BooksApi.month()).array("accounts"))},
+        storage={uid->
+            val scope=MessageDigest.getInstance("SHA-256").digest((BuildConfig.API_BASE_URL.trimEnd('/')+"\n"+uid).toByteArray()).joinToString(""){"%02x".format(it)}
+            val encrypted=TokenStore(app,"pending-transaction-$scope","pending-transaction-$scope")
+            object:TransactionRequestStorage{override fun read()=encrypted.readChecked();override fun write(value:String)=encrypted.write(value);override fun clear()=encrypted.clearChecked()}
+        },
+        send={path,body->api.call(path,body)}
+    )
+    private val entityWrites=run {
+        val scope=MessageDigest.getInstance("SHA-256").digest(BuildConfig.API_BASE_URL.trimEnd('/').toByteArray()).joinToString(""){"%02x".format(it)}
+        val encrypted=TokenStore(app,"pending-entity-$scope","pending-entity-$scope")
+        EntityWriteState(BuildConfig.API_BASE_URL.trimEnd('/'),object:TransactionRequestStorage{
+            override fun read()=encrypted.readChecked();override fun write(value:String)=encrypted.write(value);override fun clear()=encrypted.clearChecked()
+        },identify={
+            val records=(api.call("/api/v1/tokens/list.json") as JSONArray).objects()
+            val own=api.accounts();entityAuthenticatedUid(records,own,if(own.isEmpty())emptyList()else api.family(BooksApi.month()).array("accounts"))
+        },sendOnce={path,body->api.writeEntityOnce(path,body)})
+    }
+    val entityBlocked:Boolean get()=entityWrites.blocked
+    val entityAwaitingReview:Boolean get()=entityWrites.blocked&&!entityWrites.inFlight
+    internal val entityPendingView:EntityPendingView? get()=entityWrites.view()
+    var entityReviewOpen by mutableStateOf(entityWrites.blocked&&token!=null);private set
+    fun hideEntityReview(){if(!busy)entityReviewOpen=false}
+    fun reviewEntityWrite()=act{entityReviewOpen=true;entityWrites.invalidateIdentity();loadAll()}
+    fun abandonEntityAfterReview()=act{
+        entityWrites.abandonAfterExplicitReview();entityReviewOpen=false;notice="已结束本次保存意图；这不会撤销服务器更改，请以实际列表为准"
+        try{loadAll()}catch(error:CancellationException){throw error}catch(error:Exception){if(error is ApiFailure&&error.sessionExpired)throw error;notice="保存意图已结束，实际列表刷新失败，请稍后核对"}
+    }
+    var restoredTransaction by mutableStateOf<JSONObject?>(null);private set
+    private var pendingCheckReady=false
+    val transactionConfirmation:JSONObject? get()=transactionSubmission.confirmationView()
+    val transactionNeedsConfirmation:Boolean get()=transactionSubmission.needsConfirmation
+
+    private fun clearCopyCache(){
+        val directory=copyCacheDirectory
+        localCopyPictures.values.forEach{item->if(directory!=null && item.file.parentFile==directory)item.file.delete()}
+        directory?.delete() // Only this exact, empty directory. Never recurse into cache or original storage.
+        localCopyPictures=emptyMap();copyCacheDirectory=null
+    }
+    fun registerDraftPicture(id:String,preview:ByteArray){
+        transactionSubmission.requireEditable()
+        require(Regex("[1-9][0-9]*").matches(id))
+        newlyUploadedPictures=newlyUploadedPictures+id;draftPreviews=draftPreviews+(id to preview);draftPictures=draftPictures+id
+    }
+    private fun clearTransactionDraft(){
+        clearCopyCache();copiedTransaction=null;restoredTransaction=null;newlyUploadedPictures=emptySet();draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false
+    }
+    private fun discardNewPictures(ids:Set<String>){
+        if(ids.isEmpty() || token==null)return
+        act { for(id in ids)try{api.removeUnusedPicture(id)}catch(e:ApiFailure){if(e.sessionExpired)throw e;notice="未用附件清理未完成，可稍后重试"} }
+    }
+    fun copyTransaction(id:String)=act {
+        require(pendingCheckReady){"请先刷新账本，核对未完成的保存"}
+        transactionSubmission.requireEditable()
+        val source=api.transaction(id)
+        val copied=transactionCopyDraft(source,java.time.Instant.now().epochSecond)
+        val items=source.array("pictures");require(items.size<=10) { "每笔最多10张图片" }
+        val cache=File(getApplication<Application>().cacheDir,"transaction-copy-"+UUID.randomUUID()).apply{check(mkdir())}
+        val pending=linkedMapOf<String,LocalCopyPicture>();val previews=linkedMapOf<String,ByteArray>()
+        try {
+            for((index,picture) in items.withIndex()){
+                val extension=Uri.parse(picture.getString("originalUrl")).path?.substringAfterLast('.')?.lowercase()
+                val mime=when(extension){"jpg","jpeg"->"image/jpeg";"png"->"image/png";"webp"->"image/webp";else->throw IllegalArgumentException("无法复制此附件格式")}
+                val pictureId=picture.id("pictureId");require(Regex("[1-9][0-9]*").matches(pictureId))
+                val bytes=api.picture("/api/v1/family/pictures/$pictureId.$extension")
+                require(bytes.size<=10*1024*1024) { "复制图片不能超过10MB" }
+                val thumbnail=withContext(Dispatchers.IO){draftThumbnail(bytes)}
+                val file=File(cache,"$index.$extension")
+                pending["copy-local-$index"]=LocalCopyPicture(file,mime)
+                withContext(Dispatchers.IO){file.outputStream().use{it.write(bytes)}}
+                previews["copy-local-$index"]=thumbnail
+            }
+        }catch(e:Exception){pending.values.forEach{it.file.delete()};cache.delete();throw e}
+        clearTransactionDraft();newTransactionDay=null;editTransaction=null;copiedTransaction=copied
+        localCopyPictures=pending;copyCacheDirectory=cache;draftPictures=pending.keys.toList();draftPreviews=previews;showEditor=true
+    }
+    private suspend fun uploadLocalCopyPictures(){
+        for(key in draftPictures.toList()){
+            val local=localCopyPictures[key]?:continue
+            val bytes=withContext(Dispatchers.IO){require(local.file.length() in 1..(10L*1024*1024));local.file.readBytes()}
+            val result=api.upload(bytes,local.mime);val uploaded=result.id("pictureId")
+            require(Regex("[1-9][0-9]*").matches(uploaded)) { "服务器未返回有效图片" }
+            newlyUploadedPictures=newlyUploadedPictures+uploaded
+            draftPictures=draftPictures.map{if(it==key)uploaded else it}
+            draftPreviews[key]?.let{draftPreviews=(draftPreviews-key)+(uploaded to it)}
+            localCopyPictures=localCopyPictures-key;local.file.delete()
+        }
+        if(localCopyPictures.isEmpty()){copyCacheDirectory?.delete();copyCacheDirectory=null}
+    }
+    fun deleteTransaction(id:String,done:()->Unit={})=act {
+        var alreadyAbsent=false
+        val refreshed=commitThenRefresh({alreadyAbsent=deleteTransactionOrAlreadyAbsent(api,id)},{done();notice=if(alreadyAbsent)"这笔记录已不存在" else "已删除"},{loadAll()})
+        if(!refreshed)notice=if(alreadyAbsent)"这笔记录已不存在，数据刷新失败，可重试刷新" else "已删除，数据刷新失败，可重试刷新"
+    }
     var browserUrl by mutableStateOf<String?>(null)
     var oidcCallbackToken by mutableStateOf<String?>(null); private set
     var oidcNeedsPassword by mutableStateOf(false); private set
@@ -85,7 +208,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if (result.optBoolean("need2FA")) { twoFactorToken = result.getString("token"); return }
         val value = result.optString("token"); require(value.isNotBlank()) { "未取得有效会话" }
         try { store.write(value) } catch(_:Exception) { runCatching { api.call("/api/logout.json",null,true,value) }; throw IllegalArgumentException("无法安全保存会话，请检查设备安全设置后重试") }
-        token = value; nickname = result.optJSONObject("user")?.optString("nickname") ?: "家人"
+        pendingCheckReady=false;token = value; nickname = result.optJSONObject("user")?.optString("nickname") ?: "家人"
     }
     fun login(name: String, password: String, passcode: String) = act {
         require(name.isNotBlank() && password.isNotBlank()) { "请填写用户名和密码" }
@@ -104,17 +227,23 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         refreshAt = System.currentTimeMillis()
     }
     private suspend fun loadAll() {
+        if(entityWrites.blocked)entityWrites.invalidateIdentity()
         refreshSession()
-        accounts = api.accounts(); categories = api.categories(); tags = api.tags(); tagGroups = api.tagGroups()
-        externalLinked = (api.call("/api/v1/users/external_auth/list.json") as JSONArray).objects().any { it.optString("externalAuthType") == "oidc" && it.optBoolean("linked") }
+        accounts = api.accounts(); loadCategories(); tags = api.tags(); tagGroups = api.tagGroups()
+        externalLinked = api.externalAuthLinked()
         page = 1; val listed=api.ledgerPage(page,ledgerMonth,ledgerDay);transactions=listed.items;hasMoreTransactions=listed.hasMore;dailyAmounts=api.dailyAmounts(ledgerMonth)
         val today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));weeklyAmounts=api.dailyRange(BooksApi.dayBounds(today.minusDays(6).toString()).first,BooksApi.dayBounds(today.toString()).second)
         family = api.family(month)
         val result = api.familyTransactions(month); familyItems = result.array("items"); familyCursor = result.optString("nextCursor")
+        if(accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation){
+            transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
+        }
+        pendingCheckReady=accounts.isNotEmpty()
+        if(entityWrites.blocked)entityWrites.refresh()
     }
     fun dismissFeedback(value:String){if(error==value)error="";if(notice==value)notice=""}
     fun reload() = act { loadAll() }
-    fun resume() { if (token != null && !busy) act { refreshSession() } }
+    fun resume() { if (token != null && !busy) act { refreshSession(); loadCategories() } }
     fun loadMore() = act {if(!hasMoreTransactions)return@act;val result=api.ledgerPage(page+1,ledgerMonth,ledgerDay);hasMoreTransactions=result.hasMore;if(result.items.isNotEmpty()){page++;transactions=(transactions+result.items).distinctBy{it.id()}}}
     fun changeLedgerMonth(value:String)=act {
         java.time.YearMonth.parse(value)
@@ -135,20 +264,59 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         val result = api.familyTransactions(month, familyCursor); familyItems = familyItems + result.array("items"); familyCursor = result.optString("nextCursor")
     }
     fun openTransaction(id: String) = act {
+        require(pendingCheckReady){"请先刷新账本，核对未完成的保存"}
+        transactionSubmission.requireEditable()
         val data=api.transaction(id)
         if(data.optInt("type")==1) { notice="余额调整记录请通过账户或网页核对，不能按普通收支编辑"; return@act }
-        draftPreviews=emptyMap();editTransaction=data;draftPictures=data.array("pictures").map { it.id("pictureId") };draftAttachmentProblem=false;showEditor=true
+        clearTransactionDraft();newTransactionDay=null;editTransaction=data;draftPictures=data.array("pictures").map { it.id("pictureId") };draftAttachmentProblem=false;showEditor=true
     }
-    fun newTransaction() { editTransaction=null;draftPreviews=emptyMap();draftPictures=emptyList();draftAttachmentProblem=false;showEditor=true }
-    fun closeTransaction(){showEditor=false;editTransaction=null;draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false}
-    fun removeDraftPicture(id:String){draftPictures=draftPictures-id;draftPreviews=draftPreviews-id}
+    fun newTransaction(day:String?=null) { if(!pendingCheckReady || transactionNeedsConfirmation){error="请先刷新账本，核对未完成的保存";return};if(day!=null)java.time.LocalDate.parse(day);newTransactionDay=day;clearTransactionDraft();editTransaction=null;showEditor=true }
+    fun closeTransaction(){if(transactionNeedsConfirmation){error="请先确认刚才那笔保存的结果";return};val unused=newlyUploadedPictures;showEditor=false;editTransaction=null;clearTransactionDraft();discardNewPictures(unused)}
+    fun removeDraftPicture(id:String){
+        transactionSubmission.requireEditable()
+        localCopyPictures[id]?.file?.delete();localCopyPictures=localCopyPictures-id
+        val unused=if(id in newlyUploadedPictures)setOf(id) else emptySet()
+        newlyUploadedPictures=newlyUploadedPictures-id;draftPictures=draftPictures-id;draftPreviews=draftPreviews-id
+        discardNewPictures(unused)
+    }
+    private suspend fun finishTransactionSave(keepOpen:Boolean,onSaved:()->Unit){
+        showEditor=keepOpen;editTransaction=null;val copied=copiedTransaction;clearTransactionDraft();if(keepOpen)copiedTransaction=copied
+        notice="已保存";onSaved()
+        try{loadAll()}catch(error:CancellationException){throw error}catch(error:Exception){if(error is ApiFailure && error.sessionExpired)throw error;notice="已保存，数据刷新失败，可重试刷新"}
+    }
     fun saveTransaction(payload: JSONObject, existing: Boolean, keepOpen:Boolean=false, onSaved:()->Unit={}) = act {
-        val refreshed = commitThenRefresh({ api.call("/api/v1/transactions/${if (existing) "modify" else "add"}.json", payload) }, { showEditor = keepOpen; editTransaction = null; draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false;notice = "已保存";onSaved() }, { loadAll() })
-        if(!refreshed) notice="已保存，数据刷新失败，可重试刷新"
+        transactionSubmission.requireEditable()
+        transactionSubmission.prepare(payload)
+        uploadLocalCopyPictures()
+        payload.put("pictureIds",JSONArray(draftPictures))
+        val acknowledged=try { transactionSubmission.submit("/api/v1/transactions/${if(existing)"modify" else "add"}.json",payload,keepOpen) } catch(error:ApiFailure) { categoryConflict(error) }
+        finishTransactionSave(acknowledged,onSaved)
     }
-    fun saveEntity(path: String, payload: JSONObject, done: () -> Unit) = act {
-        val refreshed=commitThenRefresh({api.call(path,payload)},{done();notice="已保存"},{loadAll()})
-        if(!refreshed) notice="已保存，数据刷新失败，可重试刷新"
+    fun refreshTransactionConfirmation()=act {
+        transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
+    }
+    fun confirmTransactionSave(onSaved:()->Unit={})=act {
+        val keepOpen=try { transactionSubmission.retry() } catch(error:ApiFailure) { categoryConflict(error) }
+        finishTransactionSave(keepOpen,onSaved)
+    }
+    fun saveEntity(path: String, payload: JSONObject, done: () -> Unit) {
+        // Reject synchronously before queueing behind an ACK that could otherwise unlock a second write.
+        if(busy){error="正在处理请求，请勿重复保存";return}
+        if(entityWrites.blocked){entityReviewOpen=true;error="请先核对上一笔资料保存；不会自动重发";return}
+        act{
+            try{
+                val details=JSONObject()
+                if(path.contains("/categories/"))details.put("parentName",if(payload.id("parentId")=="0")"作为大类" else categories.firstOrNull{it.id()==payload.id("parentId")}?.optString("name")?:"原大类当前不可见")
+                if(path.contains("/tags/")&&!path.contains("/tags/groups/"))details.put("groupName",if(payload.id("groupId")=="0")"不分组" else tagGroups.firstOrNull{it.id()==payload.id("groupId")}?.optString("name")?:"原标签组当前不可见")
+                entityWrites.submit(path,payload,details)
+                done();notice="已保存"
+                try{loadAll()}catch(error:CancellationException){throw error}catch(error:Exception){if(error is ApiFailure&&error.sessionExpired)throw error;notice="已保存，数据刷新失败，可重试刷新"}
+            }catch(error:CancellationException){throw error}catch(error:Exception){
+                if(error is ApiFailure&&error.sessionExpired)throw error
+                if(entityWrites.blocked)throw IllegalArgumentException("资料保存结果待核实；客户端不会重发，请先核对实际列表")
+                throw error
+            }finally{if(entityWrites.blocked)entityReviewOpen=true}
+        }
     }
     fun getSessions() = act { sessions = (api.call("/api/v1/tokens/list.json") as JSONArray).objects() }
     fun revokeSession(id: String, current: Boolean) = act {
@@ -159,9 +327,13 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun logout() = act { api.call("/api/logout.json"); localLogout() }
     fun forgetLocal() { localLogout(); notice = "已清除此设备会话；离线退出不会撤销服务器会话" }
     private fun localLogout(clearFlow: Boolean = true) {
-        store.clear(); token = null; refreshAt = 0; accounts = emptyList(); categories = emptyList(); tags = emptyList()
+        pendingCheckReady=false;categoryReviewRequired=false;categoryReviewReady=false
+        entityWrites.detachForLogout();entityReviewOpen=false
+        transactionSubmission.detachForLogout()
+        clearTransactionDraft()
+        store.clear(); token = null; refreshAt = 0; accounts = emptyList(); categories = emptyList(); categoryRevision = null; tags = emptyList()
         tagGroups = emptyList(); transactions = emptyList(); familyItems = emptyList(); family = JSONObject(); sessions = emptyList()
-        hasMoreTransactions=false;dailyAmounts=emptyList();weeklyAmounts=emptyList();ledgerDay=null;editTransaction = null; showEditor = false; oidcCallbackToken = null; twoFactorToken = null;draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false
+        hasMoreTransactions=false;dailyAmounts=emptyList();weeklyAmounts=emptyList();ledgerDay=null;newTransactionDay=null;editTransaction = null; showEditor = false; oidcCallbackToken = null; twoFactorToken = null;draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false
         if (clearFlow) protectedFlow.clear()
     }
     private fun random(): String = Base64.encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) }, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)

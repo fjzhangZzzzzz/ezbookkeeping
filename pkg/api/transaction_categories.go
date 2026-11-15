@@ -40,6 +40,28 @@ var (
 	}
 )
 
+// CategoryRevisionHandler returns the shared category collection version.
+func (a *TransactionCategoriesApi) CategoryRevisionHandler(c *core.WebContext) (any, *errs.Error) {
+	revision, err := a.categories.GetCategoryRevision(c, c.GetCurrentUid())
+	if err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+	return map[string]string{"revision": utils.Int64ToString(revision)}, nil
+}
+
+// CategoryImpactHandler previews active family members' transaction count.
+func (a *TransactionCategoriesApi) CategoryImpactHandler(c *core.WebContext) (any, *errs.Error) {
+	var req models.TransactionCategoryGetRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
+	}
+	revision, count, err := a.categories.CategoryImpact(c, c.GetCurrentUid(), req.Id)
+	if err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+	return map[string]string{"revision": utils.Int64ToString(revision), "transactionCount": utils.Int64ToString(count)}, nil
+}
+
 // CategoryListHandler returns transaction category list of current user
 func (a *TransactionCategoriesApi) CategoryListHandler(c *core.WebContext) (any, *errs.Error) {
 	var categoryListReq models.TransactionCategoryListRequest
@@ -97,6 +119,10 @@ func (a *TransactionCategoriesApi) CategoryCreateHandler(c *core.WebContext) (an
 	if categoryCreateReq.Type < models.CATEGORY_TYPE_INCOME || categoryCreateReq.Type > models.CATEGORY_TYPE_TRANSFER {
 		log.Warnf(c, "[transaction_categories.CategoryCreateHandler] category type invalid, type is %d", categoryCreateReq.Type)
 		return nil, errs.ErrTransactionCategoryTypeInvalid
+	}
+
+	if categoryCreateReq.ExpectedRevision < 1 {
+		return nil, errs.ErrTransactionCategoryRevisionRequired
 	}
 
 	uid := c.GetCurrentUid()
@@ -163,7 +189,7 @@ func (a *TransactionCategoriesApi) CategoryCreateHandler(c *core.WebContext) (an
 		}
 	}
 
-	err = a.categories.CreateCategory(c, category)
+	err = a.categories.CreateCategory(c, category, categoryCreateReq.ExpectedRevision)
 
 	if err != nil {
 		log.Errorf(c, "[transaction_categories.CategoryCreateHandler] failed to create category \"id:%d\" for user \"uid:%d\", because %s", category.CategoryId, uid, err.Error())
@@ -188,6 +214,10 @@ func (a *TransactionCategoriesApi) CategoryCreateBatchHandler(c *core.WebContext
 		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
 	}
 
+	if categoryCreateBatchReq.ExpectedRevision < 1 {
+		return nil, errs.ErrTransactionCategoryRevisionRequired
+	}
+
 	uid := c.GetCurrentUid()
 
 	categories, err := a.createBatchCategories(c, uid, &categoryCreateBatchReq)
@@ -209,6 +239,10 @@ func (a *TransactionCategoriesApi) CategoryModifyHandler(c *core.WebContext) (an
 		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
 	}
 
+	if categoryModifyReq.ExpectedRevision < 1 {
+		return nil, errs.ErrTransactionCategoryRevisionRequired
+	}
+
 	uid := c.GetCurrentUid()
 	category, err := a.categories.GetCategoryByCategoryId(c, uid, categoryModifyReq.Id)
 
@@ -221,6 +255,7 @@ func (a *TransactionCategoriesApi) CategoryModifyHandler(c *core.WebContext) (an
 		FamilyInternalTransfer: category.FamilyInternalTransfer,
 		CategoryId:             category.CategoryId,
 		Uid:                    uid,
+		Type:                   category.Type,
 		ParentCategoryId:       categoryModifyReq.ParentId,
 		Name:                   categoryModifyReq.Name,
 		DisplayOrder:           category.DisplayOrder,
@@ -289,7 +324,7 @@ func (a *TransactionCategoriesApi) CategoryModifyHandler(c *core.WebContext) (an
 		return nil, errs.ErrTransactionCategoryIconInvalid
 	}
 
-	err = a.categories.ModifyCategory(c, newCategory)
+	err = a.categories.ModifyCategory(c, newCategory, categoryModifyReq.ExpectedRevision)
 
 	if err != nil {
 		log.Errorf(c, "[transaction_categories.CategoryModifyHandler] failed to update category \"id:%d\" for user \"uid:%d\", because %s", categoryModifyReq.Id, uid, err.Error())
@@ -314,8 +349,12 @@ func (a *TransactionCategoriesApi) CategoryHideHandler(c *core.WebContext) (any,
 		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
 	}
 
+	if categoryHideReq.ExpectedRevision < 1 {
+		return nil, errs.ErrTransactionCategoryRevisionRequired
+	}
+
 	uid := c.GetCurrentUid()
-	err = a.categories.HideCategory(c, uid, []int64{categoryHideReq.Id}, categoryHideReq.Hidden)
+	err = a.categories.HideCategory(c, uid, []int64{categoryHideReq.Id}, categoryHideReq.Hidden, categoryHideReq.ExpectedRevision)
 
 	if err != nil {
 		log.Errorf(c, "[transaction_categories.CategoryHideHandler] failed to hide category \"id:%d\" for user \"uid:%d\", because %s", categoryHideReq.Id, uid, err.Error())
@@ -336,6 +375,10 @@ func (a *TransactionCategoriesApi) CategoryMoveHandler(c *core.WebContext) (any,
 		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
 	}
 
+	if categoryMoveReq.ExpectedRevision < 1 {
+		return nil, errs.ErrTransactionCategoryRevisionRequired
+	}
+
 	uid := c.GetCurrentUid()
 	categories := make([]*models.TransactionCategory, len(categoryMoveReq.NewDisplayOrders))
 
@@ -350,7 +393,7 @@ func (a *TransactionCategoriesApi) CategoryMoveHandler(c *core.WebContext) (any,
 		categories[i] = category
 	}
 
-	err = a.categories.ModifyCategoryDisplayOrders(c, uid, categories)
+	err = a.categories.ModifyCategoryDisplayOrders(c, uid, categories, categoryMoveReq.ExpectedRevision)
 
 	if err != nil {
 		log.Errorf(c, "[transaction_categories.CategoryMoveHandler] failed to move categories for user \"uid:%d\", because %s", uid, err.Error())
@@ -371,8 +414,12 @@ func (a *TransactionCategoriesApi) CategoryDeleteHandler(c *core.WebContext) (an
 		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
 	}
 
+	if categoryDeleteReq.ExpectedRevision < 1 {
+		return nil, errs.ErrTransactionCategoryRevisionRequired
+	}
+
 	uid := c.GetCurrentUid()
-	err = a.categories.DeleteCategory(c, uid, categoryDeleteReq.Id)
+	err = a.categories.DeleteCategory(c, uid, categoryDeleteReq.Id, categoryDeleteReq.ExpectedRevision)
 
 	if err != nil {
 		log.Errorf(c, "[transaction_categories.CategoryDeleteHandler] failed to delete category \"id:%d\" for user \"uid:%d\", because %s", categoryDeleteReq.Id, uid, err.Error())
@@ -435,7 +482,7 @@ func (a *TransactionCategoriesApi) createBatchCategories(c *core.WebContext, uid
 		return nil, errs.ErrTransactionCategoryIconInvalid
 	}
 
-	categories, err = a.categories.CreateCategories(c, uid, categoriesMap)
+	categories, err = a.categories.CreateCategories(c, uid, categoriesMap, categoryCreateBatchReq.ExpectedRevision)
 
 	if err != nil {
 		log.Errorf(c, "[transaction_categories.createBatchCategories] failed to create categories for user \"uid:%d\", because %s", uid, err.Error())

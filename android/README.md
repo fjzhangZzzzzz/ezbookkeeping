@@ -28,6 +28,14 @@ Release 签名只读取环境 `ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWO
 
 密码仅在内存短暂使用。普通会话通过 AndroidKeyStore AES-GCM 加密持久化，备份关闭；短时 native PKCE 状态也加密保管，回调 URL 只允许一次性 code/state。系统浏览器通过服务端固定 native/start 入口前往 Pocket ID；首次绑定仍确认原本地密码，不新增用户。会话续签先保存新令牌，再撤销旧 tokenId；普通会话被撤销后下次请求清理登录态，临时密码/验证码错误不删除既有普通会话。
 
+## 账户、分类和标签保存的未知结果
+
+这些接口没有持久幂等结果协议。客户端在发送前加密保存固定的原请求，忙碌时禁止编辑和关闭；响应不明时不再发送原请求，也不新建另一份保存。只读核实状态恢复原名称、金额、币种及所属设置，用户应先检查实际列表或网页，再明确结束本地意图。结束意图不撤销服务器可能已保存的更改，也不表示服务器保存成功。写入成功后的刷新失败单独提示“已保存，数据刷新失败”。
+
+待核实意图按部署源和真实 UID 绑定、使用现有 AndroidKeyStore 加密并排除系统备份。UID 来源依赖当前后端受保护 `/api/v1/tokens/list.json` 的唯一 `isCurrent=true`、普通类型条目及 `tokenId` 的 `uid:createdUnixTime:userTokenId` 格式；客户端严格验证数字范围，有本人账户时还与 fresh own/family 全局账户 ID 关联交叉核对。这里使用的是服务端设备记录 ID，Bearer 凭据不进入该解析。该依赖对应现行后端 `TokenListHandler`、`GenerateTokenId` 和 `ParseFromTokenId`；后端协议更新须重新验证，未知格式或身份不一致会阻断资料写入，不降级为邮箱/昵称匹配。
+
+进程重建、登出或身份核对网络失败不会丢弃原意图；换用户时隐藏原内容并拒绝结束。持久化完成后若在真正发出 HTTP 前崩溃，也归为“结果待核实”，不能说已经提交。未启用 OAuth 的后端只在外部关联列表确实返回 HTTP 404 且没有应用授权错误时视为功能关闭；401、网络及服务端错误继续报告。
+
 ## 更新
 
 客户端只向固定部署环境 `https://books.fjzhang233.top/android/update.json` 匿名检查更新，不查询 GitHub，也没有 GitHub 回退。首次启动和回前台有界检查，手动检查始终重新请求，不把失败或旧缓存当成当前部署版本。manifest 请求显式 `Cache-Control: no-cache`，响应最大 64 KiB；ETag 存在时仅自动检查使用条件重验，不依赖服务器提供 ETag。schemaVersion 1 / stable 的原字段由 CI 生成不可变原件，再由 Ansible 选择部署；客户端不接受元数据中的任意下载 URL，而从严格版本号和文件名唯一导出 `/android/releases/<versionName>/ezbookkeeping-android-<versionName>.apk`。manifest 与 APK 拒绝所有 HTTP 跳转、附加 query/fragment、凭据 URL 和跨源请求，绝不携带应用 Bearer、Cookie 或 OIDC 凭据。

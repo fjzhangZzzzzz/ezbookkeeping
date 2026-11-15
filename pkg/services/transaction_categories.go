@@ -198,7 +198,7 @@ func (s *TransactionCategoryService) GetMaxSubCategoryDisplayOrder(c core.Contex
 }
 
 // CreateCategory saves a new transaction category model to database
-func (s *TransactionCategoryService) CreateCategory(c core.Context, category *models.TransactionCategory) error {
+func (s *TransactionCategoryService) CreateCategory(c core.Context, category *models.TransactionCategory, expectedRevision int64) error {
 	if category.Uid <= 0 {
 		return errs.ErrUserIdInvalid
 	}
@@ -217,6 +217,12 @@ func (s *TransactionCategoryService) CreateCategory(c core.Context, category *mo
 	category.UpdatedUnixTime = time.Now().Unix()
 
 	return s.UserDataDB(category.Uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		if err := advanceCategoryRevision(sess, expectedRevision); err != nil {
+			return err
+		}
+		if err := validateCategoryParent(sess, category); err != nil {
+			return err
+		}
 		sharedCategory := *category
 		sharedCategory.Uid = models.SharedDictionaryOwnerUID
 		_, err := sess.Insert(&sharedCategory)
@@ -225,7 +231,7 @@ func (s *TransactionCategoryService) CreateCategory(c core.Context, category *mo
 }
 
 // CreateCategories saves a few transaction category models to database
-func (s *TransactionCategoryService) CreateCategories(c core.Context, uid int64, categories map[*models.TransactionCategory][]*models.TransactionCategory) ([]*models.TransactionCategory, error) {
+func (s *TransactionCategoryService) CreateCategories(c core.Context, uid int64, categories map[*models.TransactionCategory][]*models.TransactionCategory, expectedRevision int64) ([]*models.TransactionCategory, error) {
 	if uid <= 0 {
 		return nil, errs.ErrUserIdInvalid
 	}
@@ -277,8 +283,14 @@ func (s *TransactionCategoryService) CreateCategories(c core.Context, uid int64,
 	}
 
 	err := s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		if err := advanceCategoryRevision(sess, expectedRevision); err != nil {
+			return err
+		}
 		for i := 0; i < len(allCategories); i++ {
 			category := allCategories[i]
+			if err := validateCategoryParent(sess, category); err != nil {
+				return err
+			}
 			sharedCategory := *category
 			sharedCategory.Uid = models.SharedDictionaryOwnerUID
 			_, err := sess.Insert(&sharedCategory)
@@ -299,7 +311,7 @@ func (s *TransactionCategoryService) CreateCategories(c core.Context, uid int64,
 }
 
 // ModifyCategory saves an existed transaction category model to database
-func (s *TransactionCategoryService) ModifyCategory(c core.Context, category *models.TransactionCategory) error {
+func (s *TransactionCategoryService) ModifyCategory(c core.Context, category *models.TransactionCategory, expectedRevision int64) error {
 	if category.Uid <= 0 {
 		return errs.ErrUserIdInvalid
 	}
@@ -310,6 +322,12 @@ func (s *TransactionCategoryService) ModifyCategory(c core.Context, category *mo
 	category.UpdatedUnixTime = time.Now().Unix()
 
 	return s.UserDataDB(category.Uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		if err := advanceCategoryRevision(sess, expectedRevision); err != nil {
+			return err
+		}
+		if err := validateCategoryParent(sess, category); err != nil {
+			return err
+		}
 		existing := &models.TransactionCategory{}
 		found, err := sess.ID(category.CategoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(existing)
 		if err != nil {
@@ -340,7 +358,7 @@ func (s *TransactionCategoryService) ModifyCategory(c core.Context, category *mo
 }
 
 // HideCategory updates hidden field of given transaction categories
-func (s *TransactionCategoryService) HideCategory(c core.Context, uid int64, ids []int64, hidden bool) error {
+func (s *TransactionCategoryService) HideCategory(c core.Context, uid int64, ids []int64, hidden bool, expectedRevision int64) error {
 	if uid <= 0 {
 		return errs.ErrUserIdInvalid
 	}
@@ -353,6 +371,9 @@ func (s *TransactionCategoryService) HideCategory(c core.Context, uid int64, ids
 	}
 
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		if err := advanceCategoryRevision(sess, expectedRevision); err != nil {
+			return err
+		}
 		protected, err := sess.Where("uid=? AND deleted=? AND family_internal_transfer=?", models.SharedDictionaryOwnerUID, false, true).In("category_id", ids).Exist(&models.TransactionCategory{})
 		if err != nil {
 			return err
@@ -380,7 +401,7 @@ func (s *TransactionCategoryService) HideCategory(c core.Context, uid int64, ids
 }
 
 // ModifyCategoryDisplayOrders updates display order of given transaction categories
-func (s *TransactionCategoryService) ModifyCategoryDisplayOrders(c core.Context, uid int64, categories []*models.TransactionCategory) error {
+func (s *TransactionCategoryService) ModifyCategoryDisplayOrders(c core.Context, uid int64, categories []*models.TransactionCategory, expectedRevision int64) error {
 	if uid <= 0 {
 		return errs.ErrUserIdInvalid
 	}
@@ -390,6 +411,9 @@ func (s *TransactionCategoryService) ModifyCategoryDisplayOrders(c core.Context,
 	}
 
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		if err := advanceCategoryRevision(sess, expectedRevision); err != nil {
+			return err
+		}
 		for i := 0; i < len(categories); i++ {
 			category := categories[i]
 			updatedRows, err := sess.ID(category.CategoryId).Cols("display_order", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Update(category)
@@ -406,7 +430,7 @@ func (s *TransactionCategoryService) ModifyCategoryDisplayOrders(c core.Context,
 }
 
 // DeleteCategory deletes an existed transaction category from database
-func (s *TransactionCategoryService) DeleteCategory(c core.Context, uid int64, categoryId int64) error {
+func (s *TransactionCategoryService) DeleteCategory(c core.Context, uid int64, categoryId int64, expectedRevision int64) error {
 	if uid <= 0 {
 		return errs.ErrUserIdInvalid
 	}
@@ -419,6 +443,9 @@ func (s *TransactionCategoryService) DeleteCategory(c core.Context, uid int64, c
 	}
 
 	return s.UserDataDB(uid).DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		if err := advanceCategoryRevision(sess, expectedRevision); err != nil {
+			return err
+		}
 		var categoryAndSubCategories []*models.TransactionCategory
 		err := sess.Where("uid=? AND deleted=? AND (category_id=? OR parent_category_id=?)", models.SharedDictionaryOwnerUID, false, categoryId, categoryId).Find(&categoryAndSubCategories)
 
@@ -673,4 +700,26 @@ func (s *TransactionCategoryService) GetCategoryOrSubCategoryIdsByCategoryName(c
 	}
 
 	return categoryIds
+}
+
+// validateCategoryParent enforces the shared two-level same-type tree inside the write transaction.
+func validateCategoryParent(sess datastore.DatabaseSession, category *models.TransactionCategory) error {
+	if category.ParentCategoryId == models.LevelOneTransactionCategoryParentId {
+		return nil
+	}
+	parent := &models.TransactionCategory{}
+	found, err := sess.ID(category.ParentCategoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(parent)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errs.ErrParentTransactionCategoryNotFound
+	}
+	if parent.ParentCategoryId != models.LevelOneTransactionCategoryParentId {
+		return errs.ErrCannotAddToSecondaryTransactionCategory
+	}
+	if parent.Type != category.Type {
+		return errs.ErrTransactionCategoryTypeInvalid
+	}
+	return nil
 }

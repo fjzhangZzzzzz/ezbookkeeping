@@ -31,6 +31,11 @@ type XOrmDatabase struct {
 	engineGroup  *xorm.EngineGroup
 }
 
+// IsSQLite reports whether the underlying database uses SQLite.
+func (db *XOrmDatabase) IsSQLite() bool {
+	return db.databaseType == settings.Sqlite3DbType
+}
+
 // NewSession starts a new session with the specified context
 func (db *XOrmDatabase) NewSession(c core.Context) DatabaseSession {
 	return &XOrmSession{

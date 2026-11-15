@@ -39,8 +39,8 @@ internal fun LedgerTagPicker(
         Surface(
             modifier = Modifier.fillMaxWidth(.832f).testTag("entry-tags-picker"),
             shape = RoundedCornerShape(4.dp),
-            color = Color(0xFF1A1A1A),
-            contentColor = Color(0xFFBDBDBD),
+            color = ledgerColors.surface,
+            contentColor = ledgerColors.text,
         ) {
             Column {
                 Row(
@@ -52,7 +52,7 @@ internal fun LedgerTagPicker(
                     Spacer(Modifier.width(8.dp))
                     TagPickerAction("保存", "entry-tags-save") { onSelected(pending); dismiss() }
                 }
-                HorizontalDivider(color = Color(0xFF202020), thickness = 1.dp)
+                HorizontalDivider(color = ledgerColors.divider, thickness = 1.dp)
                 if (visibleTags.isEmpty()) {
                     // The reference empty chooser has only a 12dp footer, not a large empty-state panel.
                     Spacer(Modifier.height(11.dp))
@@ -74,16 +74,16 @@ internal fun LedgerTagPicker(
                                 ) {
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
-                                        color = if (checked) Color(0xFF1D4061) else Color(0xFF242424),
-                                        contentColor = if (checked) Color(0xFF3792FA) else if (available) Color(0xFFBDBDBD) else Color(0xFF777777),
-                                        border = BorderStroke(1.dp, if (checked) Color(0xFF3792FA) else Color(0xFF303030)),
+                                        color = if (checked) ledgerColors.selection else ledgerColors.field,
+                                        contentColor = if (checked) ledgerColors.accent else if (available) ledgerColors.text else ledgerColors.muted,
+                                        border = BorderStroke(1.dp, if (checked) ledgerColors.accent else ledgerColors.divider),
                                     ) {
                                         Text(tag.optString("name"), Modifier.padding(horizontal = 12.dp, vertical = 5.dp), fontSize = 14.sp)
                                     }
                                 }
                             }
                         }
-                        if (pending.size >= 10) Text("最多选择 10 个标签", Modifier.padding(top = 4.dp), fontSize = 12.sp, color = Color(0xFF888888))
+                        if (pending.size >= 10) Text("最多选择 10 个标签", Modifier.padding(top = 4.dp), fontSize = 12.sp, color = ledgerColors.muted)
                     }
                 }
             }
@@ -97,7 +97,7 @@ private fun TagPickerAction(label: String, tag: String, action: () -> Unit) {
         modifier = Modifier.width(58.dp).height(48.dp).testTag(tag).clickable(role = Role.Button, onClick = action),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(shape = RoundedCornerShape(4.dp), color = Color.Transparent, border = BorderStroke(1.dp, Color(0xFF303030))) {
+        Surface(shape = RoundedCornerShape(4.dp), color = Color.Transparent, border = BorderStroke(1.dp, ledgerColors.divider)) {
             Box(Modifier.width(58.dp).height(26.dp), contentAlignment = Alignment.Center) { Text(label, fontSize = 14.sp) }
         }
     }

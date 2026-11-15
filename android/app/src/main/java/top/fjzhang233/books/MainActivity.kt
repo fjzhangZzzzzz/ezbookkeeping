@@ -79,12 +79,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() { super.onResume(); model.resume(); updates.resume() }
 }
 
-@Composable fun FamilyTheme(content: @Composable () -> Unit) {
-    // Measured from the verified Qianji 4.5.5-1242 native dark reference on the acceptance emulator.
-    val colors=darkColorScheme(primary=Color(0xFF3792FA),onPrimary=Color.White,primaryContainer=Color(0xFF1D2630),onPrimaryContainer=Color(0xFF3792FA),secondary=Color(0xFFBDBDBD),secondaryContainer=Color(0xFF1A1A1A),onSecondaryContainer=Color(0xFFBDBDBD),tertiary=Color(0xFFBDBDBD),tertiaryContainer=Color(0xFF1A1A1A),onTertiaryContainer=Color(0xFFBDBDBD),background=Color.Black,onBackground=Color(0xFFBDBDBD),surface=Color.Black,surfaceContainerLow=Color(0xFF1A1A1A),surfaceContainerHigh=Color(0xFF1A1A1A),onSurface=Color(0xFFBDBDBD),onSurfaceVariant=Color(0xFF888888),outline=Color(0xFF555555),outlineVariant=Color(0xFF292929),error=Color(0xFFEB595E))
-    MaterialTheme(colorScheme = colors, content = content)
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BooksApp(vm: BooksModel, updates: UpdateModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -94,6 +88,7 @@ class MainActivity : ComponentActivity() {
     var monthPicker by rememberSaveable{mutableStateOf(false)}
     var calendar by rememberSaveable{mutableStateOf(false)}
     var report by rememberSaveable{mutableStateOf(false)}
+    var search by rememberSaveable{mutableStateOf(false)}
     LaunchedEffect(vm.error,vm.notice,vm.showEditor){if(!vm.showEditor){val message=vm.error.ifBlank{vm.notice};if(message.isNotBlank()){if(vm.error.isBlank())android.widget.Toast.makeText(context,message,android.widget.Toast.LENGTH_SHORT).show() else feedback.showSnackbar(message,duration=SnackbarDuration.Long);vm.dismissFeedback(message)}}}
     val drawer=rememberDrawerState(DrawerValue.Closed)
     val scope=rememberCoroutineScope()
@@ -106,23 +101,23 @@ class MainActivity : ComponentActivity() {
     BackHandler(enabled = settingsPage.isNotEmpty()) { settingsPage = "" }
     BackHandler(enabled=drawer.currentValue!=DrawerValue.Closed||drawer.targetValue!=DrawerValue.Closed){scope.launch{drawer.close()}}
     ModalNavigationDrawer(drawerState=drawer,gesturesEnabled=vm.token!=null,drawerContent={
-        if(vm.token!=null) ModalDrawerSheet(modifier=Modifier.width(288.dp),drawerContainerColor=Color(0xFF1A1A1A),drawerShape=androidx.compose.ui.graphics.RectangleShape) {
+        if(vm.token!=null) ModalDrawerSheet(modifier=Modifier.width(288.dp),drawerContainerColor=ledgerColors.surface,drawerShape=androidx.compose.ui.graphics.RectangleShape) {
             Text("家庭账本",Modifier.padding(start=24.dp,top=28.dp,bottom=8.dp),style=MaterialTheme.typography.headlineSmall)
             Text(vm.nickname,Modifier.padding(start=24.dp,bottom=20.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
             data class Destination(val title:String,val icon:androidx.compose.ui.graphics.vector.ImageVector,val target:Int,val page:String="")
-            val destinations=listOf(Destination("流水",Icons.Outlined.ReceiptLong,0),Destination("账户",Icons.Outlined.AccountBalanceWallet,1),Destination("家庭",Icons.Outlined.People,2),Destination("分类与标签",Icons.Outlined.Category,3,"catalog"),Destination("登录设备",Icons.Outlined.Devices,3,"sessions"),Destination("我的",Icons.Outlined.Settings,3),Destination("关于与更新",Icons.Outlined.Info,3,"about"),Destination("刷新数据",Icons.Outlined.Refresh,0,"refresh"))
-            destinations.forEach { item -> NavigationDrawerItem(label={Text(item.title)},icon={Icon(item.icon,null)},selected=tab==item.target&&settingsPage==item.page,onClick={if(item.page=="refresh")vm.reload()else{tab=item.target;settingsPage=item.page;if(item.page=="sessions")vm.getSessions()};scope.launch{drawer.close()}},modifier=Modifier.padding(horizontal=12.dp).testTag("nav-${item.title}")) }
+            val destinations=listOf(Destination("流水",Icons.Outlined.ReceiptLong,0),Destination("搜索账单",Icons.Outlined.Search,0,"search"),Destination("账户",Icons.Outlined.AccountBalanceWallet,1),Destination("家庭",Icons.Outlined.People,2),Destination("分类与标签",Icons.Outlined.Category,3,"catalog"),Destination("登录设备",Icons.Outlined.Devices,3,"sessions"),Destination("我的",Icons.Outlined.Settings,3),Destination("关于与更新",Icons.Outlined.Info,3,"about"),Destination("刷新数据",Icons.Outlined.Refresh,0,"refresh"))
+            destinations.forEach { item -> NavigationDrawerItem(label={Text(item.title)},icon={Icon(item.icon,null)},selected=tab==item.target&&settingsPage==item.page,onClick={if(item.page=="search")search=true else if(item.page=="refresh")vm.reload()else{tab=item.target;settingsPage=item.page;if(item.page=="sessions")vm.getSessions()};scope.launch{drawer.close()}},modifier=Modifier.padding(horizontal=12.dp).testTag("nav-${item.title}")) }
         }
     }) {
     val home=vm.token!=null&&tab==0&&settingsPage.isEmpty()
-    Box(Modifier.fillMaxSize().background(Color.Black)){
-    if(home){Image(androidx.compose.ui.res.painterResource(R.drawable.ledger_landscape),null,Modifier.fillMaxWidth().height(240.dp),contentScale=androidx.compose.ui.layout.ContentScale.Crop);Box(Modifier.fillMaxWidth().height(240.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Black.copy(alpha=.35f),Color.Black.copy(alpha=.72f)))))}
-    Scaffold(containerColor=if(home)Color.Transparent else Color.Black,contentColor=MaterialTheme.colorScheme.onSurface,snackbarHost={SnackbarHost(feedback)},
+    Box(Modifier.fillMaxSize().background(ledgerColors.background)){
+    if(home){Image(androidx.compose.ui.res.painterResource(R.drawable.ledger_landscape),null,Modifier.fillMaxWidth().height(240.dp),contentScale=androidx.compose.ui.layout.ContentScale.Crop);Box(Modifier.fillMaxWidth().height(240.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(ledgerColors.background.copy(alpha=if(ledgerColors.dark).35f else .78f),ledgerColors.background.copy(alpha=if(ledgerColors.dark).72f else .94f)))))}
+    Scaffold(containerColor=if(home)Color.Transparent else ledgerColors.background,contentColor=MaterialTheme.colorScheme.onSurface,snackbarHost={SnackbarHost(feedback)},
         topBar = { CenterAlignedTopAppBar(colors=TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor=Color.Transparent),expandedHeight=56.dp,title={if(vm.token!=null&&tab==0&&settingsPage.isEmpty()) Row(Modifier.clickable{monthPicker=true},verticalAlignment=Alignment.CenterVertically){Text(vm.ledgerMonth,fontSize=18.sp);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))} else Text(if(settingsPage=="about") "关于与更新" else if(vm.token==null) "家庭账本" else when(settingsPage){"catalog"->"分类与标签";"sessions"->"登录设备";else->listOf("我的流水","我的账户","家庭总览","我的")[tab]})},
             navigationIcon={if(settingsPage.isNotEmpty())IconButton(onClick={settingsPage=""}){Icon(Icons.Outlined.ArrowBack,"返回")}else if(vm.token!=null) IconButton(onClick={scope.launch{drawer.open()}}){Icon(Icons.Outlined.Menu,"打开菜单")}},
             actions={if(vm.token!=null&&tab==0&&settingsPage.isEmpty()){IconButton(onClick={calendar=true}){Icon(Icons.Outlined.CalendarMonth,"日历视图")};IconButton(onClick={report=true}){Icon(Icons.Outlined.BarChart,"月报表")}}else if(vm.token==null)IconButton(onClick={settingsPage="about"}){Icon(Icons.Outlined.Info,"关于与更新")}}) },
         floatingActionButtonPosition=FabPosition.Center,
-        floatingActionButton = { if (vm.token != null && tab == 0 && settingsPage.isEmpty()) FloatingActionButton(onClick=vm::newTransaction,modifier=Modifier.size(56.dp).testTag("add-transaction"),shape=androidx.compose.foundation.shape.CircleShape,containerColor=MaterialTheme.colorScheme.primary,contentColor=MaterialTheme.colorScheme.onPrimary) { Icon(Icons.Outlined.Add,"记一笔",Modifier.size(28.dp)) } }
+        floatingActionButton = { if (vm.token != null && tab == 0 && settingsPage.isEmpty()) FloatingActionButton(onClick={vm.newTransaction()},modifier=Modifier.size(56.dp).testTag("add-transaction"),shape=androidx.compose.foundation.shape.CircleShape,containerColor=MaterialTheme.colorScheme.primary,contentColor=MaterialTheme.colorScheme.onPrimary) { Icon(Icons.Outlined.Add,"记一笔",Modifier.size(28.dp)) } }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -146,10 +141,12 @@ class MainActivity : ComponentActivity() {
     }
     }
     }
-    if(calendar)LedgerCalendar(vm.ledgerMonth,{calendar=false}){vm.changeLedgerDay(it);calendar=false}
-    if(report)LedgerReport(vm.ledgerMonth,vm.dailyAmounts){report=false}
+    if(calendar)LedgerCalendar(vm,{calendar=false;if(vm.token!=null)vm.changeLedgerDay(null)},{monthPicker=true})
+    if(report)LedgerReport(vm){report=false}
+    if(search && vm.token!=null)LedgerSearch(vm,{search=false}){item,close->LedgerTransactionDetails(vm,item,close)}
     if(monthPicker) LedgerMonthPicker(vm.ledgerMonth,{monthPicker=false}){vm.changeLedgerMonth(it);monthPicker=false}
     if (vm.showEditor && vm.token != null) TransactionEditor(vm)
+    if(vm.entityReviewOpen && vm.token!=null)PendingEntityDialog(vm)
     if (vm.twoFactorToken != null) {
         var passcode by remember { mutableStateOf("") }
         AlertDialog(onDismissRequest = vm::cancelTwoFactor, title = { Text("二步验证") }, text = { Column { OutlinedTextField(passcode, { passcode = it }, label = { Text("验证器验证码") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); if(vm.error.isNotBlank()) Text(vm.error, color=MaterialTheme.colorScheme.error) } }, confirmButton = { TextButton(onClick = { vm.finishTwoFactor(passcode) }, enabled = !vm.busy && passcode.isNotBlank()) { Text("验证并登录") } }, dismissButton = { TextButton(onClick = vm::cancelTwoFactor) { Text("取消") } })
@@ -192,7 +189,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun transactionLabel(item: JSONObject): String = if(item.optInt("type")==1) "余额调整" else if(item.optInt("type")==4) "账户转账" else item.optJSONObject("category")?.optString("name")?.takeIf { it.isNotBlank() } ?: item.optString("categoryName").ifBlank { "未分类" }
+internal fun transactionLabel(item: JSONObject): String = if(item.optInt("type")==1) "余额调整" else if(item.optInt("type")==4) "账户转账" else item.optJSONObject("category")?.optString("name")?.takeIf { it.isNotBlank() } ?: item.optString("categoryName").ifBlank { "未分类" }
 private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.of("Asia/Shanghai")).format(Instant.ofEpochSecond(time)) }.getOrDefault("")
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -205,9 +202,9 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     LazyColumn(Modifier.fillMaxSize().testTag("ledger-list"),contentPadding=PaddingValues(bottom=100.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item {
             Column(Modifier.fillMaxWidth().heightIn(min=132.dp).padding(horizontal=16.dp,vertical=18.dp)) {
-                Text("月支出 · CNY",fontSize=14.sp,color=Color(0xFFBDBDBD))
-                Text(money(expense.toString()),color=Color.White,fontSize=28.sp,lineHeight=34.sp,modifier=Modifier.padding(top=2.dp,bottom=8.dp).testTag("ledger-month-expense"))
-                Text("月收入 ${money(income.toString())}    本月结余 ${money((income-expense).toString())}",color=Color.White,fontSize=14.sp)
+                Text("月支出 · CNY",fontSize=14.sp,color=ledgerColors.text)
+                Text(money(expense.toString()),color=ledgerColors.text,fontSize=28.sp,lineHeight=34.sp,modifier=Modifier.padding(top=2.dp,bottom=8.dp).testTag("ledger-month-expense"))
+                Text("月收入 ${money(income.toString())}    本月结余 ${money((income-expense).toString())}",color=ledgerColors.text,fontSize=14.sp)
                 if(hasForeign) Text("外币未计入 CNY 汇总",Modifier.padding(top=6.dp),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -216,7 +213,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         if(vm.transactions.isEmpty()&&!vm.busy) item{EmptyState("还没有流水","点击「记一笔」，记录第一笔收支。")}
         vm.transactions.groupBy{Instant.ofEpochSecond(it.optLong("time")).atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().toString()}.forEach{(date,rows)->
             item(key="day-$date") {
-                Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp),shape=androidx.compose.foundation.shape.RoundedCornerShape(8.dp),color=Color(0xFF1A1A1A)) {
+                Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp),shape=androidx.compose.foundation.shape.RoundedCornerShape(8.dp),color=ledgerColors.surface) {
                     Column {
                         val cny=daily[date]?.array("amounts")?.firstOrNull{it.optString("currency")=="CNY"}
                         Row(Modifier.fillMaxWidth().heightIn(min=40.dp).padding(horizontal=12.dp,vertical=8.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
@@ -224,15 +221,15 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                             Text("收:¥${money(cny?.optString("incomeAmount")?:"0")} 支:¥${money(cny?.optString("expenseAmount")?:"0")}",fontSize=12.sp,fontWeight=FontWeight.Bold)
                         }
                         rows.forEachIndexed{index,item->
-                            if(index>0) HorizontalDivider(Modifier.padding(horizontal=12.dp),color=Color(0xFF222222))
+                            if(index>0) HorizontalDivider(Modifier.padding(horizontal=12.dp),color=ledgerColors.divider)
                             Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("transaction-${item.id()}").clickable(enabled=!vm.busy){selected=item}.padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
-                                Box(Modifier.size(4.dp).background(when(item.optInt("type")){2->Color(0xFF25B87A);3->Color(0xFFEB595E);else->Color(0xFF888888)},androidx.compose.foundation.shape.CircleShape))
+                                Box(Modifier.size(4.dp).background(when(item.optInt("type")){2->ledgerColors.income;3->ledgerColors.expense;else->ledgerColors.muted},androidx.compose.foundation.shape.CircleShape))
                                 Column(Modifier.weight(1f).padding(start=12.dp,end=8.dp)) {
-                                    Row(verticalAlignment=Alignment.CenterVertically){Text(transactionLabel(item),fontSize=14.sp);Text(" · "+(item.optJSONObject("sourceAccount")?.optString("name")?:""),Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=10.sp,color=Color(0xFF777777))}
-                                    if(item.optString("comment").isNotBlank()||item.array("pictures").isNotEmpty())Text(item.optString("comment")+if(item.array("pictures").isNotEmpty())" · 图片" else "",maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=11.sp,color=Color(0xFF777777))
+                                    Row(verticalAlignment=Alignment.CenterVertically){Text(transactionLabel(item),fontSize=14.sp);Text(" · "+(item.optJSONObject("sourceAccount")?.optString("name")?:""),Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=10.sp,color=ledgerColors.muted)}
+                                    if(item.optString("comment").isNotBlank()||item.array("pictures").isNotEmpty())Text(item.optString("comment")+if(item.array("pictures").isNotEmpty())" · 图片" else "",maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=11.sp,color=ledgerColors.muted)
                                 }
-                                val value=item.optString("sourceAmount");val prefix=when(item.optInt("type")){2->"+";3->"−";1->if(value.startsWith("-"))"" else "+";else->""}
-                                Row(verticalAlignment=Alignment.CenterVertically){Text(prefix+money(value),fontSize=16.sp,color=when(item.optInt("type")){2->Color(0xFF25B87A);3->Color(0xFFEB595E);else->MaterialTheme.colorScheme.onSurface});Text(item.optJSONObject("sourceAccount")?.optString("currency")?:"",Modifier.padding(start=4.dp),fontSize=10.sp,color=Color(0xFF777777))}
+                                val value=item.optString("sourceAmount")
+                                Row(verticalAlignment=Alignment.CenterVertically){Text(transactionSignedAmount(item.optInt("type"),value),fontSize=16.sp,color=when(item.optInt("type")){2->ledgerColors.income;3->ledgerColors.expense;else->MaterialTheme.colorScheme.onSurface});Text(item.optJSONObject("sourceAccount")?.optString("currency")?:"",Modifier.padding(start=4.dp),fontSize=10.sp,color=ledgerColors.muted)}
                             }
                         }
                     }
@@ -241,33 +238,24 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         }
         if(vm.hasMoreTransactions) item{TextButton(onClick=vm::loadMore,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("加载更多")}}
     }
-    selected?.let{item->ModalBottomSheet(onDismissRequest={selected=null},containerColor=Color(0xFF1A1A1A),dragHandle=null){Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding()) {
-        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically){Text("详情",Modifier.weight(1f),fontSize=18.sp);TextButton(onClick={selected=null;vm.openTransaction(item.id())},enabled=!vm.busy&&item.optBoolean("editable",true)&&item.optInt("type")!=1,modifier=Modifier.testTag("transaction-edit")){Text("修改")};TextButton(onClick={selected=null}){Text("关闭")}}
-        val currency=item.optJSONObject("sourceAccount")?.optString("currency")?:""
-        val amountPrefix=when(item.optInt("type")){2->"+";3->"−";else->""}
-        DetailLine("金额",amountPrefix+money(item.optString("sourceAmount"))+" "+currency,when(item.optInt("type")){2->Color(0xFF25B87A);3->Color(0xFFEB595E);else->MaterialTheme.colorScheme.onSurface})
-        DetailLine("分类",transactionLabel(item));DetailLine("账户",item.optJSONObject("sourceAccount")?.optString("name")?:"")
-        DetailLine("时间",DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.of("Asia/Shanghai")).format(Instant.ofEpochSecond(item.optLong("time"))))
-        if(item.optString("comment").isNotBlank()) DetailLine("备注",item.optString("comment"))
-        item.array("pictures").forEach{picture->val ext=android.net.Uri.parse(picture.optString("originalUrl")).path?.substringAfterLast('.')?.lowercase();if(ext in setOf("jpg","jpeg","png","webp")) Picture(vm,"/api/v1/family/pictures/${picture.id("pictureId")}.$ext")}
-    }}}
+    selected?.let{item->LedgerTransactionDetails(vm,item){selected=null}}
 }
-@Composable private fun DetailLine(label:String,value:String,valueColor:Color=Color.Unspecified){Row(Modifier.fillMaxWidth().heightIn(min=48.dp).padding(horizontal=12.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){Text(label,fontSize=14.sp);Text(value,Modifier.weight(1f).padding(start=16.dp),fontSize=14.sp,color=valueColor,textAlign=androidx.compose.ui.text.style.TextAlign.End)}}
 @Composable private fun LedgerMonthPicker(value:String,dismiss:()->Unit,select:(String)->Unit){
     val current=java.time.YearMonth.parse(value);var year by rememberSaveable{mutableIntStateOf(current.year)}
-    AlertDialog(onDismissRequest=dismiss,containerColor=Color(0xFF1A1A1A),shape=androidx.compose.foundation.shape.RoundedCornerShape(4.dp),text={Row(Modifier.fillMaxWidth().height(300.dp)){
-        LazyColumn(Modifier.width(96.dp),state=androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex=0)){items((current.year+3 downTo current.year-20).toList()){item->TextButton(onClick={year=item},modifier=Modifier.fillMaxWidth(),shape=androidx.compose.foundation.shape.CircleShape,colors=ButtonDefaults.textButtonColors(containerColor=if(item==year)MaterialTheme.colorScheme.primary else Color.Transparent,contentColor=if(item==year)Color.White else MaterialTheme.colorScheme.onSurface)){Text("${item}年")}}}
+    AlertDialog(onDismissRequest=dismiss,containerColor=ledgerColors.surface,shape=androidx.compose.foundation.shape.RoundedCornerShape(4.dp),text={Row(Modifier.fillMaxWidth().height(300.dp)){
+        LazyColumn(Modifier.width(96.dp),state=androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex=0)){items((current.year+3 downTo current.year-20).toList()){item->TextButton(onClick={year=item},modifier=Modifier.fillMaxWidth(),shape=androidx.compose.foundation.shape.CircleShape,colors=ButtonDefaults.textButtonColors(containerColor=if(item==year)MaterialTheme.colorScheme.primary else Color.Transparent,contentColor=if(item==year)MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)){Text("${item}年")}}}
         androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),Modifier.weight(1f)){items(12){index->TextButton(onClick={select(java.time.YearMonth.of(year,index+1).toString())}){Text("${index+1}月",color=if(year==current.year&&index+1==current.monthValue)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)}}}
     }},confirmButton={})
 }
 
 @Composable private fun AccountsPage(vm: BooksModel) {
-    var editing by remember { mutableStateOf<JSONObject?>(null) }; var open by remember { mutableStateOf(false) }
+    var editingId by rememberSaveable { mutableStateOf("") }; var open by rememberSaveable { mutableStateOf(false) }
+    val editing=vm.accounts.firstOrNull { it.id()==editingId }
     LazyColumn(Modifier.testTag("accounts-list"),contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Button(onClick = { editing = null; open = true }, enabled = !vm.busy) { Icon(Icons.Outlined.Add, null); Text("新建账户") } }
+        item { EntityWriteWarning(vm) };item { Button(onClick = { editingId = ""; open = true }, enabled = !vm.busy&&!vm.entityBlocked) { Icon(Icons.Outlined.Add, null); Text("新建账户") } }
         if (vm.accounts.isEmpty()) item { EmptyState("创建你的账户", "例如现金、银行卡。只管理自己的账户。") }
         items(vm.accounts, key = { it.id() }) { item ->
-            Card(Modifier.fillMaxWidth().clickable { editing = item; open = true }) {
+            Card(Modifier.fillMaxWidth().clickable(enabled=!vm.busy&&!vm.entityBlocked) { editingId = item.id(); open = true }) {
                 Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { Text(item.optString("name"), style = MaterialTheme.typography.titleMedium); Text(item.optString("currency") + if (item.optBoolean("hidden")) " · 已隐藏" else "", style = MaterialTheme.typography.bodySmall) }
                     Text(item.optString("currency")+" "+money(item.optString("balance")), style = MaterialTheme.typography.headlineSmall); Icon(Icons.Outlined.ChevronRight, "编辑账户")
@@ -275,13 +263,13 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
             }
         }
     }
-    if (open) AccountEditor(vm, editing) { open = false }
+    if (open && (editingId.isEmpty() || editing!=null)) AccountEditor(vm, editing, close={ open = false })
 }
 
 @Composable private fun FamilyPage(vm: BooksModel) {
     var month by rememberSaveable(vm.month) { mutableStateOf(vm.month) }
     var selected by remember { mutableStateOf<JSONObject?>(null) }
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.testTag("family-list"),contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(month, { month = it }, Modifier.weight(1f), label = { Text("月份 YYYY-MM") }, singleLine = true)
             Button(onClick = { vm.changeMonth(month) }, enabled = !vm.busy) { Text("查看") }
@@ -301,7 +289,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         }
         item { Text("家庭账户余额", style = MaterialTheme.typography.titleMedium) }
         items(vm.family.array("accounts"), key = { "account" + it.id() }) { item ->
-            ListItem(headlineContent = { Text(item.optString("name")) }, supportingContent = { Text(item.optString("ownerName")) }, trailingContent = { Text("${item.optString("currency")} ${money(item.optString("balanceMinor"))}") })
+            ListItem(modifier=Modifier.testTag("family-account-${item.id()}"),headlineContent = { Text(item.optString("name")) }, supportingContent = { Text(item.optString("ownerName")) }, trailingContent = { Text("${item.optString("currency")} ${money(item.optString("balanceMinor"))}") })
         }
         item { Text("家庭流水 · 共享查看", style = MaterialTheme.typography.titleMedium) }
         if (vm.familyItems.isEmpty()) item { EmptyState("本月还没有家庭流水", "活跃成员的流水将在这里汇总。") }
@@ -345,6 +333,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
 @Composable private fun SettingsPage(vm: BooksModel, navigate: (String) -> Unit) {
     var logoutConfirm by remember { mutableStateOf(false) }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ThemeSettings()
         Text("你好，${vm.nickname}", style = MaterialTheme.typography.headlineSmall)
         Text("每人独立记账，全家共同看见。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         listOf("catalog" to "分类与标签", "sessions" to "登录设备与会话", "about" to "关于与应用更新").forEach { (key, title) ->
@@ -378,69 +367,120 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         Text(label + "：" + (values.firstOrNull { it.first == value }?.second ?: "请选择"), Modifier.weight(1f)); Icon(Icons.Outlined.ExpandMore, null)
     }
     if (expanded) AlertDialog(onDismissRequest = { expanded = false }, title = { Text(label) }, text = { LazyColumn(Modifier.heightIn(max = 320.dp).testTag("choice-list")) {
-        items(values) { pair -> ListItem(headlineContent = { Text(pair.second) }, leadingContent = { RadioButton(pair.first == value, null) }, modifier = Modifier.clickable { choose(pair.first); expanded = false }.heightIn(min = 48.dp)) }
+        items(values) { pair -> ListItem(headlineContent = { Text(pair.second) }, leadingContent = { RadioButton(pair.first == value, null) }, modifier = Modifier.clickable(enabled=enabled) { if(enabled){choose(pair.first);expanded=false} }.heightIn(min = 48.dp)) }
     } }, confirmButton = { TextButton(onClick = { expanded = false }) { Text("取消") } })
 }
 
 
-@Composable private fun AccountEditor(vm: BooksModel, original: JSONObject?, close: () -> Unit) {
-    var name by remember { mutableStateOf(original?.optString("name") ?: "") }; var currency by remember { mutableStateOf(original?.optString("currency") ?: "CNY") }
-    var balance by remember { mutableStateOf("0.00") }; var category by remember { mutableStateOf(original?.optString("category") ?: "1") }; var comment by remember { mutableStateOf(original?.optString("comment") ?: "") }
-    var localError by remember { mutableStateOf("") }
-    val requestId = remember { UUID.randomUUID().toString() }
-    AlertDialog(onDismissRequest = close, title = { Text(if (original == null) "新建账户" else "编辑账户资料") }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(name, { if(it.length <= 64) name = it }, label = { Text("账户名称") }, singleLine = true)
-        Choice("账户类型", listOf("1" to "现金", "2" to "银行卡", "3" to "信用卡", "4" to "虚拟账户", "8" to "储蓄"), category) { category = it }
-        if (original == null) { OutlinedTextField(currency, { currency = it.uppercase().take(3) }, label = { Text("币种代码") }, singleLine = true); OutlinedTextField(balance, { balance = it }, label = { Text("初始余额（$currency）") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true) }
+@Composable internal fun AccountEditor(vm: BooksModel, original: JSONObject?, close: () -> Unit, submit: (String,JSONObject,()->Unit)->Unit = vm::saveEntity, preset:AccountPreset?=null) {
+    var name by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("name") ?: preset?.label ?: "") }; var currency by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("currency") ?: "CNY") }
+    var balance by rememberSaveable(original?.id()) { mutableStateOf("0.00") }; var category by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("category") ?: preset?.category?.toString() ?: "1") }; var comment by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("comment") ?: "") }
+    var localError by rememberSaveable(original?.id()) { mutableStateOf("") }
+    val locked=vm.busy||vm.entityBlocked
+    LaunchedEffect(vm.entityAwaitingReview,vm.busy){if(vm.entityAwaitingReview&&!vm.busy)close()}
+    val requestId = rememberSaveable(original?.id()) { UUID.randomUUID().toString() }
+    val balanceTime = rememberSaveable(original?.id()) { Instant.now().epochSecond }
+    AlertDialog(onDismissRequest = {if(!vm.busy&&!vm.entityBlocked)close()}, title = { Text(if (original == null) "新建账户" else "编辑账户资料") }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedTextField(name, { if(!vm.busy&&!vm.entityBlocked&&it.length <= 64) name = it }, label = { Text("账户名称") }, singleLine = true,enabled=!locked)
+        Choice("账户类型", listOf("1" to "现金", "2" to "银行卡", "3" to "信用卡", "4" to "虚拟账户", "5" to "负债", "6" to "应收款", "7" to "投资理财", "8" to "储蓄", "9" to "定期存款"), category,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked)category = it }
+        if (original == null) { OutlinedTextField(currency, { if(!vm.busy&&!vm.entityBlocked)currency = it.uppercase().take(3) }, label = { Text("币种代码") }, singleLine = true,enabled=!locked); OutlinedTextField(balance, { if(!vm.busy&&!vm.entityBlocked)balance = it }, label = { Text(initialAccountBalanceLabel(category.toIntOrNull()?:1,currency)) }, supportingText={if(isLiabilityAccountCategory(category.toIntOrNull()?:1))Text("填写当前欠款，金额不能为负数")}, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,enabled=!locked) }
         else Text("编辑资料不会调整余额。余额随记账更新。", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(comment, { if(it.length <= 255) comment = it }, label = { Text("备注") })
+        OutlinedTextField(comment, { if(!vm.busy&&!vm.entityBlocked&&it.length <= 255) comment = it }, label = { Text("备注") },enabled=!locked)
         if (localError.isNotEmpty()) Text(localError, color = MaterialTheme.colorScheme.error)
         if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error)
     } }, confirmButton = { TextButton(onClick = {
+        if(vm.busy||vm.entityBlocked)return@TextButton
         runCatching {
             require(name.isNotBlank()) { "请填写名称" }
-            val body = JSONObject().put("name", name.trim()).put("category", category.toInt()).put("icon", original?.optString("icon") ?: "1").put("iconType", 0).put("color", original?.optString("color") ?: "006B5C").put("comment", comment)
-            if (original == null) { require(Regex("[A-Z]{3}").matches(currency)); val minor = java.math.BigDecimal(balance).movePointRight(2).longValueExact(); body.put("type", 1).put("currency", currency).put("balance", minor.toString()).put("balanceTime", Instant.now().epochSecond).put("clientSessionId", requestId) }
-            else { body.put("id", original.id()).put("hidden", original.optBoolean("hidden")); if(original.has("creditCardStatementDate")) body.put("creditCardStatementDate",original.get("creditCardStatementDate")); if(original.has("creditCardLimit")) body.put("creditCardLimit",original.get("creditCardLimit")) }
+            val body = JSONObject().put("name", name.trim()).put("category", category.toInt()).put("icon", original?.optString("icon") ?: preset?.icon ?: "1").put("iconType", 0).put("color", original?.optString("color") ?: preset?.color ?: "006B5C").put("comment", comment)
+            if (original == null) { require(Regex("[A-Z]{3}").matches(currency)){"请输入有效的三位币种代码"}; val minor = initialAccountBalanceMinor(balance,category.toInt()); body.put("type", 1).put("currency", currency).put("balance", minor.toString()).put("balanceTime", balanceTime).put("clientSessionId", requestId) }
+            else { body.put("id", original.id()).put("hidden", original.optBoolean("hidden")); if(category=="3"){ if(original.has("creditCardStatementDate")) body.put("creditCardStatementDate",original.get("creditCardStatementDate")); original.optString("creditCardLimit").toLongOrNull()?.takeIf{limit->limit>0}?.let{limit->body.put("creditCardLimit",limit.toString())} } }
             body
-        }.onSuccess { vm.saveEntity("/api/v1/accounts/${if (original == null) "add" else "modify"}.json", it, close) }.onFailure { localError = "请检查名称、币种和余额格式" }
-    }, enabled = !vm.busy) { Text("保存账户") } }, dismissButton = { TextButton(onClick = close, enabled = !vm.busy) { Text("取消") } })
+        }.onSuccess { submit("/api/v1/accounts/${if (original == null) "add" else "modify"}.json", it, close) }.onFailure { localError = if(it is ArithmeticException) "余额超出可用范围" else it.message?:"请检查名称、币种和余额格式" }
+    }, enabled = !locked) { Text("保存账户") } }, dismissButton = { TextButton(onClick = {if(!vm.busy&&!vm.entityBlocked)close()}, enabled = !locked) { Text("取消") } })
 }
 
-@Composable internal fun CatalogPage(vm: BooksModel) {
-    var section by rememberSaveable { mutableIntStateOf(0) }; var editing by remember { mutableStateOf<JSONObject?>(null) }; var open by remember { mutableStateOf(false) }
+@Composable internal fun CatalogPage(vm: BooksModel, initialSection:Int=0) {
+    require(initialSection in 0..2)
+    var section by rememberSaveable(initialSection) { mutableIntStateOf(initialSection) }
+    var editingId by rememberSaveable { mutableStateOf("") }; var open by rememberSaveable { mutableStateOf(false) }
+    var editingSnapshot by rememberSaveable { mutableStateOf("") }
+    val currentItems=when(section){0->vm.categories;1->vm.tags;else->vm.tagGroups}
+    val editing=currentItems.firstOrNull{it.id()==editingId} ?: editingSnapshot.takeIf{editingId.isNotEmpty() && it.isNotEmpty()}?.let{JSONObject(it)}
+    LaunchedEffect(Unit) { vm.refreshCategories() }
     Column {
-        TabRow(selectedTabIndex = section) { listOf("分类", "标签", "标签组").forEachIndexed { index, text -> Tab(section == index, { section = index }, text = { Text(text) }) } }
+        EntityWriteWarning(vm)
+        TabRow(selectedTabIndex = section) { listOf("分类", "标签", "标签组").forEachIndexed { index, text -> Tab(section == index, { section = index }, enabled=!vm.busy, text = { Text(text) }) } }
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Text("全家共享分类、标签及标签组。仅使用内置图标。", style = MaterialTheme.typography.bodySmall) }
-            item { Button(onClick = { editing = null; open = true }, enabled = !vm.busy) { Icon(Icons.Outlined.Add, null); Text("新建${listOf("分类", "标签", "标签组")[section]}") } }
+            if(section==0) item { TextButton(onClick={vm.refreshCategories()},enabled=!vm.busy) { Text("刷新分类") }; if(vm.categoryRevision==null) Text("分类管理需要升级服务端；浏览和记账仍可使用",style=MaterialTheme.typography.bodySmall) }
+            item { Button(onClick = { editingId = ""; editingSnapshot=""; open = true }, enabled = !vm.busy&&!vm.entityBlocked&&(section!=0||vm.categoryRevision!=null)) { Icon(Icons.Outlined.Add, null); Text("新建${listOf("分类", "标签", "标签组")[section]}") } }
             val list = when(section) { 0 -> vm.categories; 1 -> vm.tags; else -> vm.tagGroups }
             if (list.isEmpty()) item { EmptyState("暂无${listOf("分类", "标签", "标签组")[section]}", "点击新建，与家人共享整理方式。") }
             items(list.filter { !it.optBoolean("familyInternalTransfer") }, key = { it.id() }) { item ->
-                ListItem(headlineContent = { Text(item.optString("name")) }, supportingContent = { if (section == 0) Text(when(item.optInt("type")) { 1 -> "收入"; 2 -> "支出"; else -> "转账" } + if (item.id("parentId") != "0") " · 子分类" else " · 大类") }, trailingContent = { IconButton(onClick = { editing = item; open = true }) { Icon(Icons.Outlined.Edit, "编辑${item.optString("name")}") } })
+                ListItem(headlineContent = { Text(item.optString("name")) }, supportingContent = { if (section == 0) Text(when(item.optInt("type")) { 1 -> "收入"; 2 -> "支出"; else -> "转账" } + if (item.id("parentId") != "0") " · 子分类" else " · 大类") }, trailingContent = { IconButton(onClick = { editingId = item.id(); editingSnapshot=item.toString(); open = true },enabled=!vm.busy&&!vm.entityBlocked&&(section!=0||vm.categoryRevision!=null)) { Icon(Icons.Outlined.Edit, "编辑${item.optString("name")}") } })
             }
         }
     }
-    if (open) CatalogEditor(vm, section, editing) { open = false }
+    if (open && (editingId.isEmpty() || editing!=null)) CatalogEditor(vm, section, editing, close={ open = false })
 }
 
-@Composable private fun CatalogEditor(vm: BooksModel, section: Int, original: JSONObject?, close: () -> Unit) {
-    var name by remember { mutableStateOf(original?.optString("name") ?: "") }; var type by remember { mutableStateOf(original?.optString("type") ?: "2") }
-    var parent by remember { mutableStateOf(original?.id("parentId") ?: "0") }; var group by remember { mutableStateOf(original?.id("groupId") ?: "0") }
-    val label = listOf("分类", "标签", "标签组")[section]
-    AlertDialog(onDismissRequest = close, title = { Text((if (original == null) "新建" else "编辑") + label) }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(name, { if(it.length <= 64) name = it }, label = { Text("${label}名称") }, singleLine = true)
-        if (section == 0) {
-            if (original == null) Choice("用途", listOf("2" to "支出", "1" to "收入", "3" to "转账"), type) { type = it; parent = "0" }
-            Choice("所属大类", listOf("0" to "作为大类") + vm.categories.filter { it.id("parentId") == "0" && it.optString("type") == type && it.id() != original?.id() }.map { it.id() to it.optString("name") }, parent) { parent = it }
+@Composable internal fun CatalogEditor(vm: BooksModel, section: Int, original: JSONObject?, close: () -> Unit, submit: (String,JSONObject,()->Unit)->Unit = vm::saveEntity) {
+    var name by rememberSaveable(section, original?.id()) { mutableStateOf(original?.optString("name") ?: "") }; var type by rememberSaveable(section, original?.id()) { mutableStateOf(original?.optString("type") ?: "2") }
+    var parent by rememberSaveable(section, original?.id()) { mutableStateOf(original?.id("parentId") ?: "0") }; var group by rememberSaveable(section, original?.id()) { mutableStateOf(original?.id("groupId") ?: "0") }
+    val locked=vm.busy||vm.entityBlocked
+    LaunchedEffect(vm.entityAwaitingReview,vm.busy){if(vm.entityAwaitingReview&&!vm.busy)close()}
+    val requestId = rememberSaveable(section, original?.id()) { UUID.randomUUID().toString() }
+    var openedRevision by rememberSaveable(section, original?.id()) { mutableStateOf(vm.categoryRevision ?: "") }
+    var impactCount by rememberSaveable(section, original?.id()) { mutableStateOf<String?>(null) }
+    var categoryAction by rememberSaveable(section, original?.id()) { mutableStateOf("modify") }
+    fun reviewCategoryAction(action:String) {
+        if(original==null || openedRevision.isBlank()) return
+        vm.act {
+            val impact=vm.api.categoryImpact(original.id())
+            require(impact.optString("revision")==openedRevision) { "分类已在其他设备变更，请保留草稿并刷新后重新评审" }
+            categoryAction=action; impactCount=impact.getString("transactionCount")
         }
-        if (section == 1) Choice("标签组", listOf("0" to "不分组") + vm.tagGroups.map { it.id() to it.optString("name") }, group) { group = it }
+    }
+    val label = listOf("分类", "标签", "标签组")[section]
+    AlertDialog(onDismissRequest = {if(!vm.busy&&!vm.entityBlocked)close()}, title = { Text((if (original == null) "新建" else "编辑") + label) }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedTextField(name, { if(!vm.busy&&!vm.entityBlocked&&it.length <= 64) name = it }, label = { Text("${label}名称") }, singleLine = true,enabled=!locked)
+        if (section == 0) {
+            if (original == null) Choice("用途", listOf("2" to "支出", "1" to "收入", "3" to "转账"), type,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked){type = it; parent = "0"} }
+            if(original==null || original.id("parentId")!="0") Choice("所属大类", (if(original==null) listOf("0" to "作为大类") else emptyList()) + vm.categories.filter { it.id("parentId") == "0" && it.optString("type") == type && it.id() != original?.id() && !it.optBoolean("hidden") }.map { it.id() to it.optString("name") }, parent,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked)parent = it }
+            else Text("一级分类不能调整为二级分类")
+        }
+        if (section == 1) Choice("标签组", listOf("0" to "不分组") + vm.tagGroups.map { it.id() to it.optString("name") }, group,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked)group = it }
+        if(section==0) {
+            TextButton(onClick={vm.act { vm.refreshCategoriesNow(); openedRevision=vm.categoryRevision.orEmpty(); impactCount=null }},enabled=!locked) { Text("刷新分类并重新评审草稿") }
+            if(original!=null) Row {
+                TextButton(onClick={reviewCategoryAction("hide")},enabled=!locked&&openedRevision.isNotBlank()) { Text(if(original.optBoolean("hidden")) "恢复分类" else "隐藏分类") }
+                TextButton(onClick={reviewCategoryAction("delete")},enabled=!locked&&openedRevision.isNotBlank()) { Text("删除分类") }
+            }
+        }
         if (vm.error.isNotBlank()) Text(vm.error, color = MaterialTheme.colorScheme.error)
     } }, confirmButton = { TextButton(onClick = {
+        if(vm.busy||vm.entityBlocked)return@TextButton
         val body = JSONObject().put("name", name.trim()); if (original != null) body.put("id", original.id())
-        if (section == 0) { body.put("type", type.toInt()).put("parentId", parent).put("icon", original?.optString("icon") ?: "1").put("iconType", 0).put("color", original?.optString("color") ?: "006B5C").put("comment", original?.optString("comment") ?: "").put("hidden", original?.optBoolean("hidden") ?: false); if (original == null) body.put("clientSessionId", UUID.randomUUID().toString()) }
+        if (section == 0) { body.put("type", type.toInt()).put("parentId", parent).put("icon", original?.optString("icon") ?: "1").put("iconType", 0).put("color", original?.optString("color") ?: "006B5C").put("comment", original?.optString("comment") ?: "").put("hidden", original?.optBoolean("hidden") ?: false); if (original == null) body.put("clientSessionId", requestId) }
         if (section == 1) body.put("groupId", group)
         val path = when(section) { 0 -> "categories"; 1 -> "tags"; else -> "tags/groups" }
-        vm.saveEntity("/api/v1/transaction/$path/${if(original == null) "add" else "modify"}.json", body, close)
-    }, enabled = !vm.busy && name.isNotBlank()) { Text("保存${label}") } }, dismissButton = { TextButton(onClick = close) { Text("取消") } })
+        if(section==0) {
+            val revision=openedRevision
+            if(revision.isBlank()) return@TextButton
+            body.put("expectedRevision",revision)
+            if(original!=null) {
+                reviewCategoryAction("modify")
+            } else submit("/api/v1/transaction/$path/add.json", body, close)
+        } else submit("/api/v1/transaction/$path/${if(original == null) "add" else "modify"}.json", body, close)
+    }, enabled = !locked && name.isNotBlank() && (section!=0||openedRevision.isNotBlank())) { Text("保存${label}") } }, dismissButton = { TextButton(onClick = {if(!vm.busy&&!vm.entityBlocked)close()},enabled=!locked) { Text("取消") } })
+    impactCount?.let { count -> AlertDialog(onDismissRequest={impactCount=null},title={Text("确认共享分类变更")},text={Text("此分类涉及活跃家庭成员的 $count 笔历史交易。删除仅允许没有引用的分类；隐藏后保留历史记录。")},confirmButton={TextButton(onClick={
+        val item=original!!
+        val body=JSONObject().put("id",item.id()).put("expectedRevision",openedRevision)
+        when(categoryAction) {
+            "hide" -> body.put("hidden",!item.optBoolean("hidden"))
+            "modify" -> body.put("name",name.trim()).put("type",type.toInt()).put("parentId",parent).put("icon",item.optString("icon")).put("iconType",0).put("color",item.optString("color")).put("comment",item.optString("comment")).put("hidden",item.optBoolean("hidden"))
+        }
+        val action=categoryAction;impactCount=null;submit("/api/v1/transaction/categories/$action.json",body,close)
+    },enabled=!locked){Text("确认")}},dismissButton={TextButton(onClick={impactCount=null}){Text("取消")}}) }
 }

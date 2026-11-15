@@ -1339,6 +1339,7 @@ func (a *TransactionsApi) TransactionCreateHandler(c *core.WebContext) (any, *er
 
 	transaction := a.createNewTransactionModel(uid, &transactionCreateReq, c.ClientIP())
 	transaction.ClientRequest = request
+	transaction.ExpectedCategoryRevision = transactionCreateReq.ExpectedCategoryRevision
 
 	allUsedAccounts, err := a.getTransactionUsedAccounts(c, uid, []*models.Transaction{transaction})
 
@@ -1540,16 +1541,17 @@ func (a *TransactionsApi) TransactionModifyHandler(c *core.WebContext) (any, *er
 	transactionPictureIds := a.transactionPictures.GetTransactionPictureIds(transactionPictureInfos)
 
 	newTransaction := &models.Transaction{
-		TransactionId:     transaction.TransactionId,
-		Uid:               uid,
-		Type:              newTransactionType,
-		CategoryId:        transactionModifyReq.CategoryId,
-		TransactionTime:   utils.GetMinTransactionTimeFromUnixTime(transactionModifyReq.Time),
-		TimezoneUtcOffset: transactionModifyReq.UtcOffset,
-		AccountId:         transactionModifyReq.SourceAccountId,
-		Amount:            transactionModifyReq.SourceAmount,
-		HideAmount:        transactionModifyReq.HideAmount,
-		Comment:           transactionModifyReq.Comment,
+		ExpectedCategoryRevision: transactionModifyReq.ExpectedCategoryRevision,
+		TransactionId:            transaction.TransactionId,
+		Uid:                      uid,
+		Type:                     newTransactionType,
+		CategoryId:               transactionModifyReq.CategoryId,
+		TransactionTime:          utils.GetMinTransactionTimeFromUnixTime(transactionModifyReq.Time),
+		TimezoneUtcOffset:        transactionModifyReq.UtcOffset,
+		AccountId:                transactionModifyReq.SourceAccountId,
+		Amount:                   transactionModifyReq.SourceAmount,
+		HideAmount:               transactionModifyReq.HideAmount,
+		Comment:                  transactionModifyReq.Comment,
 	}
 
 	if newTransaction.Type == models.TRANSACTION_DB_TYPE_TRANSFER_OUT {
