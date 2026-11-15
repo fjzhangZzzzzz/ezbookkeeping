@@ -12,8 +12,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.viewModels
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -405,6 +407,10 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     var section by rememberSaveable(initialSection) { mutableIntStateOf(initialSection) }
     var editingId by rememberSaveable { mutableStateOf("") }; var open by rememberSaveable { mutableStateOf(false) }
     var editingSnapshot by rememberSaveable { mutableStateOf("") }
+    var newParentId by rememberSaveable { mutableStateOf("0") }
+    var newType by rememberSaveable { mutableStateOf("2") }
+    var expanded by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    var showHidden by rememberSaveable { mutableStateOf(false) }
     val currentItems=when(section){0->vm.categories;1->vm.tags;else->vm.tagGroups}
     val editing=currentItems.firstOrNull{it.id()==editingId} ?: editingSnapshot.takeIf{editingId.isNotEmpty() && it.isNotEmpty()}?.let{JSONObject(it)}
     LaunchedEffect(Unit) { vm.refreshCategories() }
@@ -413,27 +419,60 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         TabRow(selectedTabIndex = section) { listOf("分类", "标签", "标签组").forEachIndexed { index, text -> Tab(section == index, { section = index }, enabled=!vm.busy, text = { Text(text) }) } }
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Text("全家共享分类、标签及标签组。仅使用内置图标。", style = MaterialTheme.typography.bodySmall) }
-            if(section==0) item { TextButton(onClick={vm.refreshCategories()},enabled=!vm.busy) { Text("刷新分类") }; if(vm.categoryRevision==null) Text("分类管理需要升级服务端；浏览和记账仍可使用",style=MaterialTheme.typography.bodySmall) }
-            item { Button(onClick = { editingId = ""; editingSnapshot=""; open = true }, enabled = !vm.busy&&!vm.entityBlocked&&(section!=0||vm.categoryRevision!=null)) { Icon(Icons.Outlined.Add, null); Text("新建${listOf("分类", "标签", "标签组")[section]}") } }
+            if(section==0) item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { TextButton(onClick={vm.refreshCategories()},enabled=!vm.busy) { Text("刷新分类") }; TextButton(onClick={ showHidden = !showHidden }) { Text(if(showHidden) "隐藏已停用" else "显示已停用") } }; if(vm.categoryRevision==null) Text("分类管理需要升级服务端；浏览和记账仍可使用",style=MaterialTheme.typography.bodySmall) }
+            item { Button(onClick = { editingId = ""; editingSnapshot=""; newParentId="0"; newType="2"; open = true }, enabled = !vm.busy&&!vm.entityBlocked&&(section!=0||vm.categoryRevision!=null)) { Icon(Icons.Outlined.Add, null); Text("新建${listOf("分类", "标签", "标签组")[section]}") } }
             val list = when(section) { 0 -> vm.categories; 1 -> vm.tags; else -> vm.tagGroups }
             if (list.isEmpty()) item { EmptyState("暂无${listOf("分类", "标签", "标签组")[section]}", "点击新建，与家人共享整理方式。") }
-            items(list.filter { !it.optBoolean("familyInternalTransfer") }, key = { it.id() }) { item ->
-                ListItem(headlineContent = { Text(item.optString("name")) }, supportingContent = { if (section == 0) Text(when(item.optInt("type")) { 1 -> "收入"; 2 -> "支出"; else -> "转账" } + if (item.id("parentId") != "0") " · 子分类" else " · 大类") }, trailingContent = { IconButton(onClick = { editingId = item.id(); editingSnapshot=item.toString(); open = true },enabled=!vm.busy&&!vm.entityBlocked&&(section!=0||vm.categoryRevision!=null)) { Icon(Icons.Outlined.Edit, "编辑${item.optString("name")}") } })
+            if (section == 0) {
+                val visible = list.filter { !it.optBoolean("familyInternalTransfer") && (showHidden || !it.optBoolean("hidden")) }
+                val parents = visible.filter { it.id("parentId") == "0" }
+                items(parents, key = { it.id() }) { parentItem ->
+                    val children = visible.filter { it.id("parentId") == parentItem.id() }
+                    val isExpanded = parentItem.id() in expanded
+                    Column(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .42f))) {
+                        ListItem(
+                            headlineContent = { Text(parentItem.optString("name"), style = MaterialTheme.typography.titleMedium, color = if(parentItem.optBoolean("hidden")) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .55f) else MaterialTheme.colorScheme.onSurface) },
+                            supportingContent = { Text(when(parentItem.optInt("type")) { 1 -> "收入"; 2 -> "支出"; else -> "转账" } + " · ${children.size} 个子分类") },
+                            leadingContent = { BuiltinIcon(parentItem, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            trailingContent = { Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { editingId = parentItem.id(); editingSnapshot=parentItem.toString(); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null) { Icon(Icons.Outlined.Edit, "编辑${parentItem.optString("name")}") }
+                                IconButton(onClick = { expanded = if (isExpanded) expanded - parentItem.id() else expanded + parentItem.id() }) { Icon(if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (isExpanded) "收起 ${parentItem.optString("name")}" else "展开 ${parentItem.optString("name")}") }
+                            }},
+                            modifier = Modifier.clickable { expanded = if (isExpanded) expanded - parentItem.id() else expanded + parentItem.id() }
+                        )
+                        AnimatedVisibility(isExpanded) {
+                            Column(Modifier.padding(start = 20.dp, end = 12.dp, bottom = 10.dp)) {
+                                children.forEach { child ->
+                                    ListItem(
+                                        headlineContent = { Text(child.optString("name"), color = if(child.optBoolean("hidden")) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .55f) else MaterialTheme.colorScheme.onSurface) },
+                                        leadingContent = { BuiltinIcon(child, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                        trailingContent = { IconButton(onClick = { editingId = child.id(); editingSnapshot=child.toString(); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null) { Icon(Icons.Outlined.Edit, "编辑${child.optString("name")}") } },
+                                        modifier = Modifier.clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surface.copy(alpha = .72f))
+                                    )
+                                }
+                                TextButton(onClick = { editingId = ""; editingSnapshot=""; newParentId=parentItem.id(); newType=parentItem.optString("type", "2"); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null&&!parentItem.optBoolean("hidden")) { Icon(Icons.Outlined.Add, null); Text("添加子分类") }
+                            }
+                        }
+                    }
+                }
+            } else items(list.filter { !it.optBoolean("familyInternalTransfer") }, key = { it.id() }) { item ->
+                ListItem(headlineContent = { Text(item.optString("name")) }, trailingContent = { IconButton(onClick = { editingId = item.id(); editingSnapshot=item.toString(); open = true },enabled=!vm.busy&&!vm.entityBlocked) { Icon(Icons.Outlined.Edit, "编辑${item.optString("name")}") } })
             }
         }
     }
-    if (open && (editingId.isEmpty() || editing!=null)) CatalogEditor(vm, section, editing, close={ open = false })
+    if (open && (editingId.isEmpty() || editing!=null)) CatalogEditor(vm, section, editing, initialType=newType, initialParentId=newParentId, close={ open = false })
 }
 
-@Composable internal fun CatalogEditor(vm: BooksModel, section: Int, original: JSONObject?, close: () -> Unit, submit: (String,JSONObject,()->Unit)->Unit = vm::saveEntity) {
-    var name by rememberSaveable(section, original?.id()) { mutableStateOf(original?.optString("name") ?: "") }; var type by rememberSaveable(section, original?.id()) { mutableStateOf(original?.optString("type") ?: "2") }
-    var parent by rememberSaveable(section, original?.id()) { mutableStateOf(original?.id("parentId") ?: "0") }; var group by rememberSaveable(section, original?.id()) { mutableStateOf(original?.id("groupId") ?: "0") }
+@Composable internal fun CatalogEditor(vm: BooksModel, section: Int, original: JSONObject?, initialType: String = "2", initialParentId: String = "0", close: () -> Unit, submit: (String,JSONObject,()->Unit)->Unit = vm::saveEntity) {
+    var name by rememberSaveable(section, original?.id()) { mutableStateOf(original?.optString("name") ?: "") }; var type by rememberSaveable(section, original?.id(), initialType) { mutableStateOf(original?.optString("type") ?: initialType) }
+    var parent by rememberSaveable(section, original?.id(), initialParentId) { mutableStateOf(original?.id("parentId") ?: initialParentId) }; var group by rememberSaveable(section, original?.id()) { mutableStateOf(original?.id("groupId") ?: "0") }
     val locked=vm.busy||vm.entityBlocked
     LaunchedEffect(vm.entityAwaitingReview,vm.busy){if(vm.entityAwaitingReview&&!vm.busy)close()}
     val requestId = rememberSaveable(section, original?.id()) { UUID.randomUUID().toString() }
     var openedRevision by rememberSaveable(section, original?.id()) { mutableStateOf(vm.categoryRevision ?: "") }
     var impactCount by rememberSaveable(section, original?.id()) { mutableStateOf<String?>(null) }
     var categoryAction by rememberSaveable(section, original?.id()) { mutableStateOf("modify") }
+    val parentValid = section != 0 || parent == "0" || vm.categories.any { it.id() == parent && it.id("parentId") == "0" && it.optString("type") == type && !it.optBoolean("hidden") }
     fun reviewCategoryAction(action:String) {
         if(original==null || openedRevision.isBlank()) return
         vm.act {
@@ -473,7 +512,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                 reviewCategoryAction("modify")
             } else submit("/api/v1/transaction/$path/add.json", body, close)
         } else submit("/api/v1/transaction/$path/${if(original == null) "add" else "modify"}.json", body, close)
-    }, enabled = !locked && name.isNotBlank() && (section!=0||openedRevision.isNotBlank())) { Text("保存${label}") } }, dismissButton = { TextButton(onClick = {if(!vm.busy&&!vm.entityBlocked)close()},enabled=!locked) { Text("取消") } })
+    }, enabled = !locked && name.isNotBlank() && (section!=0||openedRevision.isNotBlank()) && parentValid) { Text("保存${label}") } }, dismissButton = { TextButton(onClick = {if(!vm.busy&&!vm.entityBlocked)close()},enabled=!locked) { Text("取消") } })
     impactCount?.let { count -> AlertDialog(onDismissRequest={impactCount=null},title={Text("确认共享分类变更")},text={Text("此分类涉及活跃家庭成员的 $count 笔历史交易。删除仅允许没有引用的分类；隐藏后保留历史记录。")},confirmButton={TextButton(onClick={
         val item=original!!
         val body=JSONObject().put("id",item.id()).put("expectedRevision",openedRevision)
