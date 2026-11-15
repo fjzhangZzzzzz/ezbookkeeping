@@ -33,7 +33,7 @@ class ReportInteractionTest {
    server.enqueue(MockResponse().setBody("""{"success":true,"result":{"items":[],"totalCount":31}}"""))
    val accounts=listOf(JSONObject("""{"id":"1","currency":"CNY"}"""),JSONObject("""{"id":"2","currency":"USD"}"""))
    val categories=listOf(JSONObject("""{"id":"10","type":1,"parentId":"9"}"""),JSONObject("""{"id":"20","type":2,"parentId":"19"}"""),JSONObject("""{"id":"30","type":3,"parentId":"29"}"""))
-   val api=BooksApi(server.url("/").toString()){null};val date=LocalDate.parse("2024-02-29")
+   val api=BooksApi(server.url("/").newBuilder().host("127.0.0.1").build().toString()){null};val date=LocalDate.parse("2024-02-29")
    val(_,count)=api.reportDayPage(date,accounts,categories,2,ReportFilter(setOf("1","2"),setOf("20"),setOf("8"),true));assertEquals(31L,count)
    val query=server.takeRequest().requestUrl!!;assertEquals("2",query.queryParameter("page"));assertEquals("1",query.queryParameter("account_ids"));assertEquals("20",query.queryParameter("category_ids"));assertEquals("1:8",query.queryParameter("tag_filter"));assertEquals("true",query.queryParameter("with_pictures"));val bounds=BooksApi.dayBounds(date.toString());assertEquals((bounds.first*1000).toString(),query.queryParameter("min_time"));assertEquals((bounds.second*1000+999).toString(),query.queryParameter("max_time"))
    assertEquals(0L,api.reportDayPage(date,accounts,categories,1,ReportFilter(setOf("2"))).second);assertEquals(1,server.requestCount)
