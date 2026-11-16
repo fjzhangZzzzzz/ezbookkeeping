@@ -35,6 +35,8 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var error by mutableStateOf(""); private set
     var notice by mutableStateOf(""); private set
     var nickname by mutableStateOf("家人"); private set
+    /** Server-synchronised account preference; never inferred from account list order alone. */
+    var defaultAccountId by mutableStateOf(""); private set
     var accounts by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var categories by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var categoryRevision by mutableStateOf<String?>(null); private set
@@ -208,7 +210,11 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if (result.optBoolean("need2FA")) { twoFactorToken = result.getString("token"); return }
         val value = result.optString("token"); require(value.isNotBlank()) { "未取得有效会话" }
         try { store.write(value) } catch(_:Exception) { runCatching { api.call("/api/logout.json",null,true,value) }; throw IllegalArgumentException("无法安全保存会话，请检查设备安全设置后重试") }
-        pendingCheckReady=false;token = value; nickname = result.optJSONObject("user")?.optString("nickname") ?: "家人"
+        pendingCheckReady=false;token = value
+        result.optJSONObject("user")?.let { user ->
+            nickname = user.optString("nickname").ifBlank { "家人" }
+            defaultAccountId = user.optString("defaultAccountId")
+        }
     }
     fun login(name: String, password: String, passcode: String) = act {
         require(name.isNotBlank() && password.isNotBlank()) { "请填写用户名和密码" }
@@ -223,13 +229,21 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
             store.write(it); token = it
             data.optString("oldTokenId").takeIf(String::isNotBlank)?.let { old -> api.call("/api/v1/tokens/revoke.json", JSONObject().put("tokenId", old)) }
         }
-        data.optJSONObject("user")?.let { nickname = it.optString("nickname", "家人") }
+        data.optJSONObject("user")?.let { user ->
+            nickname = user.optString("nickname", "家人")
+            defaultAccountId = user.optString("defaultAccountId", defaultAccountId)
+        }
         refreshAt = System.currentTimeMillis()
     }
     private suspend fun loadAll() {
         if(entityWrites.blocked)entityWrites.invalidateIdentity()
         refreshSession()
-        accounts = api.accounts(); loadCategories(); tags = api.tags(); tagGroups = api.tagGroups()
+        accounts = api.accounts()
+        runCatching { api.userProfile() }.getOrNull()?.let { profile ->
+            defaultAccountId = profile.optString("defaultAccountId", defaultAccountId)
+            nickname = profile.optString("nickname", nickname)
+        }
+        loadCategories(); tags = api.tags(); tagGroups = api.tagGroups()
         externalLinked = api.externalAuthLinked()
         page = 1; val listed=api.ledgerPage(page,ledgerMonth,ledgerDay);transactions=listed.items;hasMoreTransactions=listed.hasMore;dailyAmounts=api.dailyAmounts(ledgerMonth)
         val today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));weeklyAmounts=api.dailyRange(BooksApi.dayBounds(today.minusDays(6).toString()).first,BooksApi.dayBounds(today.toString()).second)
@@ -292,6 +306,46 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         val acknowledged=try { transactionSubmission.submit("/api/v1/transactions/${if(existing)"modify" else "add"}.json",payload,keepOpen) } catch(error:ApiFailure) { categoryConflict(error) }
         finishTransactionSave(acknowledged,onSaved)
     }
+
+    fun preferredAccountId(): String = choosePreferredAccountId(accounts, defaultAccountId)
+
+    fun setDefaultAccount(accountId: String) = act {
+        val result = api.updateDefaultAccount(accountId)
+        result.optJSONObject("user")?.let { user -> defaultAccountId = user.optString("defaultAccountId", accountId) }
+            ?: run { defaultAccountId = accountId }
+        loadAll()
+        notice = "默认账户已更新"
+    }
+
+    fun hideAccount(accountId: String, hidden: Boolean) = act {
+        require(api.hideAccount(accountId, hidden)) { "账户状态更新未完成，请刷新后重试" }
+        loadAll(); notice = if (hidden) "账户已归档" else "账户已恢复"
+    }
+
+    fun moveAccounts(order: List<Pair<String, Int>>) = act {
+        require(api.moveAccounts(order)) { "账户顺序更新未完成，请刷新后重试" }
+        loadAll(); notice = "账户顺序已更新"
+    }
+
+    fun moveAccount(accountId: String, direction: Int) = act {
+        val ordered = accounts.filter { !it.optBoolean("hidden") }.sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }.toMutableList()
+        val index = ordered.indexOfFirst { it.id() == accountId }
+        val target = index + direction
+        require(index >= 0 && target in ordered.indices) { "账户已经在该方向的边界" }
+        val selected = ordered.removeAt(index); ordered.add(target, selected)
+        require(api.moveAccounts(ordered.mapIndexed { position, account -> account.id() to position })) { "账户顺序更新未完成，请刷新后重试" }
+        loadAll(); notice = "账户顺序已更新"
+    }
+
+    fun deleteOrArchiveAccount(accountId: String, onResult: (String) -> Unit = {}) = act {
+        if (entityWrites.blocked) {
+            entityReviewOpen = true
+            throw IllegalArgumentException("请先核对上一笔资料保存；不会自动重发")
+        }
+        val result = entityWrites.submit("/api/v1/accounts/delete.json", JSONObject().put("id", accountId))
+        val action = accountDeleteAction(result)
+        loadAll(); notice = if (action == "archived") "账户已归档" else "账户已删除"; onResult(action)
+    }
     fun refreshTransactionConfirmation()=act {
         transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
     }
@@ -331,7 +385,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         entityWrites.detachForLogout();entityReviewOpen=false
         transactionSubmission.detachForLogout()
         clearTransactionDraft()
-        store.clear(); token = null; refreshAt = 0; accounts = emptyList(); categories = emptyList(); categoryRevision = null; tags = emptyList()
+        store.clear(); token = null; refreshAt = 0; defaultAccountId = ""; accounts = emptyList(); categories = emptyList(); categoryRevision = null; tags = emptyList()
         tagGroups = emptyList(); transactions = emptyList(); familyItems = emptyList(); family = JSONObject(); sessions = emptyList()
         hasMoreTransactions=false;dailyAmounts=emptyList();weeklyAmounts=emptyList();ledgerDay=null;newTransactionDay=null;editTransaction = null; showEditor = false; oidcCallbackToken = null; twoFactorToken = null;draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false
         if (clearFlow) protectedFlow.clear()
@@ -393,4 +447,20 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     }
     fun finishTwoFactor(passcode: String) = act { finishTwoFactorInternal(passcode); loadAll() }
     fun cancelTwoFactor() { twoFactorToken = null }
+}
+
+internal fun choosePreferredAccountId(accounts: List<JSONObject>, defaultId: String): String {
+    val visible = accounts.filter { !it.optBoolean("hidden") }.sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }
+    return visible.firstOrNull { it.id() == defaultId }?.id()
+        ?: visible.firstOrNull()?.id().orEmpty()
+}
+
+internal fun accountDeleteAction(result: Any): String {
+    if (result == true) return "deleted"
+    if (result is JSONObject) {
+        val action = result.optString("action")
+        require(action == "deleted" || action == "archived") { "服务端返回了未知的账户处理结果" }
+        return action
+    }
+    throw IllegalArgumentException("服务端未确认账户处理结果")
 }

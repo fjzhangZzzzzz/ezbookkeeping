@@ -61,6 +61,7 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
                     206006 -> "该分类仍被交易或模板使用，不能删除；可选择隐藏"
                     206013 -> "分类已在其他设备变更，请刷新并重新评审后再保存"
                     206012 -> "分类管理需要升级客户端"
+                    204013, 204019 -> "账户仍有历史引用，不能永久删除；可选择归档"
                     217001 -> "尚未关联此 Pocket ID，请先用本地密码登录后关联"
                     216001 -> "已有其他关联，请在网页安全设置中核对"
                     201001, 201002, 201003 -> "用户名或密码不正确"
@@ -102,6 +103,28 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
     suspend fun accounts(): List<JSONObject> {
         val top = (call("/api/v1/accounts/list.json?visible_only=false") as JSONArray).objects()
         return top.flatMap { if (it.array("subAccounts").isEmpty()) listOf(it) else it.array("subAccounts") }
+    }
+    suspend fun userProfile(): JSONObject = call("/api/v1/users/profile/get.json") as JSONObject
+    suspend fun updateDefaultAccount(accountId: String): JSONObject {
+        require(Regex("[1-9][0-9]*").matches(accountId))
+        return call("/api/v1/users/profile/update.json", JSONObject().put("defaultAccountId", accountId)) as JSONObject
+    }
+    suspend fun hideAccount(accountId: String, hidden: Boolean): Boolean {
+        require(Regex("[1-9][0-9]*").matches(accountId))
+        return call("/api/v1/accounts/hide.json", JSONObject().put("id", accountId).put("hidden", hidden)) == true
+    }
+    suspend fun moveAccounts(order: List<Pair<String, Int>>): Boolean {
+        require(order.isNotEmpty())
+        val rows = JSONArray()
+        order.forEach { (id, displayOrder) ->
+            require(Regex("[1-9][0-9]*").matches(id))
+            rows.put(JSONObject().put("id", id).put("displayOrder", displayOrder))
+        }
+        return call("/api/v1/accounts/move.json", JSONObject().put("newDisplayOrders", rows)) == true
+    }
+    suspend fun deleteAccount(accountId: String): Any {
+        require(Regex("[1-9][0-9]*").matches(accountId))
+        return call("/api/v1/accounts/delete.json", JSONObject().put("id", accountId))
     }
     suspend fun categories(): List<JSONObject> {
         val result = call("/api/v1/transaction/categories/list.json") as JSONObject

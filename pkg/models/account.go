@@ -178,6 +178,24 @@ type AccountDeleteRequest struct {
 	Id int64 `json:"id,string" binding:"required,min=1"`
 }
 
+// AccountDeleteAction describes the outcome of the unified account removal
+// operation. An account with references or a non-zero balance is archived
+// (hidden) instead of deleting historical data.
+type AccountDeleteAction string
+
+const (
+	AccountDeleteActionDeleted  AccountDeleteAction = "deleted"
+	AccountDeleteActionArchived AccountDeleteAction = "archived"
+)
+
+// AccountDeleteResponse represents the outcome of an account removal request.
+// Id is kept for clients which persist an entity write result and Action lets
+// newer clients present the accurate confirmation result.
+type AccountDeleteResponse struct {
+	Id     int64               `json:"id,string"`
+	Action AccountDeleteAction `json:"action"`
+}
+
 // AccountInfoResponse represents a view-object of account
 type AccountInfoResponse struct {
 	Id                      int64                    `json:"id,string"`

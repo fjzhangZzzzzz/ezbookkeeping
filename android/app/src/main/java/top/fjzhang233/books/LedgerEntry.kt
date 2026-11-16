@@ -83,7 +83,7 @@ import androidx.compose.ui.focus.onFocusChanged
     var type by rememberSaveable(original?.id()) { mutableIntStateOf(initial?.optInt("type") ?: 3) }
     var amount by rememberSaveable(original?.id()) { mutableStateOf(initial?.let { money(it.optString("sourceAmount")) } ?: "") }
     var destinationAmount by rememberSaveable { mutableStateOf(initial?.let { money(it.optString("destinationAmount", it.optString("sourceAmount"))) } ?: "") }
-    var account by rememberSaveable { mutableStateOf(initial?.id("sourceAccountId") ?: vm.accounts.firstOrNull { !it.optBoolean("hidden") }?.id().orEmpty()) }
+    var account by rememberSaveable { mutableStateOf(initial?.id("sourceAccountId") ?: vm.preferredAccountId()) }
     var destination by rememberSaveable { mutableStateOf(initial?.id("destinationAccountId") ?: "") }
     var category by rememberSaveable { mutableStateOf(initial?.id("categoryId") ?: "") }
     var originalTypeSelection by rememberSaveable(original?.id()) { mutableStateOf(original?.id("categoryId") ?: "") }
@@ -277,7 +277,7 @@ import androidx.compose.ui.focus.onFocusChanged
             when {
                 preset!=null -> key(preset.key){AccountEditor(vm,null,close={accountPresetKey=""},preset=preset)}
                 accountAssetPicker -> LedgerAssetPresetPicker(dismiss={accountAssetPicker=false},choose={accountPresetKey=it.key;accountAssetPicker=false},enabled=!editLocked&&!vm.entityBlocked)
-                else -> LedgerAccountPicker(vm.accounts.filter{!pickingDestination||it.id()!=account},if(pickingDestination)destination else account,pickingDestination,dismiss={sheet=""},choose={id->if(pickingDestination)destination=id else account=id;sheet=""},create={accountAssetPicker=true},enabled=!editLocked,createEnabled=!editLocked&&!vm.entityBlocked)
+                else -> LedgerAccountPicker(vm.accounts.filter{!pickingDestination||it.id()!=account},if(pickingDestination)destination else account,pickingDestination,dismiss={sheet=""},choose={id->if(pickingDestination)destination=id else account=id;sheet=""},create={accountAssetPicker=true},enabled=!editLocked,createEnabled=!editLocked&&!vm.entityBlocked,defaultId=vm.defaultAccountId)
             }
         }
 

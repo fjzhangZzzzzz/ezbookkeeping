@@ -96,8 +96,8 @@ internal val accountPresetGroups=listOf(
 internal fun accountPreset(key:String)=accountPresetGroups.asSequence().flatMap{it.presets.asSequence()}.firstOrNull{it.key==key}
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun LedgerAccountPicker(accounts:List<JSONObject>,selectedId:String,destination:Boolean=false,dismiss:()->Unit,choose:(String)->Unit,create:()->Unit,enabled:Boolean=true,createEnabled:Boolean=enabled){
-    val visible=accounts.filter{!it.optBoolean("hidden")}
+@Composable internal fun LedgerAccountPicker(accounts:List<JSONObject>,selectedId:String,destination:Boolean=false,dismiss:()->Unit,choose:(String)->Unit,create:()->Unit,enabled:Boolean=true,createEnabled:Boolean=enabled,defaultId:String=""){
+    val visible=accounts.filter{!it.optBoolean("hidden")}.sortedBy{it.optInt("displayOrder",Int.MAX_VALUE)}
     val rows=(visible.size+1+4)/5
     val height=(56+rows*88+64).coerceIn(208,440).dp
     ModalBottomSheet(onDismissRequest=dismiss,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true),shape=RoundedCornerShape(topStart=8.dp,topEnd=8.dp),containerColor=MaterialTheme.colorScheme.surface,contentColor=MaterialTheme.colorScheme.onSurface,dragHandle=null){
@@ -110,7 +110,7 @@ internal fun accountPreset(key:String)=accountPresetGroups.asSequence().flatMap{
             }
             LazyVerticalGrid(columns=GridCells.Fixed(5),modifier=Modifier.fillMaxWidth().weight(1f).testTag("entry-account-grid"),contentPadding=PaddingValues(horizontal=4.dp,vertical=8.dp)){
                 item(key="none"){AccountChoiceTile("不选择账户",selectedId.isEmpty(),"entry-account-none",null,enabled){choose("")}}
-                items(visible,key={it.id()}){item->AccountChoiceTile(item.optString("name"),selectedId==item.id(),"entry-account-${item.id()}",item,enabled){choose(item.id())}}
+                items(visible,key={it.id()}){item->AccountChoiceTile(item.optString("name")+(if(item.id()==defaultId)" · 默认" else ""),selectedId==item.id(),"entry-account-${item.id()}",item,enabled){choose(item.id())}}
             }
         }
     }

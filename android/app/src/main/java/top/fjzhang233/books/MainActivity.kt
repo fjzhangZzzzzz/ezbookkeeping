@@ -254,20 +254,57 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
 
 @Composable private fun AccountsPage(vm: BooksModel) {
     var editingId by rememberSaveable { mutableStateOf("") }; var open by rememberSaveable { mutableStateOf(false) }
+    var showHidden by rememberSaveable { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<JSONObject?>(null) }
     val editing=vm.accounts.firstOrNull { it.id()==editingId }
+    val visible=vm.accounts.filter { !it.optBoolean("hidden") }.sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }
+    val hidden=vm.accounts.filter { it.optBoolean("hidden") }.sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }
     LazyColumn(Modifier.testTag("accounts-list"),contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { EntityWriteWarning(vm) };item { Button(onClick = { editingId = ""; open = true }, enabled = !vm.busy&&!vm.entityBlocked) { Icon(Icons.Outlined.Add, null); Text("新建账户") } }
         if (vm.accounts.isEmpty()) item { EmptyState("创建你的账户", "例如现金、银行卡。只管理自己的账户。") }
-        items(vm.accounts, key = { it.id() }) { item ->
+        item { Text("新记账会自动使用默认账户；点击账户按钮仍可切换。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        items(visible, key = { it.id() }) { item ->
             Card(Modifier.fillMaxWidth().clickable(enabled=!vm.busy&&!vm.entityBlocked) { editingId = item.id(); open = true }) {
                 Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text(item.optString("name"), style = MaterialTheme.typography.titleMedium); Text(item.optString("currency") + if (item.optBoolean("hidden")) " · 已隐藏" else "", style = MaterialTheme.typography.bodySmall) }
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(item.optString("name"), style = MaterialTheme.typography.titleMedium)
+                            if (item.id() == vm.defaultAccountId) AssistChip(onClick = {}, enabled = false, label = { Text("默认") }, modifier = Modifier.heightIn(min = 28.dp))
+                        }
+                        Text(item.optString("currency"), style = MaterialTheme.typography.bodySmall)
+                    }
                     Text(item.optString("currency")+" "+money(item.optString("balance")), style = MaterialTheme.typography.headlineSmall); Icon(Icons.Outlined.ChevronRight, "编辑账户")
+                }
+                Row(Modifier.fillMaxWidth().padding(start=12.dp,end=12.dp,bottom=10.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                    if(item.id()!=vm.defaultAccountId) TextButton(onClick={vm.setDefaultAccount(item.id())},enabled=!vm.busy&&!vm.entityBlocked){Text("设为默认")}
+                    val position = visible.indexOfFirst { it.id() == item.id() }
+                    TextButton(onClick={vm.moveAccount(item.id(),-1)},enabled=!vm.busy&&!vm.entityBlocked&&position>0){Text("上移")}
+                    TextButton(onClick={vm.moveAccount(item.id(),1)},enabled=!vm.busy&&!vm.entityBlocked&&position>=0&&position<visible.lastIndex){Text("下移")}
+                    TextButton(onClick={deleteTarget=item},enabled=!vm.busy&&!vm.entityBlocked){Text("删除",color=MaterialTheme.colorScheme.error)}
+                }
+            }
+        }
+        if(hidden.isNotEmpty()){
+            item { TextButton(onClick={showHidden=!showHidden},enabled=!vm.busy){Text(if(showHidden)"隐藏归档账户" else "显示归档账户（${hidden.size}）")} }
+            if(showHidden) items(hidden,key={"hidden-"+it.id()}) { item ->
+                Card(Modifier.fillMaxWidth()) {
+                    ListItem(headlineContent={Text(item.optString("name"))},supportingContent={Text(item.optString("currency")+" · 已归档")},trailingContent={TextButton(onClick={vm.hideAccount(item.id(),false)},enabled=!vm.busy&&!vm.entityBlocked){Text("恢复")}})
                 }
             }
         }
     }
     if (open && (editingId.isEmpty() || editing!=null)) AccountEditor(vm, editing, close={ open = false })
+    deleteTarget?.let { item ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除账户") },
+            text = { Text("系统会检查账户引用：无历史记录且余额为 0 时永久删除；否则自动归档并保留历史数据。") },
+            confirmButton = {
+                TextButton(onClick = { vm.deleteOrArchiveAccount(item.id()) { deleteTarget = null } }, enabled = !vm.busy && !vm.entityBlocked) { Text("确认") }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable private fun FamilyPage(vm: BooksModel) {

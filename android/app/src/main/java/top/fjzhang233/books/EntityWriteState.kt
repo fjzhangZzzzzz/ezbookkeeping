@@ -64,7 +64,7 @@ internal class EntityWriteState(
         val uid=identify();require(uid==value.uid){"此设备有其他账号的资料保存待核实，请用原账号核对"}
         verifiedUid=uid;return view()
     }
-    suspend fun submit(path:String,body:JSONObject,details:JSONObject=JSONObject()){
+    suspend fun submit(path:String,body:JSONObject,details:JSONObject=JSONObject()):Any{
         requireNewWrite();inFlight=true
         try{
             if(readPending()!=null){verifiedUid=null;throw IllegalArgumentException("请先核对上一笔资料保存；不会自动重发")}
@@ -86,6 +86,7 @@ internal class EntityWriteState(
             }
             require(result==true || (result is JSONObject && Regex("[1-9][0-9]*").matches(result.id()))){"服务响应未能确认，需先核对实际结果"}
             storage.clear();pending=null;verifiedUid=null;blocked=false
+            return result
         }finally{inFlight=false}
     }
     suspend fun abandonAfterExplicitReview(){
@@ -98,7 +99,7 @@ internal class EntityWriteState(
 }
 
 internal fun isEntityWritePath(path:String):Boolean = path in setOf(
-    "/api/v1/accounts/add.json","/api/v1/accounts/modify.json",
+    "/api/v1/accounts/add.json","/api/v1/accounts/modify.json","/api/v1/accounts/delete.json",
     "/api/v1/transaction/categories/add.json","/api/v1/transaction/categories/modify.json",
     "/api/v1/transaction/categories/hide.json","/api/v1/transaction/categories/delete.json",
     "/api/v1/transaction/tags/add.json","/api/v1/transaction/tags/modify.json",

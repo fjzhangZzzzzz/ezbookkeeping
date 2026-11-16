@@ -17,6 +17,7 @@ import {
     type AccountDisplayBalance,
     type CategorizedAccount,
     type AccountShowingIds,
+    type AccountDeleteAction,
     Account
 } from '@/models/account.ts';
 
@@ -1071,7 +1072,7 @@ export const useAccountsStore = defineStore('accounts', () => {
 
                 overviewStore.updateTransactionOverviewInvalidState(true);
 
-                resolve(data.result);
+                resolve(true);
             }).catch(error => {
                 logger.error('failed to update last reconciled time', error);
 
@@ -1172,7 +1173,7 @@ export const useAccountsStore = defineStore('accounts', () => {
 
                 updateAccountVisibilityInAccountList({ account, hidden });
 
-                resolve(data.result);
+                resolve(true);
             }).catch(error => {
                 logger.error('failed to change account visibility', error);
 
@@ -1191,7 +1192,7 @@ export const useAccountsStore = defineStore('accounts', () => {
         });
     }
 
-    function deleteAccount({ account, beforeResolve }: { account: Account, beforeResolve?: BeforeResolveFunction }): Promise<boolean> {
+    function deleteAccount({ account, beforeResolve }: { account: Account, beforeResolve?: BeforeResolveFunction }): Promise<AccountDeleteAction> {
         return new Promise((resolve, reject) => {
             services.deleteAccount({
                 id: account.id
@@ -1200,6 +1201,13 @@ export const useAccountsStore = defineStore('accounts', () => {
 
                 if (!data || !data.success || !data.result) {
                     reject({ message: 'Unable to delete this account' });
+                    return;
+                }
+
+                const action = data.result.action;
+
+                if (action !== 'deleted' && action !== 'archived') {
+                    reject({ message: 'Unable to confirm account removal result' });
                     return;
                 }
 
@@ -1213,7 +1221,13 @@ export const useAccountsStore = defineStore('accounts', () => {
 
                 overviewStore.updateTransactionOverviewInvalidState(true);
 
-                resolve(data.result);
+                void userStore.getCurrentUserProfile().then(profile => {
+                    userStore.storeUserBasicInfo(profile);
+                }).catch(error => {
+                    logger.warn('failed to refresh user default account after account removal', error);
+                });
+
+                resolve(action);
             }).catch(error => {
                 logger.error('failed to delete account', error);
 
@@ -1228,7 +1242,7 @@ export const useAccountsStore = defineStore('accounts', () => {
         });
     }
 
-    function deleteSubAccount({ subAccount, beforeResolve }: { subAccount: Account, beforeResolve?: BeforeResolveFunction }): Promise<boolean> {
+    function deleteSubAccount({ subAccount, beforeResolve }: { subAccount: Account, beforeResolve?: BeforeResolveFunction }): Promise<AccountDeleteAction> {
         return new Promise((resolve, reject) => {
             services.deleteSubAccount({
                 id: subAccount.id
@@ -1237,6 +1251,13 @@ export const useAccountsStore = defineStore('accounts', () => {
 
                 if (!data || !data.success || !data.result) {
                     reject({ message: 'Unable to delete this sub-account' });
+                    return;
+                }
+
+                const action = data.result.action;
+
+                if (action !== 'deleted' && action !== 'archived') {
+                    reject({ message: 'Unable to confirm sub-account removal result' });
                     return;
                 }
 
@@ -1250,7 +1271,13 @@ export const useAccountsStore = defineStore('accounts', () => {
 
                 overviewStore.updateTransactionOverviewInvalidState(true);
 
-                resolve(data.result);
+                void userStore.getCurrentUserProfile().then(profile => {
+                    userStore.storeUserBasicInfo(profile);
+                }).catch(error => {
+                    logger.warn('failed to refresh user default account after sub-account removal', error);
+                });
+
+                resolve(action);
             }).catch(error => {
                 logger.error('failed to delete sub-account', error);
 

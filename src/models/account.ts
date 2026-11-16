@@ -767,6 +767,13 @@ export interface AccountDeleteRequest {
     readonly id: string;
 }
 
+export type AccountDeleteAction = 'deleted' | 'archived';
+
+export interface AccountDeleteResponse {
+    readonly id: string;
+    readonly action: AccountDeleteAction;
+}
+
 export interface AccountBalance {
     readonly balance: BigDecimal;
     readonly category: number;

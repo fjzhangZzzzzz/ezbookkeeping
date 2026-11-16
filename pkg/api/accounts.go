@@ -856,7 +856,9 @@ func (a *AccountsApi) AccountMoveHandler(c *core.WebContext) (any, *errs.Error) 
 	return true, nil
 }
 
-// AccountDeleteHandler deletes an existed account by request parameters for current user
+// AccountDeleteHandler removes an account, automatically archiving it when
+// historical data, scheduled templates, a non-zero balance or the default
+// account setting makes hard deletion unsafe.
 func (a *AccountsApi) AccountDeleteHandler(c *core.WebContext) (any, *errs.Error) {
 	var accountDeleteReq models.AccountDeleteRequest
 	err := c.ShouldBindJSON(&accountDeleteReq)
@@ -867,18 +869,73 @@ func (a *AccountsApi) AccountDeleteHandler(c *core.WebContext) (any, *errs.Error
 	}
 
 	uid := c.GetCurrentUid()
-	err = a.accounts.DeleteAccount(c, uid, accountDeleteReq.Id)
+	user, err := a.users.GetUserById(c, uid)
+
+	if err != nil {
+		if !errs.IsCustomError(err) {
+			log.Errorf(c, "[accounts.AccountDeleteHandler] failed to get user \"uid:%d\", because %s", uid, err.Error())
+		}
+
+		return nil, errs.ErrUserNotFound
+	}
+
+	var fallbackDefaultAccountId int64
+	accountAndSubAccounts, accountErr := a.accounts.GetAccountAndSubAccountsByAccountId(c, uid, accountDeleteReq.Id)
+
+	if accountErr != nil {
+		return nil, errs.Or(accountErr, errs.ErrOperationFailed)
+	}
+
+	deleteAccountIds := make(map[int64]bool, len(accountAndSubAccounts))
+
+	for _, account := range accountAndSubAccounts {
+		deleteAccountIds[account.AccountId] = true
+	}
+
+	if deleteAccountIds[user.DefaultAccountId] {
+		allAccounts, allAccountsErr := a.accounts.GetAllAccountsByUid(c, uid)
+
+		if allAccountsErr != nil {
+			return nil, errs.Or(allAccountsErr, errs.ErrOperationFailed)
+		}
+
+		for _, account := range allAccounts {
+			if account.Deleted || account.Hidden || deleteAccountIds[account.AccountId] || (account.Type == models.ACCOUNT_TYPE_MULTI_SUB_ACCOUNTS && account.ParentAccountId == models.LevelOneAccountParentId) {
+				continue
+			}
+
+			fallbackDefaultAccountId = account.AccountId
+			break
+		}
+
+		if fallbackDefaultAccountId <= 0 {
+			return nil, errs.ErrUserDefaultAccountIsInvalid
+		}
+
+		_, _, err = a.users.UpdateUser(c, &models.User{
+			Uid:              uid,
+			DefaultAccountId: fallbackDefaultAccountId,
+		}, false, false)
+
+		if err != nil {
+			log.Errorf(c, "[accounts.AccountDeleteHandler] failed to update fallback default account for user \"uid:%d\", because %s", uid, err.Error())
+			return nil, errs.Or(err, errs.ErrOperationFailed)
+		}
+	}
+
+	result, err := a.accounts.DeleteOrArchiveAccount(c, uid, accountDeleteReq.Id, user.DefaultAccountId)
 
 	if err != nil {
 		log.Errorf(c, "[accounts.AccountDeleteHandler] failed to delete account \"id:%d\" for user \"uid:%d\", because %s", accountDeleteReq.Id, uid, err.Error())
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
 
-	log.Infof(c, "[accounts.AccountDeleteHandler] user \"uid:%d\" has deleted account \"id:%d\"", uid, accountDeleteReq.Id)
-	return true, nil
+	log.Infof(c, "[accounts.AccountDeleteHandler] user \"uid:%d\" has %s account \"id:%d\"", uid, result.Action, accountDeleteReq.Id)
+	return result, nil
 }
 
-// SubAccountDeleteHandler deletes an existed sub-account by request parameters for current user
+// SubAccountDeleteHandler removes a sub-account, automatically archiving it
+// when historical data or a non-zero balance must be preserved.
 func (a *AccountsApi) SubAccountDeleteHandler(c *core.WebContext) (any, *errs.Error) {
 	var accountDeleteReq models.AccountDeleteRequest
 	err := c.ShouldBindJSON(&accountDeleteReq)
@@ -889,15 +946,68 @@ func (a *AccountsApi) SubAccountDeleteHandler(c *core.WebContext) (any, *errs.Er
 	}
 
 	uid := c.GetCurrentUid()
-	err = a.accounts.DeleteSubAccount(c, uid, accountDeleteReq.Id)
+	user, err := a.users.GetUserById(c, uid)
+
+	if err != nil {
+		if !errs.IsCustomError(err) {
+			log.Errorf(c, "[accounts.SubAccountDeleteHandler] failed to get user \"uid:%d\", because %s", uid, err.Error())
+		}
+
+		return nil, errs.ErrUserNotFound
+	}
+
+	account, err := a.accounts.GetAccountByAccountId(c, uid, accountDeleteReq.Id)
+
+	if err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	if account.ParentAccountId == models.LevelOneAccountParentId {
+		return nil, errs.ErrSubAccountNotFound
+	}
+
+	if account.AccountId == user.DefaultAccountId {
+		allAccounts, allAccountsErr := a.accounts.GetAllAccountsByUid(c, uid)
+
+		if allAccountsErr != nil {
+			return nil, errs.Or(allAccountsErr, errs.ErrOperationFailed)
+		}
+
+		fallbackDefaultAccountId := int64(0)
+
+		for _, candidate := range allAccounts {
+			if candidate.Deleted || candidate.Hidden || candidate.AccountId == account.AccountId || (candidate.Type == models.ACCOUNT_TYPE_MULTI_SUB_ACCOUNTS && candidate.ParentAccountId == models.LevelOneAccountParentId) {
+				continue
+			}
+
+			fallbackDefaultAccountId = candidate.AccountId
+			break
+		}
+
+		if fallbackDefaultAccountId <= 0 {
+			return nil, errs.ErrUserDefaultAccountIsInvalid
+		}
+
+		_, _, err = a.users.UpdateUser(c, &models.User{
+			Uid:              uid,
+			DefaultAccountId: fallbackDefaultAccountId,
+		}, false, false)
+
+		if err != nil {
+			log.Errorf(c, "[accounts.SubAccountDeleteHandler] failed to update fallback default account for user \"uid:%d\", because %s", uid, err.Error())
+			return nil, errs.Or(err, errs.ErrOperationFailed)
+		}
+	}
+
+	result, err := a.accounts.DeleteOrArchiveSubAccount(c, uid, accountDeleteReq.Id, user.DefaultAccountId)
 
 	if err != nil {
 		log.Errorf(c, "[accounts.SubAccountDeleteHandler] failed to delete sub-account \"id:%d\" for user \"uid:%d\", because %s", accountDeleteReq.Id, uid, err.Error())
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
 
-	log.Infof(c, "[accounts.SubAccountDeleteHandler] user \"uid:%d\" has deleted sub-account \"id:%d\"", uid, accountDeleteReq.Id)
-	return true, nil
+	log.Infof(c, "[accounts.SubAccountDeleteHandler] user \"uid:%d\" has %s sub-account \"id:%d\"", uid, result.Action, accountDeleteReq.Id)
+	return result, nil
 }
 
 func (a *AccountsApi) createNewAccountModel(uid int64, accountCreateReq *models.AccountCreateRequest, balance int64, creditLimitForCreditCard *int64, isSubAccount bool, order int32) *models.Account {
