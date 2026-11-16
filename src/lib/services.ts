@@ -557,11 +557,11 @@ export default {
     moveAccount: (req: AccountMoveRequest): ApiResponsePromise<boolean> => {
         return axios.post<ApiResponse<boolean>>('v1/accounts/move.json', req);
     },
-    deleteAccount: (req: AccountDeleteRequest): ApiResponsePromise<AccountDeleteResponse> => {
-        return axios.post<ApiResponse<AccountDeleteResponse>>('v1/accounts/delete.json', req);
+    deleteAccount: (req: AccountDeleteRequest): ApiResponsePromise<AccountDeleteResponse | boolean> => {
+        return axios.post<ApiResponse<AccountDeleteResponse | boolean>>('v1/accounts/delete.json', req);
     },
-    deleteSubAccount: (req: AccountDeleteRequest): ApiResponsePromise<AccountDeleteResponse> => {
-        return axios.post<ApiResponse<AccountDeleteResponse>>('v1/accounts/sub_account/delete.json', req);
+    deleteSubAccount: (req: AccountDeleteRequest): ApiResponsePromise<AccountDeleteResponse | boolean> => {
+        return axios.post<ApiResponse<AccountDeleteResponse | boolean>>('v1/accounts/sub_account/delete.json', req);
     },
     getTransactions: (req: TransactionListByMaxTimeRequest): ApiResponsePromise<TransactionInfoPageWrapperResponse> => {
         const tagFilter = encodeURIComponent(req.tagFilter);

@@ -8,6 +8,29 @@ import (
 	"github.com/mayswind/ezbookkeeping/pkg/models"
 )
 
+func TestShouldArchiveAccount(t *testing.T) {
+	tests := []struct {
+		name        string
+		transaction bool
+		template    bool
+		balance     bool
+		defaulted   bool
+		want        bool
+	}{
+		{name: "empty account can be deleted", want: false},
+		{name: "transaction reference archives", transaction: true, want: true},
+		{name: "template reference archives", template: true, want: true},
+		{name: "non-zero balance archives", balance: true, want: true},
+		{name: "default account archives", defaulted: true, want: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, shouldArchiveAccount(test.transaction, test.template, test.balance, test.defaulted))
+		})
+	}
+}
+
 func TestGetAccountMapByList_EmptyList(t *testing.T) {
 	accounts := make([]*models.Account, 0)
 	actualAccountMap := Accounts.GetAccountMapByList(accounts)

@@ -1204,7 +1204,7 @@ export const useAccountsStore = defineStore('accounts', () => {
                     return;
                 }
 
-                const action = data.result.action;
+                const action = data.result === true ? 'deleted' : data.result.action;
 
                 if (action !== 'deleted' && action !== 'archived') {
                     reject({ message: 'Unable to confirm account removal result' });
@@ -1254,7 +1254,7 @@ export const useAccountsStore = defineStore('accounts', () => {
                     return;
                 }
 
-                const action = data.result.action;
+                const action = data.result === true ? 'deleted' : data.result.action;
 
                 if (action !== 'deleted' && action !== 'archived') {
                     reject({ message: 'Unable to confirm sub-account removal result' });

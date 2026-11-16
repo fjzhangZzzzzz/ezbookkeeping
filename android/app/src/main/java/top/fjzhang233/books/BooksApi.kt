@@ -122,9 +122,10 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
         }
         return call("/api/v1/accounts/move.json", JSONObject().put("newDisplayOrders", rows)) == true
     }
-    suspend fun deleteAccount(accountId: String): Any {
+    suspend fun deleteAccount(accountId: String, subAccount: Boolean = false): Any {
         require(Regex("[1-9][0-9]*").matches(accountId))
-        return call("/api/v1/accounts/delete.json", JSONObject().put("id", accountId))
+        val path = if (subAccount) "/api/v1/accounts/sub_account/delete.json" else "/api/v1/accounts/delete.json"
+        return call(path, JSONObject().put("id", accountId))
     }
     suspend fun categories(): List<JSONObject> {
         val result = call("/api/v1/transaction/categories/list.json") as JSONObject

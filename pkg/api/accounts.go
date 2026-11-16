@@ -880,6 +880,7 @@ func (a *AccountsApi) AccountDeleteHandler(c *core.WebContext) (any, *errs.Error
 	}
 
 	var fallbackDefaultAccountId int64
+	defaultAccountChanged := false
 	accountAndSubAccounts, accountErr := a.accounts.GetAccountAndSubAccountsByAccountId(c, uid, accountDeleteReq.Id)
 
 	if accountErr != nil {
@@ -921,11 +922,16 @@ func (a *AccountsApi) AccountDeleteHandler(c *core.WebContext) (any, *errs.Error
 			log.Errorf(c, "[accounts.AccountDeleteHandler] failed to update fallback default account for user \"uid:%d\", because %s", uid, err.Error())
 			return nil, errs.Or(err, errs.ErrOperationFailed)
 		}
+
+		defaultAccountChanged = true
 	}
 
 	result, err := a.accounts.DeleteOrArchiveAccount(c, uid, accountDeleteReq.Id, user.DefaultAccountId)
 
 	if err != nil {
+		if defaultAccountChanged {
+			a.restoreDefaultAccountAfterRemovalFailure(c, uid, user.DefaultAccountId)
+		}
 		log.Errorf(c, "[accounts.AccountDeleteHandler] failed to delete account \"id:%d\" for user \"uid:%d\", because %s", accountDeleteReq.Id, uid, err.Error())
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
@@ -966,6 +972,8 @@ func (a *AccountsApi) SubAccountDeleteHandler(c *core.WebContext) (any, *errs.Er
 		return nil, errs.ErrSubAccountNotFound
 	}
 
+	defaultAccountChanged := false
+
 	if account.AccountId == user.DefaultAccountId {
 		allAccounts, allAccountsErr := a.accounts.GetAllAccountsByUid(c, uid)
 
@@ -997,17 +1005,40 @@ func (a *AccountsApi) SubAccountDeleteHandler(c *core.WebContext) (any, *errs.Er
 			log.Errorf(c, "[accounts.SubAccountDeleteHandler] failed to update fallback default account for user \"uid:%d\", because %s", uid, err.Error())
 			return nil, errs.Or(err, errs.ErrOperationFailed)
 		}
+
+		defaultAccountChanged = true
 	}
 
 	result, err := a.accounts.DeleteOrArchiveSubAccount(c, uid, accountDeleteReq.Id, user.DefaultAccountId)
 
 	if err != nil {
+		if defaultAccountChanged {
+			a.restoreDefaultAccountAfterRemovalFailure(c, uid, user.DefaultAccountId)
+		}
 		log.Errorf(c, "[accounts.SubAccountDeleteHandler] failed to delete sub-account \"id:%d\" for user \"uid:%d\", because %s", accountDeleteReq.Id, uid, err.Error())
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
 
 	log.Infof(c, "[accounts.SubAccountDeleteHandler] user \"uid:%d\" has %s sub-account \"id:%d\"", uid, result.Action, accountDeleteReq.Id)
 	return result, nil
+}
+
+// restoreDefaultAccountAfterRemovalFailure compensates the separate user
+// database update when the account database operation fails. User and account
+// data are stored in different datastores, so a cross-database transaction is
+// not available; the restoration keeps the previous default as the safe
+// fallback for retryable failures.
+func (a *AccountsApi) restoreDefaultAccountAfterRemovalFailure(c *core.WebContext, uid int64, accountId int64) {
+	if accountId <= 0 {
+		return
+	}
+
+	if _, _, err := a.users.UpdateUser(c, &models.User{
+		Uid:              uid,
+		DefaultAccountId: accountId,
+	}, false, false); err != nil {
+		log.Errorf(c, "[accounts.restoreDefaultAccountAfterRemovalFailure] failed to restore default account for user \"uid:%d\", because %s", uid, err.Error())
+	}
 }
 
 func (a *AccountsApi) createNewAccountModel(uid int64, accountCreateReq *models.AccountCreateRequest, balance int64, creditLimitForCreditCard *int64, isSubAccount bool, order int32) *models.Account {

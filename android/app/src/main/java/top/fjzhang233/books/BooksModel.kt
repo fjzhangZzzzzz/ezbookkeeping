@@ -239,9 +239,15 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if(entityWrites.blocked)entityWrites.invalidateIdentity()
         refreshSession()
         accounts = api.accounts()
-        runCatching { api.userProfile() }.getOrNull()?.let { profile ->
-            defaultAccountId = profile.optString("defaultAccountId", defaultAccountId)
-            nickname = profile.optString("nickname", nickname)
+        try {
+            api.userProfile().let { profile ->
+                defaultAccountId = profile.optString("defaultAccountId", defaultAccountId)
+                nickname = profile.optString("nickname", nickname)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // The account list remains usable when an optional profile refresh fails.
         }
         loadCategories(); tags = api.tags(); tagGroups = api.tagGroups()
         externalLinked = api.externalAuthLinked()
@@ -333,7 +339,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         val target = index + direction
         require(index >= 0 && target in ordered.indices) { "账户已经在该方向的边界" }
         val selected = ordered.removeAt(index); ordered.add(target, selected)
-        require(api.moveAccounts(ordered.mapIndexed { position, account -> account.id() to position })) { "账户顺序更新未完成，请刷新后重试" }
+        require(api.moveAccounts(ordered.mapIndexed { position, account -> account.id() to position + 1 })) { "账户顺序更新未完成，请刷新后重试" }
         loadAll(); notice = "账户顺序已更新"
     }
 
@@ -342,9 +348,26 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
             entityReviewOpen = true
             throw IllegalArgumentException("请先核对上一笔资料保存；不会自动重发")
         }
-        val result = entityWrites.submit("/api/v1/accounts/delete.json", JSONObject().put("id", accountId))
+        val account = accounts.firstOrNull { it.id() == accountId }
+        val subAccount = account?.id("parentId")?.let { it != "0" } == true
+        val path = if (subAccount) "/api/v1/accounts/sub_account/delete.json" else "/api/v1/accounts/delete.json"
+        val result = entityWrites.submit(path, JSONObject().put("id", accountId))
         val action = accountDeleteAction(result)
-        loadAll(); notice = if (action == "archived") "账户已归档" else "账户已删除"; onResult(action)
+        var refreshFailed = false
+        try {
+            loadAll()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (error is ApiFailure && error.sessionExpired) throw error
+            refreshFailed = true
+        }
+        notice = if (action == "archived") {
+            if (refreshFailed) "账户已归档，数据刷新失败，可重试刷新" else "账户已归档"
+        } else {
+            if (refreshFailed) "账户已删除，数据刷新失败，可重试刷新" else "账户已删除"
+        }
+        onResult(action)
     }
     fun refreshTransactionConfirmation()=act {
         transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}

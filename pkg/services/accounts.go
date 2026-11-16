@@ -20,6 +20,10 @@ type AccountService struct {
 	ServiceUsingUuid
 }
 
+func shouldArchiveAccount(hasTransactionReference bool, hasTemplateReference bool, hasNonZeroBalance bool, isDefaultAccount bool) bool {
+	return hasTransactionReference || hasTemplateReference || hasNonZeroBalance || isDefaultAccount
+}
+
 // Initialize a account service singleton instance
 var (
 	Accounts = &AccountService{
@@ -769,7 +773,7 @@ func (s *AccountService) DeleteOrArchiveAccount(c core.Context, uid int64, accou
 			}
 		}
 
-		if hasTransactionReference || exists || hasNonZeroBalance || isDefaultAccount {
+		if shouldArchiveAccount(hasTransactionReference, exists, hasNonZeroBalance, isDefaultAccount) {
 			archiveModel := &models.Account{Hidden: true, UpdatedUnixTime: now}
 			updatedRows, err := sess.Cols("hidden", "updated_unix_time").Where("uid=? AND deleted=?", uid, false).In("account_id", accountAndSubAccountIds).Update(archiveModel)
 
@@ -865,7 +869,7 @@ func (s *AccountService) DeleteOrArchiveSubAccount(c core.Context, uid int64, ac
 		hasNonZeroBalance := account.Balance != 0
 		isDefaultAccount := account.AccountId == defaultAccountId
 
-		if hasTransactionReference || exists || hasNonZeroBalance || isDefaultAccount {
+		if shouldArchiveAccount(hasTransactionReference, exists, hasNonZeroBalance, isDefaultAccount) {
 			archiveModel := &models.Account{Hidden: true, UpdatedUnixTime: now}
 			updatedRows, err := sess.ID(accountId).Cols("hidden", "updated_unix_time").Where("uid=? AND deleted=?", uid, false).Update(archiveModel)
 
