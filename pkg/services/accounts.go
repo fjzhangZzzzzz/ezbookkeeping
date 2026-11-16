@@ -840,9 +840,8 @@ func (s *AccountService) DeleteOrArchiveSubAccount(c core.Context, uid int64, ac
 		}
 
 		subAccountsCount, err := sess.Where("uid=? AND deleted=? AND parent_account_id=?", uid, false, account.ParentAccountId).Count(&models.Account{})
-
-		if subAccountsCount <= 1 {
-			return errs.ErrAccountHaveNoSubAccount
+		if err != nil {
+			return err
 		}
 
 		var relatedTransactionsByAccount []*models.Transaction

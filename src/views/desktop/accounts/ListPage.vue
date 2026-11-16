@@ -284,7 +284,7 @@
                                                         <v-btn class="ms-1" density="comfortable" color="default" variant="text"
                                                                :class="{ 'd-none': loading, 'hover-display': !loading }"
                                                                :disabled="loading" :prepend-icon="mdiDeleteOutline"
-                                                               v-if="!activeSubAccount[element.id] || element.getSubAccount(activeSubAccount[element.id])"
+                                                               v-if="(!showHidden || !element.isAccountOrSubAccountHidden(activeSubAccount[element.id])) && (!activeSubAccount[element.id] || element.getSubAccount(activeSubAccount[element.id]))"
                                                                @click="remove(element)">
                                                             {{ tt('Delete') }}
                                                         </v-btn>

@@ -316,31 +316,58 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun preferredAccountId(): String = choosePreferredAccountId(accounts, defaultAccountId)
 
     fun setDefaultAccount(accountId: String) = act {
-        val result = api.updateDefaultAccount(accountId)
-        result.optJSONObject("user")?.let { user -> defaultAccountId = user.optString("defaultAccountId", accountId) }
-            ?: run { defaultAccountId = accountId }
-        loadAll()
-        notice = "默认账户已更新"
+        val result = entityWrites.submit("/api/v1/users/profile/update.json", JSONObject().put("defaultAccountId", accountId)) as JSONObject
+        defaultAccountId = result.optJSONObject("user")?.optString("defaultAccountId", accountId) ?: accountId
+        refreshAfterAccountWrite("默认账户已更新")
     }
 
     fun hideAccount(accountId: String, hidden: Boolean) = act {
-        require(api.hideAccount(accountId, hidden)) { "账户状态更新未完成，请刷新后重试" }
-        loadAll(); notice = if (hidden) "账户已归档" else "账户已恢复"
+        require(entityWrites.submit("/api/v1/accounts/hide.json", JSONObject().put("id", accountId).put("hidden", hidden)) == true) { "账户状态更新未完成，请刷新后重试" }
+        refreshAfterAccountWrite(if (hidden) "账户已归档" else "账户已恢复")
     }
 
     fun moveAccounts(order: List<Pair<String, Int>>) = act {
-        require(api.moveAccounts(order)) { "账户顺序更新未完成，请刷新后重试" }
-        loadAll(); notice = "账户顺序已更新"
+        require(order.isNotEmpty()) { "账户顺序不能为空" }
+        require(entityWrites.submit("/api/v1/accounts/move.json", accountOrderPayload(order)) == true) { "账户顺序更新未完成，请刷新后重试" }
+        refreshAfterAccountWrite("账户顺序已更新")
     }
 
     fun moveAccount(accountId: String, direction: Int) = act {
-        val ordered = accounts.filter { !it.optBoolean("hidden") }.sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }.toMutableList()
+        val selected = accounts.firstOrNull { it.id() == accountId } ?: error("账户不存在")
+        val category = selected.optInt("category", -1)
+        val parentId = selected.id("parentId")
+        require(!selected.optBoolean("hidden")) { "归档账户不能调整顺序" }
+        val group = accounts.filter { it.optInt("category", -1) == category && it.id("parentId") == parentId }
+            .sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }.toMutableList()
+        val ordered = group.filter { !it.optBoolean("hidden") }.toMutableList()
         val index = ordered.indexOfFirst { it.id() == accountId }
         val target = index + direction
         require(index >= 0 && target in ordered.indices) { "账户已经在该方向的边界" }
-        val selected = ordered.removeAt(index); ordered.add(target, selected)
-        require(api.moveAccounts(ordered.mapIndexed { position, account -> account.id() to position + 1 })) { "账户顺序更新未完成，请刷新后重试" }
-        loadAll(); notice = "账户顺序已更新"
+        val accountToMove = ordered.removeAt(index); ordered.add(target, accountToMove)
+        val visibleIterator = ordered.iterator()
+        val newOrder = group.mapIndexed { position, account ->
+            (if (account.optBoolean("hidden")) account else visibleIterator.next()).id() to position + 1
+        }
+        require(entityWrites.submit("/api/v1/accounts/move.json", accountOrderPayload(newOrder)) == true) { "账户顺序更新未完成，请刷新后重试" }
+        refreshAfterAccountWrite("账户顺序已更新")
+    }
+
+    private fun accountOrderPayload(order: List<Pair<String, Int>>): JSONObject {
+        val rows = JSONArray()
+        order.forEach { (id, displayOrder) -> rows.put(JSONObject().put("id", id).put("displayOrder", displayOrder)) }
+        return JSONObject().put("newDisplayOrders", rows)
+    }
+
+    private suspend fun refreshAfterAccountWrite(successNotice: String) {
+        try {
+            loadAll()
+            notice = successNotice
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (error is ApiFailure && error.sessionExpired) throw error
+            notice = "$successNotice，数据刷新失败，可重试刷新"
+        }
     }
 
     fun deleteOrArchiveAccount(accountId: String, onResult: (String) -> Unit = {}) = act {

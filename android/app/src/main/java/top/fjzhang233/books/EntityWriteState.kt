@@ -85,7 +85,12 @@ internal class EntityWriteState(
                 throw error
             }
             val accountRemovalResult = path.endsWith("/accounts/delete.json") || path.endsWith("/accounts/sub_account/delete.json")
-            val objectResultIsValid = result is JSONObject && Regex("[1-9][0-9]*").matches(result.id()) && (!accountRemovalResult || result.optString("action") in setOf("deleted", "archived"))
+            val profileUpdateResult = path == "/api/v1/users/profile/update.json"
+            val objectResultIsValid = when {
+                profileUpdateResult -> result is JSONObject && result.optJSONObject("user") != null
+                accountRemovalResult -> result is JSONObject && Regex("[1-9][0-9]*").matches(result.id()) && result.optString("action") in setOf("deleted", "archived")
+                else -> result is JSONObject && Regex("[1-9][0-9]*").matches(result.id())
+            }
             require(result==true || objectResultIsValid){"服务响应未能确认，需先核对实际结果"}
             storage.clear();pending=null;verifiedUid=null;blocked=false
             return result
@@ -101,7 +106,7 @@ internal class EntityWriteState(
 }
 
 internal fun isEntityWritePath(path:String):Boolean = path in setOf(
-    "/api/v1/accounts/add.json","/api/v1/accounts/modify.json","/api/v1/accounts/delete.json","/api/v1/accounts/sub_account/delete.json",
+    "/api/v1/accounts/add.json","/api/v1/accounts/modify.json","/api/v1/accounts/delete.json","/api/v1/accounts/sub_account/delete.json","/api/v1/accounts/hide.json","/api/v1/accounts/move.json","/api/v1/users/profile/update.json",
     "/api/v1/transaction/categories/add.json","/api/v1/transaction/categories/modify.json",
     "/api/v1/transaction/categories/hide.json","/api/v1/transaction/categories/delete.json",
     "/api/v1/transaction/tags/add.json","/api/v1/transaction/tags/modify.json",

@@ -926,7 +926,11 @@ func (a *AccountsApi) AccountDeleteHandler(c *core.WebContext) (any, *errs.Error
 		defaultAccountChanged = true
 	}
 
-	result, err := a.accounts.DeleteOrArchiveAccount(c, uid, accountDeleteReq.Id, user.DefaultAccountId)
+	defaultAccountIdForRemoval := user.DefaultAccountId
+	if fallbackDefaultAccountId > 0 {
+		defaultAccountIdForRemoval = fallbackDefaultAccountId
+	}
+	result, err := a.accounts.DeleteOrArchiveAccount(c, uid, accountDeleteReq.Id, defaultAccountIdForRemoval)
 
 	if err != nil {
 		if defaultAccountChanged {
@@ -973,6 +977,7 @@ func (a *AccountsApi) SubAccountDeleteHandler(c *core.WebContext) (any, *errs.Er
 	}
 
 	defaultAccountChanged := false
+	fallbackDefaultAccountId := int64(0)
 
 	if account.AccountId == user.DefaultAccountId {
 		allAccounts, allAccountsErr := a.accounts.GetAllAccountsByUid(c, uid)
@@ -980,8 +985,6 @@ func (a *AccountsApi) SubAccountDeleteHandler(c *core.WebContext) (any, *errs.Er
 		if allAccountsErr != nil {
 			return nil, errs.Or(allAccountsErr, errs.ErrOperationFailed)
 		}
-
-		fallbackDefaultAccountId := int64(0)
 
 		for _, candidate := range allAccounts {
 			if candidate.Deleted || candidate.Hidden || candidate.AccountId == account.AccountId || (candidate.Type == models.ACCOUNT_TYPE_MULTI_SUB_ACCOUNTS && candidate.ParentAccountId == models.LevelOneAccountParentId) {
@@ -1009,7 +1012,11 @@ func (a *AccountsApi) SubAccountDeleteHandler(c *core.WebContext) (any, *errs.Er
 		defaultAccountChanged = true
 	}
 
-	result, err := a.accounts.DeleteOrArchiveSubAccount(c, uid, accountDeleteReq.Id, user.DefaultAccountId)
+	defaultAccountIdForRemoval := user.DefaultAccountId
+	if fallbackDefaultAccountId > 0 {
+		defaultAccountIdForRemoval = fallbackDefaultAccountId
+	}
+	result, err := a.accounts.DeleteOrArchiveSubAccount(c, uid, accountDeleteReq.Id, defaultAccountIdForRemoval)
 
 	if err != nil {
 		if defaultAccountChanged {
