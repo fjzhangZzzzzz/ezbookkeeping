@@ -250,7 +250,6 @@ import type { Account, AccountShowingIds } from '@/models/account.ts';
 
 import { getCurrentUnixTime } from '@/lib/datetime.ts';
 import { getAccountIconType } from '@/lib/icon.ts';
-import { onSwipeoutDeleted } from '@/lib/ui/mobile.ts';
 
 const props = defineProps<{
     f7router: Router.Router;
@@ -506,10 +505,7 @@ function remove(account: Account | null, confirm: boolean): void {
     showLoading();
 
     accountsStore.deleteAccount({
-        account: account,
-        beforeResolve: (done) => {
-            onSwipeoutDeleted(getAccountDomId(account), done);
-        }
+        account: account
     }).then(action => {
         hideLoading();
         showToast(tt(action === 'archived' ? 'Account has been archived' : 'Account has been deleted permanently'));
