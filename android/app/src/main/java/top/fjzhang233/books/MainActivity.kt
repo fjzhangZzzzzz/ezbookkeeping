@@ -278,9 +278,10 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                 }
                 Row(Modifier.fillMaxWidth().padding(start=12.dp,end=12.dp,bottom=10.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                     if(item.id()!=vm.defaultAccountId) TextButton(onClick={vm.setDefaultAccount(item.id())},enabled=!vm.busy&&!vm.entityBlocked){Text("设为默认")}
-                    val position = visible.indexOfFirst { it.id() == item.id() }
+                    val siblings = visible.filter { accountDisplayGroupKey(it) == accountDisplayGroupKey(item) }
+                    val position = siblings.indexOfFirst { it.id() == item.id() }
                     TextButton(onClick={vm.moveAccount(item.id(),-1)},enabled=!vm.busy&&!vm.entityBlocked&&position>0){Text("上移")}
-                    TextButton(onClick={vm.moveAccount(item.id(),1)},enabled=!vm.busy&&!vm.entityBlocked&&position>=0&&position<visible.lastIndex){Text("下移")}
+                    TextButton(onClick={vm.moveAccount(item.id(),1)},enabled=!vm.busy&&!vm.entityBlocked&&position>=0&&position<siblings.lastIndex){Text("下移")}
                     TextButton(onClick={deleteTarget=item},enabled=!vm.busy&&!vm.entityBlocked){Text("删除",color=MaterialTheme.colorScheme.error)}
                 }
             }

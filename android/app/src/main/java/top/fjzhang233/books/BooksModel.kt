@@ -502,13 +502,15 @@ internal fun choosePreferredAccountId(accounts: List<JSONObject>, defaultId: Str
 internal fun sortAccountsForDisplay(accounts: List<JSONObject>): List<JSONObject> {
     val groups = linkedMapOf<String, MutableList<JSONObject>>()
     accounts.forEach { account ->
-        val key = "${account.optInt("category", -1)}:${account.id("parentId")}"
+        val key = accountDisplayGroupKey(account)
         groups.getOrPut(key) { mutableListOf() }.add(account)
     }
     return groups.values.flatMap { group ->
         group.sortedWith(compareBy<JSONObject>({ it.optInt("displayOrder", Int.MAX_VALUE) }, { it.id() }))
     }
 }
+
+internal fun accountDisplayGroupKey(account: JSONObject): String = "${account.optInt("category", -1)}:${account.id("parentId")}"
 
 internal fun accountDeleteAction(result: Any): String {
     if (result == true) return "deleted"
