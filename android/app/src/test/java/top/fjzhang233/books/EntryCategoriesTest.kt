@@ -35,4 +35,12 @@ class EntryCategoriesTest {
             assertEquals("",entryDefaultCategory(listOf(internal)))
         }
     }
+
+    @Test fun categoryRowsKeepFiveColumnsForInlineExpansion() {
+        val parents = (1..11).map { category("p$it", "0") }
+        val rows = entryCategoryRows(parents)
+        assertEquals(listOf(5, 5, 1), rows.map { it.size })
+        assertEquals("p6", rows[1].first().id())
+        assertEquals("p11", rows[2].single().id())
+    }
 }

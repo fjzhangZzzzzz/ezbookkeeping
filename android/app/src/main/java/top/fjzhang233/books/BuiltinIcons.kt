@@ -7,6 +7,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 
@@ -340,5 +343,16 @@ private val brandIcons=FontFamily(Font(R.font.line_awesome_brands))
     val table=if(account)accountGlyphs else categoryGlyphs
     val iconId = if (account) item.optString("icon", "1") else effectiveCategoryIconId(item)
     val glyph=table[iconId]?:table.getValue("1")
-    Text(String(Character.toChars(glyph.codepoint)),modifier.clearAndSetSemantics{},color=tint,fontSize=24.sp,lineHeight=28.sp,fontFamily=if(glyph.brand)brandIcons else solidIcons)
+    Text(
+        String(Character.toChars(glyph.codepoint)),
+        modifier.clearAndSetSemantics{},
+        color=tint,
+        textAlign=TextAlign.Center,
+        style=TextStyle(
+            fontSize=24.sp,
+            lineHeight=24.sp,
+            platformStyle=PlatformTextStyle(includeFontPadding=false),
+            fontFamily=if(glyph.brand) brandIcons else solidIcons
+        )
+    )
 }

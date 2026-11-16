@@ -432,43 +432,41 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                     val children = visible.filter { it.id("parentId") == parentItem.id() }
                     val isExpanded = parentItem.id() in expanded
                     Card(Modifier.fillMaxWidth().testTag("catalog-parent-${parentItem.id()}"), colors = CardDefaults.cardColors(containerColor = ledgerColors.controlSurface), shape = MaterialTheme.shapes.medium) {
-                        ListItem(
-                            headlineContent = { Text(parentItem.optString("name"), style = MaterialTheme.typography.titleMedium, color = if(parentItem.optBoolean("hidden")) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .55f) else MaterialTheme.colorScheme.onSurface) },
-                            supportingContent = { Text(when(parentItem.optInt("type")) { 1 -> "收入"; 2 -> "支出"; else -> "转账" } + " · ${children.size} 个子分类") },
-                            leadingContent = { Box(Modifier.size(42.dp).clip(CircleShape).background(ledgerColors.selection), contentAlignment = Alignment.Center) { BuiltinIcon(parentItem, Modifier.size(28.dp), tint = ledgerColors.accent) } },
-                            trailingContent = { Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { editingId = parentItem.id(); editingSnapshot=parentItem.toString(); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null) { Icon(Icons.Outlined.Edit, "编辑${parentItem.optString("name")}") }
-                                IconButton(onClick = { expanded = if (isExpanded) expanded - parentItem.id() else expanded + parentItem.id() }) { Icon(if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (isExpanded) "收起 ${parentItem.optString("name")}" else "展开 ${parentItem.optString("name")}") }
-                            }},
-                            modifier = Modifier.clickable { expanded = if (isExpanded) expanded - parentItem.id() else expanded + parentItem.id() }
-                        )
-                        AnimatedVisibility(isExpanded) {
-                            Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
-                                val childRows = ((children.size + 1 + 3) / 4).coerceAtLeast(1)
-                                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(4),
-                                    modifier = Modifier.fillMaxWidth().height((childRows * 74 + (childRows - 1) * 8).dp),
-                                    userScrollEnabled = false,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    items(children, key = { it.id() }) { child ->
-                                        Column(
-                                            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
-                                                .background(ledgerColors.surface)
-                                                .clickable(enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null) { editingId = child.id(); editingSnapshot=child.toString(); open = true }
-                                                .padding(vertical = 10.dp, horizontal = 4.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Box(Modifier.size(32.dp).clip(CircleShape).background(ledgerColors.field), contentAlignment = Alignment.Center) { BuiltinIcon(child, Modifier.size(24.dp), tint = ledgerColors.muted) }
-                                            Text(child.optString("name"), modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = if(child.optBoolean("hidden")) ledgerColors.muted else ledgerColors.text)
-                                        }
-                                    }
-                                    item {
-                                        TextButton(onClick = { editingId = ""; editingSnapshot=""; newParentId=parentItem.id(); newType=parentItem.optString("type", "2"); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null&&!parentItem.optBoolean("hidden"), modifier = Modifier.fillMaxWidth().heightIn(min = 66.dp)) { Icon(Icons.Outlined.Add, null); Text("添加") }
-                                    }
-                                }
+                        Row(
+                            Modifier.fillMaxWidth().clickable { expanded = if (isExpanded) expanded - parentItem.id() else expanded + parentItem.id() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CategoryIconSlot(parentItem, selected = isExpanded, showMoreBadge = true)
+                            Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                                Text(parentItem.optString("name"), style = MaterialTheme.typography.titleMedium,
+                                    color = if(parentItem.optBoolean("hidden")) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .55f) else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(when(parentItem.optInt("type")) { 1 -> "收入"; 2 -> "支出"; else -> "转账" } + " · ${children.size} 个子分类", style = MaterialTheme.typography.bodySmall)
                             }
+                            IconButton(onClick = { editingId = parentItem.id(); editingSnapshot=parentItem.toString(); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null) { Icon(Icons.Outlined.Edit, "编辑${parentItem.optString("name")}") }
+                            IconButton(onClick = { expanded = if (isExpanded) expanded - parentItem.id() else expanded + parentItem.id() }) { Icon(if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (isExpanded) "收起 ${parentItem.optString("name")}" else "展开 ${parentItem.optString("name")}") }
+                        }
+                        AnimatedVisibility(isExpanded) {
+                            CategoryChildrenPanel(
+                                children = children,
+                                selectedId = "",
+                                enabled = !vm.busy && !vm.entityBlocked && vm.categoryRevision != null,
+                                notchColumn = -1,
+                                onSelect = { child ->
+                                    editingId = child.id()
+                                    editingSnapshot = child.toString()
+                                    open = true
+                                },
+                                modifier = Modifier.padding(bottom = 8.dp),
+                                footer = {
+                                    TextButton(
+                                        onClick = { editingId = ""; editingSnapshot = ""; newParentId = parentItem.id(); newType = parentItem.optString("type", "2"); open = true },
+                                        enabled = !vm.busy && !vm.entityBlocked && vm.categoryRevision != null && !parentItem.optBoolean("hidden"),
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                                    ) { Icon(Icons.Outlined.Add, null); Text("添加子分类") }
+                                }
+                            )
                         }
                     }
                 }
@@ -500,8 +498,10 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         }
     }
     val label = listOf("分类", "标签", "标签组")[section]
+    val maxNameLength = if (section == 0) 4 else 64
     AlertDialog(onDismissRequest = {if(!vm.busy&&!vm.entityBlocked)close()}, title = { Text((if (original == null) "新建" else "编辑") + label) }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(name, { if(!vm.busy&&!vm.entityBlocked&&it.length <= 64) name = it }, label = { Text("${label}名称") }, singleLine = true,enabled=!locked)
+        OutlinedTextField(name, { if(!vm.busy&&!vm.entityBlocked&&it.length <= maxNameLength) name = it }, label = { Text("${label}名称") }, singleLine = true,enabled=!locked,
+            supportingText = if (section == 0) ({ Text("分类名称最多 4 个字（${name.length}/4）") }) else null)
         if (section == 0) {
             if (original == null) Choice("用途", listOf("2" to "支出", "1" to "收入", "3" to "转账"), type,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked){type = it; parent = "0"} }
             if(original==null || original.id("parentId")!="0") Choice("所属大类", (if(original==null) listOf("0" to "作为大类") else emptyList()) + vm.categories.filter { it.id("parentId") == "0" && it.optString("type") == type && it.id() != original?.id() && !it.optBoolean("hidden") }.map { it.id() to it.optString("name") }, parent,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked)parent = it }
@@ -532,7 +532,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                 reviewCategoryAction("modify")
             } else submit("/api/v1/transaction/$path/add.json", body, close)
         } else submit("/api/v1/transaction/$path/${if(original == null) "add" else "modify"}.json", body, close)
-    }, enabled = !locked && name.isNotBlank() && (section!=0||openedRevision.isNotBlank()) && parentValid) { Text("保存${label}") } }, dismissButton = { TextButton(onClick = {if(!vm.busy&&!vm.entityBlocked)close()},enabled=!locked) { Text("取消") } })
+    }, enabled = !locked && name.trim().isNotBlank() && name.trim().length <= maxNameLength && (section!=0||openedRevision.isNotBlank()) && parentValid) { Text("保存${label}") } }, dismissButton = { TextButton(onClick = {if(!vm.busy&&!vm.entityBlocked)close()},enabled=!locked) { Text("取消") } })
     impactCount?.let { count -> AlertDialog(onDismissRequest={impactCount=null},title={Text("确认共享分类变更")},text={Text("此分类涉及活跃家庭成员的 $count 笔历史交易。删除仅允许没有引用的分类；隐藏后保留历史记录。")},confirmButton={TextButton(onClick={
         val item=original!!
         val body=JSONObject().put("id",item.id()).put("expectedRevision",openedRevision)
@@ -547,7 +547,8 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
 @Composable
 private fun CatalogIconPicker(icon: String, enabled: Boolean, choose: (String) -> Unit) {
     androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(6),
+        // 钱迹分类编辑页使用 4 列，给图标保留稳定的触控和视觉空间。
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(4),
         modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).testTag("catalog-icon-picker"),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -556,12 +557,12 @@ private fun CatalogIconPicker(icon: String, enabled: Boolean, choose: (String) -
         items(builtinCategoryIconIds, key = { it }) { id ->
             val selected = id == icon
             Box(
-                Modifier.size(42.dp).clip(CircleShape)
+                Modifier.size(48.dp).clip(CircleShape)
                     .background(if (selected) ledgerColors.selection else ledgerColors.field)
                     .clickable(enabled = enabled) { choose(id) }
                     .semantics { contentDescription = "分类图标 $id" },
                 contentAlignment = Alignment.Center
-            ) { BuiltinIcon(JSONObject().put("icon", id), Modifier.size(26.dp), tint = if (selected) ledgerColors.accent else ledgerColors.muted) }
+            ) { BuiltinIcon(JSONObject().put("icon", id), Modifier.size(24.dp), tint = if (selected) ledgerColors.accent else ledgerColors.muted) }
         }
     }
 }
