@@ -199,18 +199,16 @@ import androidx.compose.ui.focus.onFocusChanged
                         val name = vm.categories.firstOrNull { it.id()==category }?.optString("name")?.takeIf { it.isNotBlank() } ?: original?.optJSONObject("category")?.optString("name")?.takeIf { it.isNotBlank() } ?: "原分类"
                         Text("${name}（已隐藏；保存时保留）", Modifier.padding(horizontal=16.dp, vertical=8.dp).testTag("entry-hidden-original-category"), style=MaterialTheme.typography.bodySmall)
                     }
-                    LazyVerticalGrid(GridCells.Fixed(5),Modifier.weight(1f).fillMaxWidth().background(ledgerColors.surface).testTag("entry-categories"),contentPadding=PaddingValues(0.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        items(leaves,key={it.id()}) { item ->
-                            val selected=item.id()==category
-                            Column(Modifier.fillMaxWidth().height(68.dp).testTag("entry-category-${item.id()}").semantics{this.selected=selected}.clickable(enabled=!editLocked) { selectCategory(item) }.padding(top=6.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-                                Box(Modifier.size(32.dp).clip(CircleShape).background(if(selected) ledgerColors.selection else Color.Transparent),contentAlignment=Alignment.Center) {
-                                    BuiltinIcon(item,Modifier.size(28.dp),tint=if(selected) MaterialTheme.colorScheme.primary else ledgerColors.muted)
-                                }
-                                Spacer(Modifier.height(5.dp));Text(item.optString("name"),maxLines=2,overflow=TextOverflow.Ellipsis,fontSize=12.sp,lineHeight=18.sp,color=if(selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
+                    Box(Modifier.weight(1f).fillMaxWidth().testTag("entry-categories")) {
+                        EntryCategoryPicker(
+                            categories = vm.categories,
+                            transactionType = type,
+                            selectedId = category,
+                            enabled = !editLocked,
+                            onSelect = ::selectCategory,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
-                    if(leaves.isEmpty()) Text("尚无可用分类，请先在菜单中维护分类。",Modifier.padding(20.dp))
                 } else {
                     Column(Modifier.weight(1f).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                         Text("账户间转账",style=MaterialTheme.typography.titleLarge)

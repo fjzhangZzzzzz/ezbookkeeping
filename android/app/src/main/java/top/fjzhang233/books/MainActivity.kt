@@ -17,9 +17,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -429,11 +431,11 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                 items(parents, key = { it.id() }) { parentItem ->
                     val children = visible.filter { it.id("parentId") == parentItem.id() }
                     val isExpanded = parentItem.id() in expanded
-                    Column(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .42f))) {
+                    Card(Modifier.fillMaxWidth().testTag("catalog-parent-${parentItem.id()}"), colors = CardDefaults.cardColors(containerColor = ledgerColors.controlSurface), shape = MaterialTheme.shapes.medium) {
                         ListItem(
                             headlineContent = { Text(parentItem.optString("name"), style = MaterialTheme.typography.titleMedium, color = if(parentItem.optBoolean("hidden")) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .55f) else MaterialTheme.colorScheme.onSurface) },
                             supportingContent = { Text(when(parentItem.optInt("type")) { 1 -> "收入"; 2 -> "支出"; else -> "转账" } + " · ${children.size} 个子分类") },
-                            leadingContent = { BuiltinIcon(parentItem, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            leadingContent = { Box(Modifier.size(42.dp).clip(CircleShape).background(ledgerColors.selection), contentAlignment = Alignment.Center) { BuiltinIcon(parentItem, Modifier.size(28.dp), tint = ledgerColors.accent) } },
                             trailingContent = { Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = { editingId = parentItem.id(); editingSnapshot=parentItem.toString(); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null) { Icon(Icons.Outlined.Edit, "编辑${parentItem.optString("name")}") }
                                 IconButton(onClick = { expanded = if (isExpanded) expanded - parentItem.id() else expanded + parentItem.id() }) { Icon(if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (isExpanded) "收起 ${parentItem.optString("name")}" else "展开 ${parentItem.optString("name")}") }
@@ -441,16 +443,31 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                             modifier = Modifier.clickable { expanded = if (isExpanded) expanded - parentItem.id() else expanded + parentItem.id() }
                         )
                         AnimatedVisibility(isExpanded) {
-                            Column(Modifier.padding(start = 20.dp, end = 12.dp, bottom = 10.dp)) {
-                                children.forEach { child ->
-                                    ListItem(
-                                        headlineContent = { Text(child.optString("name"), color = if(child.optBoolean("hidden")) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .55f) else MaterialTheme.colorScheme.onSurface) },
-                                        leadingContent = { BuiltinIcon(child, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                        trailingContent = { IconButton(onClick = { editingId = child.id(); editingSnapshot=child.toString(); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null) { Icon(Icons.Outlined.Edit, "编辑${child.optString("name")}") } },
-                                        modifier = Modifier.clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surface.copy(alpha = .72f))
-                                    )
+                            Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
+                                val childRows = ((children.size + 1 + 3) / 4).coerceAtLeast(1)
+                                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(4),
+                                    modifier = Modifier.fillMaxWidth().height((childRows * 74 + (childRows - 1) * 8).dp),
+                                    userScrollEnabled = false,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(children, key = { it.id() }) { child ->
+                                        Column(
+                                            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
+                                                .background(ledgerColors.surface)
+                                                .clickable(enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null) { editingId = child.id(); editingSnapshot=child.toString(); open = true }
+                                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Box(Modifier.size(32.dp).clip(CircleShape).background(ledgerColors.field), contentAlignment = Alignment.Center) { BuiltinIcon(child, Modifier.size(24.dp), tint = ledgerColors.muted) }
+                                            Text(child.optString("name"), modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = if(child.optBoolean("hidden")) ledgerColors.muted else ledgerColors.text)
+                                        }
+                                    }
+                                    item {
+                                        TextButton(onClick = { editingId = ""; editingSnapshot=""; newParentId=parentItem.id(); newType=parentItem.optString("type", "2"); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null&&!parentItem.optBoolean("hidden"), modifier = Modifier.fillMaxWidth().heightIn(min = 66.dp)) { Icon(Icons.Outlined.Add, null); Text("添加") }
+                                    }
                                 }
-                                TextButton(onClick = { editingId = ""; editingSnapshot=""; newParentId=parentItem.id(); newType=parentItem.optString("type", "2"); open = true }, enabled=!vm.busy&&!vm.entityBlocked&&vm.categoryRevision!=null&&!parentItem.optBoolean("hidden")) { Icon(Icons.Outlined.Add, null); Text("添加子分类") }
                             }
                         }
                     }
@@ -465,6 +482,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
 
 @Composable internal fun CatalogEditor(vm: BooksModel, section: Int, original: JSONObject?, initialType: String = "2", initialParentId: String = "0", close: () -> Unit, submit: (String,JSONObject,()->Unit)->Unit = vm::saveEntity) {
     var name by rememberSaveable(section, original?.id()) { mutableStateOf(original?.optString("name") ?: "") }; var type by rememberSaveable(section, original?.id(), initialType) { mutableStateOf(original?.optString("type") ?: initialType) }
+    var icon by rememberSaveable(section, original?.id(), initialParentId) { mutableStateOf(original?.optString("icon")?.takeIf { it.isNotBlank() } ?: "1") }
     var parent by rememberSaveable(section, original?.id(), initialParentId) { mutableStateOf(original?.id("parentId") ?: initialParentId) }; var group by rememberSaveable(section, original?.id()) { mutableStateOf(original?.id("groupId") ?: "0") }
     val locked=vm.busy||vm.entityBlocked
     LaunchedEffect(vm.entityAwaitingReview,vm.busy){if(vm.entityAwaitingReview&&!vm.busy)close()}
@@ -488,6 +506,8 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
             if (original == null) Choice("用途", listOf("2" to "支出", "1" to "收入", "3" to "转账"), type,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked){type = it; parent = "0"} }
             if(original==null || original.id("parentId")!="0") Choice("所属大类", (if(original==null) listOf("0" to "作为大类") else emptyList()) + vm.categories.filter { it.id("parentId") == "0" && it.optString("type") == type && it.id() != original?.id() && !it.optBoolean("hidden") }.map { it.id() to it.optString("name") }, parent,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked)parent = it }
             else Text("一级分类不能调整为二级分类")
+            Text("分类图标", style = MaterialTheme.typography.titleSmall, color = ledgerColors.text)
+            CatalogIconPicker(icon = icon, enabled = !locked) { icon = it }
         }
         if (section == 1) Choice("标签组", listOf("0" to "不分组") + vm.tagGroups.map { it.id() to it.optString("name") }, group,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked)group = it }
         if(section==0) {
@@ -501,7 +521,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     } }, confirmButton = { TextButton(onClick = {
         if(vm.busy||vm.entityBlocked)return@TextButton
         val body = JSONObject().put("name", name.trim()); if (original != null) body.put("id", original.id())
-        if (section == 0) { body.put("type", type.toInt()).put("parentId", parent).put("icon", original?.optString("icon") ?: "1").put("iconType", 0).put("color", original?.optString("color") ?: "006B5C").put("comment", original?.optString("comment") ?: "").put("hidden", original?.optBoolean("hidden") ?: false); if (original == null) body.put("clientSessionId", requestId) }
+        if (section == 0) { body.put("type", type.toInt()).put("parentId", parent).put("icon", icon).put("iconType", 0).put("color", original?.optString("color") ?: "006B5C").put("comment", original?.optString("comment") ?: "").put("hidden", original?.optBoolean("hidden") ?: false); if (original == null) body.put("clientSessionId", requestId) }
         if (section == 1) body.put("groupId", group)
         val path = when(section) { 0 -> "categories"; 1 -> "tags"; else -> "tags/groups" }
         if(section==0) {
@@ -518,8 +538,30 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         val body=JSONObject().put("id",item.id()).put("expectedRevision",openedRevision)
         when(categoryAction) {
             "hide" -> body.put("hidden",!item.optBoolean("hidden"))
-            "modify" -> body.put("name",name.trim()).put("type",type.toInt()).put("parentId",parent).put("icon",item.optString("icon")).put("iconType",0).put("color",item.optString("color")).put("comment",item.optString("comment")).put("hidden",item.optBoolean("hidden"))
+            "modify" -> body.put("name",name.trim()).put("type",type.toInt()).put("parentId",parent).put("icon",icon).put("iconType",0).put("color",item.optString("color")).put("comment",item.optString("comment")).put("hidden",item.optBoolean("hidden"))
         }
         val action=categoryAction;impactCount=null;submit("/api/v1/transaction/categories/$action.json",body,close)
     },enabled=!locked){Text("确认")}},dismissButton={TextButton(onClick={impactCount=null}){Text("取消")}}) }
+}
+
+@Composable
+private fun CatalogIconPicker(icon: String, enabled: Boolean, choose: (String) -> Unit) {
+    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(6),
+        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).testTag("catalog-icon-picker"),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        userScrollEnabled = true
+    ) {
+        items(builtinCategoryIconIds, key = { it }) { id ->
+            val selected = id == icon
+            Box(
+                Modifier.size(42.dp).clip(CircleShape)
+                    .background(if (selected) ledgerColors.selection else ledgerColors.field)
+                    .clickable(enabled = enabled) { choose(id) }
+                    .semantics { contentDescription = "分类图标 $id" },
+                contentAlignment = Alignment.Center
+            ) { BuiltinIcon(JSONObject().put("icon", id), Modifier.size(26.dp), tint = if (selected) ledgerColors.accent else ledgerColors.muted) }
+        }
+    }
 }

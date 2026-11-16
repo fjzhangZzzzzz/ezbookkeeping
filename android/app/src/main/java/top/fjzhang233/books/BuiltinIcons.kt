@@ -251,6 +251,36 @@ private val categoryGlyphs=mapOf(
     "9100" to BuiltinGlyph(0xf09b,true),
     "9101" to BuiltinGlyph(0xf171,true)
 )
+/** Stable built-in category icon IDs exposed to the category editor. */
+internal val builtinCategoryIconIds: List<String> = categoryGlyphs.keys.toList()
+private val fallbackCategoryIconIds: List<String> = categoryGlyphs.filterValues { !it.brand }.keys.toList()
+
+/**
+ * Older imports commonly used the server's generic icon id `1` for every row.
+ * Keep that value valid, but give those legacy rows a stable semantic fallback
+ * so the picker and management pages do not collapse into one repeated glyph.
+ */
+private fun effectiveCategoryIconId(item: JSONObject): String {
+    val stored = item.optString("icon").trim()
+    if (stored.isNotEmpty() && stored != "1") return stored
+    val name = item.optString("name")
+    val semantic = listOf(
+        "餐|饭|食|饮|零食" to "1",
+        "车|交通|地铁|公交|出行|停车" to "310",
+        "购|买菜|服饰|电商" to "5102",
+        "房|住|物业" to "200",
+        "医|药|健康" to "810",
+        "教|学习|育儿" to "640",
+        "娱|游戏|休闲" to "552",
+        "运动|健身" to "870",
+        "人情|礼|红包" to "500",
+        "通讯|手机|宽带" to "460"
+    )
+    semantic.firstOrNull { (pattern, _) -> Regex(pattern).containsMatchIn(name) }?.let { return it.second }
+    val seed = (item.optString("id") + ":" + name + ":" + item.optString("parentId")).hashCode() and Int.MAX_VALUE
+    // Skip the generic first glyph for unknown legacy rows.
+    return fallbackCategoryIconIds[seed % fallbackCategoryIconIds.size]
+}
 private val accountGlyphs=mapOf(
     "1" to BuiltinGlyph(0xf555),
     "10" to BuiltinGlyph(0xf51e),
@@ -308,6 +338,7 @@ private val solidIcons=FontFamily(Font(R.font.line_awesome_solid))
 private val brandIcons=FontFamily(Font(R.font.line_awesome_brands))
 @Composable internal fun BuiltinIcon(item:JSONObject,modifier:Modifier=Modifier,tint:Color,account:Boolean=false){
     val table=if(account)accountGlyphs else categoryGlyphs
-    val glyph=table[item.optString("icon","1")]?:table.getValue("1")
+    val iconId = if (account) item.optString("icon", "1") else effectiveCategoryIconId(item)
+    val glyph=table[iconId]?:table.getValue("1")
     Text(String(Character.toChars(glyph.codepoint)),modifier.clearAndSetSemantics{},color=tint,fontSize=24.sp,lineHeight=28.sp,fontFamily=if(glyph.brand)brandIcons else solidIcons)
 }
