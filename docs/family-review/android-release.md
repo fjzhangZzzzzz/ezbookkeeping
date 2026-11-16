@@ -22,6 +22,12 @@ Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properti
 
 新 Release 包含 `ezbookkeeping-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流只使用免费公开 runner，不启用付费 runner、缓存或额外服务。
 
+## 与 Family Release 的协调
+
+Family 后端与 Android 仍是独立发布通道，不共用版本号、签名或镜像。Family Release 现有 `build-info.json` 增加 `companion_artifacts.android`：工作流比较当前 Family 提交与最近 `android-v*` 标签之间的 `android/` 目录；无差异记为 `unchanged`，有差异但尚无新的 Android Release 记为 `pending`。该字段只描述源码相对关系，不代替 APK 的签名、摘要或自托管部署状态。
+
+本地创建 Family 或 Android 标签前，必须先检查工作树和相对最近 Android 标签的 Android 差异；未提交的 Android 改动不会出现在 GitHub Actions 中，不能称为已发布。`pending` 不阻止后端独立发布，但不得将整体验收写成通过；只有 Android Release、工件锁、自托管 `current` 和真实设备验收均完成后，Family 交接才可标记完整。
+
 正式 `android-v0.1.1` / code `3` 已由 [tag CI 43621801593](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621801593) 完成 verify/build/publish；源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`，实际 APK SHA256 `133b73c664de942842dbff5e6f105d8a16bd9bdfdccdc1e8b13d01735af2fc29`。独立签名/包版本和匿名公开三件套与正式 CI 原件核验通过；目前已在自部署 books HTTPS 激活；用户已确认实体手机安装正式包、显示自托管更新源并检查最新版；这仍不能替代真实已登录跨版本升级验收。
 
 ## update.json 契约与信任边界

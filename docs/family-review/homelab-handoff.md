@@ -2,6 +2,10 @@
 
 应用开发及 GitHub 发行由本仓库维护；正式部署、准入、身份服务、Backrest 备份恢复及现场验收由 `homelab-infra` 的现行清单和 Runbook 管理。以下区分最新交付与正在运行的版本；源码发布、镜像发布、部署和验收不能相互代替。
 
+## 发布状态判定
+
+Family 后端和 Android APK 独立发行。每次 Family Release 的 `build-info.json` 记录 `companion_artifacts.android.status`：`unchanged` 表示相对最近 Android 标签没有 Android 源码差异，`pending` 表示有差异但尚未形成新的 Android Release。运维仓库只把工件锁中的 APK 视为可部署输入，不从该状态字段推导已部署或已验收。四种状态分别记录为源码已提交、Release 已发布、自托管已部署、人工已验收；未提交的本机 Android 修改不属于任何已发布状态。
+
 ## 当前应用交付：0.1.4
 
 - [公开预发行 `family-v0.1.4`](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.4) 已由正式标签流水线完整发布，源码为 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`。[Actions 43621154413](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621154413) 的完整 Linux Go/Web 检查、构建、准确镜像 smoke 和 publish 均成功；没有把第三方实时汇率探测记为本地业务测试。

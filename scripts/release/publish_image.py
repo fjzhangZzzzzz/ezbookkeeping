@@ -16,6 +16,23 @@ def command(*args):
     return subprocess.check_output(args, text=True).strip()
 
 
+def android_companion_status():
+    tags = command("git", "tag", "--list", "android-v*", "--sort=-version:refname").splitlines()
+    if not tags:
+        raise RuntimeError("no android-v* tag available for Family release coordination")
+    tag = tags[0]
+    source_commit = command("git", "rev-list", "-n", "1", tag)
+    changed = subprocess.run(
+        ["git", "diff", "--quiet", f"{tag}..HEAD", "--", "android"],
+        check=False,
+    ).returncode != 0
+    return {
+        "status": "pending" if changed else "unchanged",
+        "release_tag": tag,
+        "source_commit": source_commit,
+    }
+
+
 def registry_token(image_path, authenticated):
     # Match docker push's scope for first-package creation; anonymous checks only pull.
     actions = "pull,push" if authenticated else "pull"
@@ -98,6 +115,7 @@ def main():
         "image": {"platform": "linux/amd64", "reference": f"{image}@{digest}", "digest": digest, "tags": [f"{image}:{ref}" for ref in references], "config_id": local["Id"], "anonymous_pull_verified": True},
         "build": {"method": "GitHub Actions Linux Dockerfile; backend and frontend from the same source commit", "workflow": f"https://github.com/{repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}", "backend_vet_tests": True, "frontend_typecheck_lint_tests_build": True, "third_party_api_probes": False},
         "smoke": smoke,
+        "companion_artifacts": {"android": android_companion_status()},
         "deployment_acceptance": "Public HTTPS, Pocket ID login and backup/restore acceptance belong to homelab and are not claimed by this release."
     }
     filename = f"ezbookkeeping-family-{version}-build-info.json"
