@@ -353,6 +353,20 @@ export const useAccountsStore = defineStore('accounts', () => {
         }
     }
 
+    function archiveAccountInAccountList(currentAccount: Account): void {
+        const account = allAccountsMap.value[currentAccount.id] ?? currentAccount;
+        account.visible = false;
+
+        for (const subAccount of account.subAccounts ?? []) {
+            subAccount.visible = false;
+        }
+    }
+
+    function archiveSubAccountInAccountList(currentSubAccount: Account): void {
+        const subAccount = allAccountsMap.value[currentSubAccount.id] ?? currentSubAccount;
+        subAccount.visible = false;
+    }
+
     function updateAccountListInvalidState(invalidState: boolean): void {
         accountListStateInvalid.value = invalidState;
     }
@@ -1213,10 +1227,18 @@ export const useAccountsStore = defineStore('accounts', () => {
 
                 if (beforeResolve) {
                     beforeResolve(() => {
-                        removeAccountFromAccountList(account);
+                        if (action === 'archived') {
+                            archiveAccountInAccountList(account);
+                        } else {
+                            removeAccountFromAccountList(account);
+                        }
                     });
                 } else {
-                    removeAccountFromAccountList(account);
+                    if (action === 'archived') {
+                        archiveAccountInAccountList(account);
+                    } else {
+                        removeAccountFromAccountList(account);
+                    }
                 }
 
                 overviewStore.updateTransactionOverviewInvalidState(true);
@@ -1263,10 +1285,18 @@ export const useAccountsStore = defineStore('accounts', () => {
 
                 if (beforeResolve) {
                     beforeResolve(() => {
-                        removeSubAccountFromAccountList(subAccount);
+                        if (action === 'archived') {
+                            archiveSubAccountInAccountList(subAccount);
+                        } else {
+                            removeSubAccountFromAccountList(subAccount);
+                        }
                     });
                 } else {
-                    removeSubAccountFromAccountList(subAccount);
+                    if (action === 'archived') {
+                        archiveSubAccountInAccountList(subAccount);
+                    } else {
+                        removeSubAccountFromAccountList(subAccount);
+                    }
                 }
 
                 overviewStore.updateTransactionOverviewInvalidState(true);

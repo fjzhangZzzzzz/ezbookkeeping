@@ -97,7 +97,7 @@ internal fun accountPreset(key:String)=accountPresetGroups.asSequence().flatMap{
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun LedgerAccountPicker(accounts:List<JSONObject>,selectedId:String,destination:Boolean=false,dismiss:()->Unit,choose:(String)->Unit,create:()->Unit,enabled:Boolean=true,createEnabled:Boolean=enabled,defaultId:String=""){
-    val visible=accounts.filter{!it.optBoolean("hidden")}.sortedBy{it.optInt("displayOrder",Int.MAX_VALUE)}
+    val visible=sortAccountsForDisplay(accounts).filter{!it.optBoolean("hidden")}
     val rows=(visible.size+1+4)/5
     val height=(56+rows*88+64).coerceIn(208,440).dp
     ModalBottomSheet(onDismissRequest=dismiss,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true),shape=RoundedCornerShape(topStart=8.dp,topEnd=8.dp),containerColor=MaterialTheme.colorScheme.surface,contentColor=MaterialTheme.colorScheme.onSurface,dragHandle=null){

@@ -31,6 +31,15 @@ class ProtocolTest {
         for(invalid in listOf("0","-1","1.001","NaN","1e2","1,00")) assertThrows(IllegalArgumentException::class.java) { parseMinor(invalid) }
         assertThrows(ArithmeticException::class.java) { parseMinor("999999999999999999999") }
     }
+    @Test fun accountDisplayOrderIsScopedToCategoryAndParent() {
+        fun row(id: String, category: Int, parent: String, order: Int) = JSONObject()
+            .put("id", id).put("category", category).put("parentId", parent).put("displayOrder", order)
+        val rows = sortAccountsForDisplay(listOf(
+            row("30", 2, "0", 2), row("10", 1, "0", 2), row("20", 1, "0", 1),
+            row("40", 1, "99", 1), row("41", 1, "99", 2)
+        ))
+        assertEquals(listOf("30", "20", "10", "40", "41"), rows.map { it.id() })
+    }
     @Test fun wrongPasswordDoesNotRevokeExistingSessionButNormal401Does() = runBlocking {
         val server=MockWebServer(); server.start()
         try {

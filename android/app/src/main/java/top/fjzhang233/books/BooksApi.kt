@@ -105,28 +105,6 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
         return top.flatMap { if (it.array("subAccounts").isEmpty()) listOf(it) else it.array("subAccounts") }
     }
     suspend fun userProfile(): JSONObject = call("/api/v1/users/profile/get.json") as JSONObject
-    suspend fun updateDefaultAccount(accountId: String): JSONObject {
-        require(Regex("[1-9][0-9]*").matches(accountId))
-        return call("/api/v1/users/profile/update.json", JSONObject().put("defaultAccountId", accountId)) as JSONObject
-    }
-    suspend fun hideAccount(accountId: String, hidden: Boolean): Boolean {
-        require(Regex("[1-9][0-9]*").matches(accountId))
-        return call("/api/v1/accounts/hide.json", JSONObject().put("id", accountId).put("hidden", hidden)) == true
-    }
-    suspend fun moveAccounts(order: List<Pair<String, Int>>): Boolean {
-        require(order.isNotEmpty())
-        val rows = JSONArray()
-        order.forEach { (id, displayOrder) ->
-            require(Regex("[1-9][0-9]*").matches(id))
-            rows.put(JSONObject().put("id", id).put("displayOrder", displayOrder))
-        }
-        return call("/api/v1/accounts/move.json", JSONObject().put("newDisplayOrders", rows)) == true
-    }
-    suspend fun deleteAccount(accountId: String, subAccount: Boolean = false): Any {
-        require(Regex("[1-9][0-9]*").matches(accountId))
-        val path = if (subAccount) "/api/v1/accounts/sub_account/delete.json" else "/api/v1/accounts/delete.json"
-        return call(path, JSONObject().put("id", accountId))
-    }
     suspend fun categories(): List<JSONObject> {
         val result = call("/api/v1/transaction/categories/list.json") as JSONObject
         return result.keys().asSequence().flatMap { key -> result.array(key).asSequence() }.flatMap { parent ->

@@ -326,12 +326,6 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         refreshAfterAccountWrite(if (hidden) "账户已归档" else "账户已恢复")
     }
 
-    fun moveAccounts(order: List<Pair<String, Int>>) = act {
-        require(order.isNotEmpty()) { "账户顺序不能为空" }
-        require(entityWrites.submit("/api/v1/accounts/move.json", accountOrderPayload(order)) == true) { "账户顺序更新未完成，请刷新后重试" }
-        refreshAfterAccountWrite("账户顺序已更新")
-    }
-
     fun moveAccount(accountId: String, direction: Int) = act {
         val selected = accounts.firstOrNull { it.id() == accountId } ?: error("账户不存在")
         val category = selected.optInt("category", -1)
@@ -500,9 +494,20 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
 }
 
 internal fun choosePreferredAccountId(accounts: List<JSONObject>, defaultId: String): String {
-    val visible = accounts.filter { !it.optBoolean("hidden") }.sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }
+    val visible = sortAccountsForDisplay(accounts).filter { !it.optBoolean("hidden") }
     return visible.firstOrNull { it.id() == defaultId }?.id()
         ?: visible.firstOrNull()?.id().orEmpty()
+}
+
+internal fun sortAccountsForDisplay(accounts: List<JSONObject>): List<JSONObject> {
+    val groups = linkedMapOf<String, MutableList<JSONObject>>()
+    accounts.forEach { account ->
+        val key = "${account.optInt("category", -1)}:${account.id("parentId")}"
+        groups.getOrPut(key) { mutableListOf() }.add(account)
+    }
+    return groups.values.flatMap { group ->
+        group.sortedWith(compareBy<JSONObject>({ it.optInt("displayOrder", Int.MAX_VALUE) }, { it.id() }))
+    }
 }
 
 internal fun accountDeleteAction(result: Any): String {

@@ -257,8 +257,9 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     var showHidden by rememberSaveable { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<JSONObject?>(null) }
     val editing=vm.accounts.firstOrNull { it.id()==editingId }
-    val visible=vm.accounts.filter { !it.optBoolean("hidden") }.sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }
-    val hidden=vm.accounts.filter { it.optBoolean("hidden") }.sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }
+    val orderedAccounts = sortAccountsForDisplay(vm.accounts)
+    val visible=orderedAccounts.filter { !it.optBoolean("hidden") }
+    val hidden=orderedAccounts.filter { it.optBoolean("hidden") }
     LazyColumn(Modifier.testTag("accounts-list"),contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { EntityWriteWarning(vm) };item { Button(onClick = { editingId = ""; open = true }, enabled = !vm.busy&&!vm.entityBlocked) { Icon(Icons.Outlined.Add, null); Text("新建账户") } }
         if (vm.accounts.isEmpty()) item { EmptyState("创建你的账户", "例如现金、银行卡。只管理自己的账户。") }
