@@ -198,3 +198,75 @@ func TestSharedDictionarySQLite(t *testing.T) {
 	_, err = TransactionTags.GetTagByTagId(nil, 1, tag.TagId)
 	require.NoError(t, err)
 }
+
+func TestSharedDictionaryRenamesLegacyInternalCategories(t *testing.T) {
+	config := &settings.Config{DatabaseConfig: &settings.DatabaseConfig{DatabaseType: settings.Sqlite3DbType, DatabasePath: filepath.Join(t.TempDir(), "test.db")}}
+	require.NoError(t, datastore.InitializeDataStore(config))
+	db := datastore.Container.UserDataStore.Choose(0)
+	t.Cleanup(func() { require.NoError(t, db.NewSession(nil).(*datastore.XOrmSession).Engine().Close()) })
+	require.NoError(t, db.SyncStructs(&models.TransactionCategory{}, &models.TransactionCategoryRevision{}))
+	require.NoError(t, uuid.InitializeUuidGenerator(&settings.Config{UuidGeneratorType: settings.InternalUuidGeneratorType}))
+	require.NoError(t, EnsureSharedDictionary(nil))
+
+	var internalCategories []*models.TransactionCategory
+	require.NoError(t, db.NewSession(nil).Where("uid=? AND deleted=? AND family_internal_transfer=?", models.SharedDictionaryOwnerUID, false, true).Find(&internalCategories))
+	require.Len(t, internalCategories, 2)
+	ids := make(map[models.TransactionCategoryType]int64, len(internalCategories))
+	for _, category := range internalCategories {
+		ids[category.Type] = category.CategoryId
+		legacyName := "家庭内部转入"
+		if category.Type == models.CATEGORY_TYPE_EXPENSE {
+			legacyName = "家庭内部转出"
+		}
+		_, err := db.NewSession(nil).ID(category.CategoryId).Cols("name").Update(&models.TransactionCategory{Name: legacyName})
+		require.NoError(t, err)
+		_, err = db.NewSession(nil).ID(category.ParentCategoryId).Cols("name").Update(&models.TransactionCategory{Name: "家庭内部往来"})
+		require.NoError(t, err)
+	}
+
+	before, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.NoError(t, EnsureSharedDictionary(nil))
+	after, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, before+1, after)
+
+	var migrated []*models.TransactionCategory
+	require.NoError(t, db.NewSession(nil).Where("uid=? AND deleted=? AND family_internal_transfer=?", models.SharedDictionaryOwnerUID, false, true).Find(&migrated))
+	require.Len(t, migrated, 2)
+	for _, category := range migrated {
+		require.Equal(t, ids[category.Type], category.CategoryId)
+		require.True(t, category.FamilyInternalTransfer)
+		if category.Type == models.CATEGORY_TYPE_INCOME {
+			require.Equal(t, "家庭转入", category.Name)
+		} else {
+			require.Equal(t, "家庭转出", category.Name)
+		}
+		parent := &models.TransactionCategory{}
+		found, err := db.NewSession(nil).ID(category.ParentCategoryId).Get(parent)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, "家庭往来", parent.Name)
+	}
+
+	require.NoError(t, EnsureSharedDictionary(nil))
+	unchanged, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, after, unchanged)
+
+	income := &models.TransactionCategory{}
+	found, err := db.NewSession(nil).Where("uid=? AND deleted=? AND family_internal_transfer=? AND type=?", models.SharedDictionaryOwnerUID, false, true, models.CATEGORY_TYPE_INCOME).Get(income)
+	require.NoError(t, err)
+	require.True(t, found)
+	_, err = db.NewSession(nil).ID(income.CategoryId).Cols("name").Update(&models.TransactionCategory{Name: "自定义转入"})
+	require.NoError(t, err)
+	require.NoError(t, EnsureSharedDictionary(nil))
+	unchangedCustom, err := TransactionCategories.GetCategoryRevision(nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, unchanged, unchangedCustom)
+	gotCustom := &models.TransactionCategory{}
+	found, err = db.NewSession(nil).ID(income.CategoryId).Get(gotCustom)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "自定义转入", gotCustom.Name)
+}

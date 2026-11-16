@@ -13,7 +13,7 @@ import (
 
 var sharedDictionaryInitializationLock sync.Mutex
 
-// EnsureSharedDictionary creates the system internal-transfer categories once.
+// EnsureSharedDictionary creates and maintains the system internal-transfer categories.
 // Their semantic identity is stored on the child rather than inferred from its name.
 func EnsureSharedDictionary(c core.Context) error {
 	sharedDictionaryInitializationLock.Lock()
@@ -22,11 +22,14 @@ func EnsureSharedDictionary(c core.Context) error {
 	return TransactionCategories.UserDataDB(models.SharedDictionaryOwnerUID).DoTransaction(c, func(sess datastore.DatabaseSession) error {
 		changed := false
 		for _, item := range []struct {
-			typ  models.TransactionCategoryType
-			name string
+			typ              models.TransactionCategoryType
+			legacyParentName string
+			parentName       string
+			legacyName       string
+			name             string
 		}{
-			{models.CATEGORY_TYPE_INCOME, "家庭内部转入"},
-			{models.CATEGORY_TYPE_EXPENSE, "家庭内部转出"},
+			{models.CATEGORY_TYPE_INCOME, "家庭内部往来", "家庭往来", "家庭内部转入", "家庭转入"},
+			{models.CATEGORY_TYPE_EXPENSE, "家庭内部往来", "家庭往来", "家庭内部转出", "家庭转出"},
 		} {
 			count, err := sess.Where("uid=? AND deleted=? AND family_internal_transfer=? AND type=?", models.SharedDictionaryOwnerUID, false, true, item.typ).Count(&models.TransactionCategory{})
 			if err != nil {
@@ -34,6 +37,34 @@ func EnsureSharedDictionary(c core.Context) error {
 			} else if count > 1 {
 				return errs.ErrOperationFailed
 			} else if count == 1 {
+				internalCategory := &models.TransactionCategory{}
+				found, err := sess.Where("uid=? AND deleted=? AND family_internal_transfer=? AND type=?", models.SharedDictionaryOwnerUID, false, true, item.typ).Get(internalCategory)
+				if err != nil {
+					return err
+				} else if !found {
+					return errs.ErrOperationFailed
+				}
+
+				if internalCategory.Name == item.legacyName {
+					_, err = sess.ID(internalCategory.CategoryId).Cols("name", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Update(&models.TransactionCategory{Name: item.name, UpdatedUnixTime: time.Now().Unix()})
+					if err != nil {
+						return err
+					}
+					changed = true
+				}
+
+				parentCategory := &models.TransactionCategory{}
+				found, err = sess.ID(internalCategory.ParentCategoryId).Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Get(parentCategory)
+				if err != nil {
+					return err
+				} else if found && parentCategory.Name == item.legacyParentName {
+					_, err = sess.ID(parentCategory.CategoryId).Cols("name", "updated_unix_time").Where("uid=? AND deleted=?", models.SharedDictionaryOwnerUID, false).Update(&models.TransactionCategory{Name: item.parentName, UpdatedUnixTime: time.Now().Unix()})
+					if err != nil {
+						return err
+					}
+					changed = true
+				}
+
 				continue
 			}
 			ids := TransactionCategories.GenerateUuids(uuid.UUID_TYPE_CATEGORY, 2)
@@ -41,7 +72,7 @@ func EnsureSharedDictionary(c core.Context) error {
 				return errs.ErrSystemIsBusy
 			}
 			now := time.Now().Unix()
-			parent := &models.TransactionCategory{CategoryId: ids[0], Uid: models.SharedDictionaryOwnerUID, Type: item.typ, Name: "家庭内部往来", DisplayOrder: 10000, Icon: 1, Color: "808080", CreatedUnixTime: now, UpdatedUnixTime: now}
+			parent := &models.TransactionCategory{CategoryId: ids[0], Uid: models.SharedDictionaryOwnerUID, Type: item.typ, Name: item.parentName, DisplayOrder: 10000, Icon: 1, Color: "808080", CreatedUnixTime: now, UpdatedUnixTime: now}
 			child := &models.TransactionCategory{CategoryId: ids[1], Uid: models.SharedDictionaryOwnerUID, Type: item.typ, ParentCategoryId: ids[0], Name: item.name, Icon: 1, Color: "808080", FamilyInternalTransfer: true, CreatedUnixTime: now, UpdatedUnixTime: now}
 			changed = true
 			if _, err := sess.Insert(parent, child); err != nil {
