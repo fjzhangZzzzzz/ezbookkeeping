@@ -681,9 +681,10 @@ function remove(account: Account): void {
 
             accountsStore.deleteSubAccount({
                 subAccount: subAccount
-            }).then(() => {
+            }).then(action => {
                 activeSubAccount.value[account.id] = '';
                 loading.value = false;
+                snackbar.value?.showMessage(tt(action === 'archived' ? 'Sub-account has been archived' : 'Sub-account has been deleted permanently'));
             }).catch(error => {
                 loading.value = false;
 
@@ -698,8 +699,9 @@ function remove(account: Account): void {
 
             accountsStore.deleteAccount({
                 account: account
-            }).then(() => {
+            }).then(action => {
                 loading.value = false;
+                snackbar.value?.showMessage(tt(action === 'archived' ? 'Account has been archived' : 'Account has been deleted permanently'));
             }).catch(error => {
                 loading.value = false;
 

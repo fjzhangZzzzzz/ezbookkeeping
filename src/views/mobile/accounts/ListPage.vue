@@ -509,8 +509,9 @@ function remove(account: Account | null, confirm: boolean): void {
         beforeResolve: (done) => {
             onSwipeoutDeleted(getAccountDomId(account), done);
         }
-    }).then(() => {
+    }).then(action => {
         hideLoading();
+        showToast(tt(action === 'archived' ? 'Account has been archived' : 'Account has been deleted permanently'));
     }).catch(error => {
         hideLoading();
 
