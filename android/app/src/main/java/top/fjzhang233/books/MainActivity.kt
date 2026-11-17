@@ -108,7 +108,7 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
         vm.browserUrl = null
     } }
     BackHandler(enabled = route != AppRoute.LEDGER) {
-        route = when (route) {
+        route = if (vm.token == null) AppRoute.LEDGER else when (route) {
             AppRoute.ACCOUNTS, AppRoute.CATALOG, AppRoute.SESSIONS, AppRoute.ABOUT -> AppRoute.SETTINGS
             else -> AppRoute.LEDGER
         }
