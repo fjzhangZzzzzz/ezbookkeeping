@@ -1,6 +1,6 @@
 ﻿# ezBookkeeping 家庭记账二次开发评审
 
-本页保留初始评审及其证据边界。**当前开发、测试与交付进度见 [实施状态](implementation-status.md)，部署和身份接入等运维交接见 [homelab 交接](homelab-handoff.md)。** 初始版本、扫描结果及“未执行”记录不代表后续实施后的状态。
+本页保留初始评审及其证据边界。**当前开发、测试与交付进度见 [实施状态](implementation-status.md)，发布命名和产物契约见 [发布规范](release-policy.md)。** 初始版本、扫描结果及“未执行”记录不代表后续实施后的状态。
 
 Android 原生客户端的服务端交接接口、安全边界和验证口径见 [原生认证交接](native-oauth2.md)。
 
@@ -24,13 +24,11 @@ Android 原生客户端的服务端交接接口、安全边界和验证口径见
 
 | 交付物 | 内容 |
 |---|---|
-| [实施状态](implementation-status.md) / [homelab 交接](homelab-handoff.md) | 最新应用交付状态、已验工件与运维接手边界 |
+| [实施状态](implementation-status.md) / [发布规范](release-policy.md) | 最新应用交付状态、发布单元和产物契约 |
 | [ADR-0001：分类与资金账户生命周期](../adr/0001-category-and-account-lifecycle.md) | 共享分类、四字维护规范、二级选择和账户删除/归档的长期产品语义 |
-| [实施与部署计划](implementation-plan.md) | 六阶段实施、control/edge部署拓扑、原生OIDC、Backrest接入与上线步骤 |
-| [当前简化方案](simplified-scope.md) | 已确认决策、最低验收、独立维护与17/28/45人天重估 |
+| [当前简化方案](simplified-scope.md) | 已确认决策、最低验收、独立维护与15/25/40人天产品范围估算 |
 | [01 可行性评估](01-feasibility.md) | 原需求范围的架构与可行性证据，产品条款以简化方案为准 |
 | [02 安全审计（有限范围）](02-security-audit.md) | S1–S22、源码片段、出站请求、工具结果和未完成范围 |
-| [03 改造方案与估算](03-design-and-estimate.md) | 原完整需求的参考设计及旧估算，非当前实现规范 |
 | [04 风险与决策建议](04-risks-tests-and-operations.md) | 原范围风险与测试参考；当前范围采用简化方案 |
 | [上游版本与安全公告核验](upstream-verification.md) | 精确基线、公开4条GHSA、五项CVE、发布链和提交历史 |
 | [UID查询清单](uid-query-inventory.md) / [CSV](uid-query-inventory.csv) | 216处显式谓词、15个文件、142个路由索引与候选调用映射；不涵盖全部隐式ORM语义证明 |
@@ -38,6 +36,6 @@ Android 原生客户端的服务端交接接口、安全边界和验证口径见
 
 ## 阅读与证据约定
 
-初始尽调附录的源码路径/行号对应其评审基线，除非另标提交；其中拟议的DDL/API不能视为当时已存在能力。homelab路径相对 `C:/Users/fjzha/Projects/homelab-infra`，初始评审只读其声明、未连接主机。后续实施和隔离验证的准确源码、连接及工件证据另见实施状态与构建记录；数据库/镜像/部署/恢复的“建议、未执行、未确认”与已执行事实分别标识。
+初始尽调附录的源码路径/行号对应其评审基线，除非另标提交；其中拟议的DDL/API不能视为当时已存在能力。后续实施和验证的准确源码、构建和产品行为以实施状态、ADR、独立 QA 与对应 CI 记录为准；“建议、未执行、未确认”与已执行事实分别标识。
 
 需求原文为 `C:/Users/fjzha/Downloads/ezBookkeeping家庭记账二次开发需求说明.md`（v1.0，2026-11-13）；原文中的架构、CVE范围与项目版本并非全部成立，具体更正见各报告。后续实现以simplified-scope.md及冻结基线为准。

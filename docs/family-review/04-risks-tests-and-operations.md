@@ -2,7 +2,7 @@
 
 > 范围变更：本文保留最初完整需求的评审证据和参考设计。用户已确认家庭自用简化方案，后续实现及预算以 [simplified-scope.md](simplified-scope.md) 为准；本文冲突的权限、迁移、多币种、三库及估算条款不再适用。
 
-评审基线 `82920c62fd774b95eaed7fe78938675b56b73cf2`；本文仅为方案，不代表已经上线、渗透测试或恢复验收。实现设计见 [改造方案](03-design-and-estimate.md)，安全事实见 [安全报告](02-security-audit.md) 与 [上游核验](upstream-verification.md)。
+评审基线 `82920c62fd774b95eaed7fe78938675b56b73cf2`；本文仅为历史方案，不代表已经上线、渗透测试或恢复验收。当前产品范围见 [简化范围](simplified-scope.md)，安全事实见 [安全报告](02-security-audit.md) 与 [上游核验](upstream-verification.md)。
 
 ## 1. 是否继续 fork
 

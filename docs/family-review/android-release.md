@@ -22,11 +22,11 @@ Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properti
 
 新 Release 包含 `ezbookkeeping-family-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流只使用免费公开 runner，不启用付费 runner、缓存或额外服务。
 
-## 与 Family Release 的协调
+## 与 Webapp 发布协调
 
 Webapp 与 Android 仍是独立发布通道，不共用版本号、签名或镜像。Webapp Release 的 `release.json` 增加 `companion_artifacts.android`：工作流比较当前 Webapp 提交与最近 `android-v*` 标签之间的 `android/` 目录；无差异记为 `unchanged`，有差异但尚无新的 Android Release 记为 `pending`。该字段只描述源码相对关系，不代替 APK 的签名、摘要或自托管部署状态。
 
-本地创建 Family 或 Android 标签前，必须先检查工作树和相对最近 Android 标签的 Android 差异；未提交的 Android 改动不会出现在 GitHub Actions 中，不能称为已发布。`pending` 不阻止后端独立发布，但不得将整体验收写成通过；只有 Android Release、工件锁、自托管 `current` 和真实设备验收均完成后，Family 交接才可标记完整。
+本地创建 Webapp 或 Android 标签前，必须先检查工作树和相对最近 Android 标签的 Android 差异；未提交的 Android 改动不会出现在 GitHub Actions 中，不能称为已发布。`pending` 不阻止 Webapp 独立发布，但不得将 Webapp 与 Android 的整体验收写成通过；产品发布完整性只在对应 Release、工件和真实设备范围内分别判断。
 
 历史 `android-v0.1.1` / code `3` 已由 [tag CI 43621801593](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621801593) 完成 verify/build/publish；源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`，实际 APK SHA256 `133b73c664de942842dbff5e6f105d8a16bd9bdfdccdc1e8b13d017af2fc29`。独立签名/包版本和匿名公开三件套与正式 CI 原件核验通过；当时已在自部署 books HTTPS 激活；用户已确认实体手机安装正式包、显示自托管更新源并检查最新版；这仍不能替代真实已登录跨版本升级验收。
 
@@ -38,7 +38,7 @@ schemaVersion=1，channel 固定 stable；字段 packageId、versionName、整�
 
 安装前校验协议格式、包名、minSdk、更高 versionCode、下载 SHA256、实际 APK 包名和版本，以及实际 signer 与应用内固定公开 pin/当前安装 signer 一致。GitHub 仅保留不可变 CI/发行来源和部署取件渠道，不再是客户端检查或下载地址。
 
-APK 和原始 CI `update.json` / `SHA256SUMS` 为独立工件，不嵌入后端镜像，也不在 homelab 重写 metadata。Ansible 验证正式来源后选择版本；稳定宿主父目录 `/srv/homelab/ezbookkeeping/android` 只读挂载到 Go 容器 `/ezbookkeeping/public/android`，`current` 使用根内相对链接指向 `releases/<versionName>`，根 `update.json` 指向 `current/update.json`。服务端自 0.1.4 起提供清晰 `/android` 静态路由，未挂工件时返回 404；manifest 要求缓存重验，版本化 APK 使用不可变缓存，不列举目录或暴露其它文件。独立 APK 切换不重建后端镜像、不新增服务端口、不激活共享 Caddy；首次增加挂载按 homelab 标准组件流程完成。备份恢复包括匹配后端、公共工件与选择依据；切回旧 manifest 不会降级已安装的高 versionCode 客户端。
+APK 和原始 CI `update.json` / `SHA256SUMS` 为独立工件，不嵌入后端镜像，也不在本仓库重写 metadata。部署侧应验证正式来源后选择版本；签名密钥、密码、INI、凭据及下载 staging 不进入公开工件。切回旧 manifest 不会降级已安装的高 versionCode 客户端。
 
 update.json 和 SHA256SUMS 是来源描述及完整性清单，**不是签名信任根**；不能用其中自报的证书替代应用内固定 pin、当前安装证书和 Android 安装器的签名校验。不能降级或通过换包名绕开版本/签名保护。签名轮换另行设计和批准，当前不支持静默轮换。
 
@@ -46,6 +46,6 @@ update.json 和 SHA256SUMS 是来源描述及完整性清单，**不是签名信
 
 自托管实际系统安装已在专用模拟器验证：内部 `0.1.1-internal-selfhost` / code2 → 官方 `0.1.1` / code3，正常界面检测、用户确认下载、客户端校验、系统来源许可、PackageInstaller Update 与安装成功；实际升级不使用 adb install。读回已安装 APK 完整 SHA256 与正式 CI 原件一致，唯一 signer 匹配固定 pin，重开应用并再次检查显示当前兼容最新版。初始内部旧包为独立获准准备，不是旧公开 0.1.0 客户端；该测试未输入凭据，不证明真实用户登录跨升级保持。
 
-发布前检查本地构建、正式签名/指纹、metadata 与 APK 一致、更新筛选和拒绝错误包；Actions 构建和 Release 发布分别记录结果。当前 Android 0.1.6 的实体手机自托管更新、密码及原 Pocket ID 同 UID、CNY 资金账户记账/附图、关闭重开保持登录、退出重登和桌面撤销手机会话已由用户确认；“资金账户”没有新登录账密，不创建额外 CLI 用户。真实已登录跨版本保持和真实 Pocket ID + TLS 恢复仍不能由客户端测试推导通过，后者以 homelab-infra 的运维状态为准。
+发布前检查本地构建、正式签名/指纹、metadata 与 APK 一致、更新筛选和拒绝错误包；Actions 构建和 Release 发布分别记录结果。当前 Android 0.1.6 的实体手机自托管更新、密码及原 Pocket ID 同 UID、CNY 资金账户记账/附图、关闭重开保持登录、退出重登和桌面撤销手机会话已由用户确认；“资金账户”没有新登录账密，不创建额外 CLI 用户。真实已登录跨版本保持和部署侧恢复不由客户端测试推导通过。
 
 参考：[GitHub Secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)、[GitHub CLI stdin](https://cli.github.com/manual/gh_secret_set)、[keytool 密码环境变量](https://docs.oracle.com/en/java/javase/21/docs/specs/man/keytool.html)。
