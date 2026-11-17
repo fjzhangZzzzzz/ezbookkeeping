@@ -81,13 +81,15 @@ SQLite run. The concurrent million-row run is stable with zero errors, but its
 latency is above the single-request gates because the SQLite deployment is
 intentionally configured with one open connection. This is a concurrency
 stability result, not a claim that ten simultaneous million-row requests are
-interactive. Production-sized MySQL/PostgreSQL measurements and Android device
-traces remain required before release capacity is declared.
+interactive. SQLite data files and connection settings matching the release
+environment, plus Android device traces, remain required before release
+capacity is declared. MySQL/PostgreSQL are not support or acceptance targets
+for this project.
 
 SQLite `EXPLAIN QUERY PLAN` confirms the family query uses
 `COVERING INDEX IDX_transaction_uid_deleted_time_family`; grouping still uses a
-temporary B-tree. The same plan must be captured on the release database engine
-before declaring cross-database capacity.
+temporary B-tree. The same plan must be captured against the release SQLite
+configuration before declaring release capacity.
 
 ## Interpretation
 
