@@ -30,7 +30,7 @@ class SearchAcceptanceTest {
     private fun waitFor(label:String,predicate:()->Boolean){val end=android.os.SystemClock.elapsedRealtime()+45_000;while(android.os.SystemClock.elapsedRealtime()<end){if(predicate())return;android.os.SystemClock.sleep(150)};throw AssertionError("Search isolated stage timed out: $label")}
     private fun has(text:String)=nodes().any{it.text?.toString()==text}
     private fun tap(label:String){
-        val node=nodes().firstOrNull{it.text?.toString()==label||it.contentDescription?.toString()==label}?:error("Search control missing")
+        val node=nodes().firstOrNull{it.contentDescription?.toString()==label}?:nodes().firstOrNull{it.text?.toString()==label}?:error("Search control missing")
         var target:AccessibilityNodeInfo?=node
         while(target!=null&&!target.isClickable)target=target.parent
         check(target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)==true)

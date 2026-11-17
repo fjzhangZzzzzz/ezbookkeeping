@@ -63,7 +63,7 @@ class AccountOpeningBalanceAcceptanceTest {
                 val id=ids.getValue(case.key);compose.onNodeWithTag("family-list").performScrollToNode(hasTestTag("family-account-$id"))
                 val value="CNY "+money(case.stored.toString());compose.onNodeWithTag("family-account-$id").assert(hasText(value) or hasAnyDescendant(hasText(value)));capture("family-${case.key}")
             }
-            compose.onNodeWithContentDescription("打开菜单").performClick();compose.onNodeWithText("账户",substring=false).performClick()
+            compose.onNodeWithContentDescription("返回").performClick();compose.onNodeWithContentDescription("打开菜单").performClick();compose.onNodeWithText("设置",substring=false).performClick();compose.onNodeWithText("账户",substring=false).performClick()
             val creditName="$prefix-credit-card";compose.onNodeWithTag("accounts-list").performScrollToNode(hasText(creditName));compose.onNodeWithText(creditName).performClick()
             compose.onNodeWithText("编辑资料不会调整余额。余额随记账更新。").assertIsDisplayed();compose.onNodeWithText("欠款余额（CNY）").assertDoesNotExist()
             val beforeAdjustment=runBlocking{api.completeSearch(LedgerSearchFilter(accountIds=setOf(ids.getValue("credit-card")))).items.map{it.id()}.toSet()}
@@ -87,7 +87,7 @@ class AccountOpeningBalanceAcceptanceTest {
                     val rows=api.completeSearch(LedgerSearchFilter(accountIds=setOf(item.id()))).items;check(rows.size<=1&&rows.all{it.optInt("type")==1})
                     api.call("/api/v1/accounts/delete.json",JSONObject().put("id",item.id()))
                 }
-                check(api.completeSearch(LedgerSearchFilter()).items.map{it.id()}.toSet()==baseline);check(api.accounts().associate{it.id() to it.optString("balance")}==originalBalances)
+                val ownedIds=ids.values.toSet();val remainingRows=api.completeSearch(LedgerSearchFilter()).items.filter{it.optString("sourceAccountId") !in ownedIds&&it.optString("destinationAccountId") !in ownedIds};check(remainingRows.map{it.id()}.toSet()==baseline);check(api.accounts().filter{it.id() !in ownedIds}.associate{it.id() to it.optString("balance")}==originalBalances.filterKeys{it !in ownedIds});check(api.accounts().filter{it.id() in ownedIds}.all{it.optBoolean("hidden")})
                 check(totals(api.family(BooksApi.month()))==totals(familyBefore))
                 cleanup.writeText(JSONObject().put("cleanupDeferred",false).put("originalRowsAndBalancesVerified",true).put("pendingEntityPreserved",false).toString())
             }

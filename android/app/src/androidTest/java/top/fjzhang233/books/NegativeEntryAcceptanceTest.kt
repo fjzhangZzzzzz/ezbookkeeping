@@ -21,7 +21,8 @@ class NegativeEntryAcceptanceTest {
     }
     @Test fun memoOnlyNegativeEditsPersistAndNegativeTransferIsRejected(){
         assumeTrue(BuildConfig.DEBUG&&BuildConfig.API_BASE_URL=="http://127.0.0.1:18090")
-        val plan=JSONObject(File(context.filesDir,"qa-negative-plan.json").readText())
+        val planFile=File(context.filesDir,"qa-negative-plan.json");assumeTrue("Requires private negative-entry fixture",planFile.isFile)
+        val plan=JSONObject(planFile.readText())
         val privateInput=JSONObject(File(context.filesDir,"qa-config.json").readText())
         val vm=ViewModelProvider(compose.activity)[BooksModel::class.java]
         compose.runOnIdle{if(vm.token!=null)vm.logout()};compose.waitUntil(30_000){vm.token==null&&!vm.busy}

@@ -45,12 +45,12 @@ class HiddenCategoryAcceptanceTest {
             waitTag("entry-hidden-original-category")
             compose.onNodeWithText("收入",substring=false).performClick();compose.onNodeWithText("支出",substring=false).performClick();waitTag("entry-hidden-original-category")
             if(selected!=null){
-                compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$selected"));compose.onNodeWithTag("entry-category-$selected").performClick()
+                val selectedParent=api.categories().first{it.id()==selected}.id("parentId");compose.onNodeWithTag("entry-category-$selectedParent").performClick();waitTag("entry-category-$selected");compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$selected"));compose.onNodeWithTag("entry-category-$selected").performClick()
                 hide(selected,true);reload();waitTag("entry-copy-category-required")
                 hide(selected,false);reload();waitTag("entry-copy-category-required")
-                compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$selected"));compose.onNodeWithTag("entry-category-$selected").performClick()
+                compose.onNodeWithTag("entry-category-$selectedParent").performClick();waitTag("entry-category-$selected");compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$selected"));compose.onNodeWithTag("entry-category-$selected").performClick()
                 compose.onNodeWithText("收入",substring=false).performClick();compose.onNodeWithText("支出",substring=false).performClick()
-                compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$selected"));compose.onNodeWithTag("entry-category-$selected").assertIsSelected()
+                compose.onNodeWithTag("entry-category-$selectedParent").performClick();waitTag("entry-category-$selected");compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$selected"));compose.onNodeWithTag("entry-category-$selected").assertIsSelected()
             }
             compose.onNodeWithTag("entry-comment").performTextReplacement(note)
             compose.onNodeWithTag("entry-comment").performImeAction();compose.waitForIdle()
@@ -66,15 +66,15 @@ class HiddenCategoryAcceptanceTest {
             transaction=(api.call("/api/v1/transactions/add.json",body) as JSONObject).id()
             hide(child,true);scenario=ActivityScenario.launch(MainActivity::class.java);waitTag("ledger-list");ready()
             stage="internal-explicit-selection";val system=api.categories().filter{it.optBoolean("familyInternalTransfer") && it.id("parentId")!="0" && !it.optBoolean("hidden")}
-            val internalExpense=system.first{it.optInt("type")==2}.id();val internalIncome=system.first{it.optInt("type")==1}.id()
+            val internalExpense=system.first{it.optInt("type")==2};val internalIncome=system.first{it.optInt("type")==1}
             model{it.newTransaction()};waitTag("entry-categories")
-            compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$internalExpense"));compose.onNodeWithTag("entry-category-$internalExpense").assertIsNotSelected().performClick().assertIsSelected()
-            compose.onNodeWithText("收入",substring=false).performClick();compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$internalIncome"));compose.onNodeWithTag("entry-category-$internalIncome").assertIsNotSelected().performClick().assertIsSelected()
+            compose.onNodeWithTag("entry-category-${internalExpense.id("parentId")}").performClick();compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-${internalExpense.id()}"));compose.onNodeWithTag("entry-category-${internalExpense.id()}").assertIsNotSelected().performClick().assertIsSelected()
+            compose.onNodeWithText("收入",substring=false).performClick();compose.onNodeWithTag("entry-category-${internalIncome.id("parentId")}").performClick();compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-${internalIncome.id()}"));compose.onNodeWithTag("entry-category-${internalIncome.id()}").assertIsNotSelected().performClick().assertIsSelected()
             closeAndWait()
             stage="hidden-child-memo";edit("QA隐藏子编辑-$suffix");assertEquals(child,api.transaction(transaction).id("categoryId"))
             stage="hidden-copy-requires-choice";model{it.copyTransaction(transaction)};compose.waitUntil(45000){var done=false;model{done=!it.busy&&it.showEditor};done}
             waitTag("entry-copy-category-required");compose.onNodeWithText("收入",substring=false).performClick();compose.onNodeWithText("支出",substring=false).performClick();waitTag("entry-copy-category-required");compose.onNodeWithTag("entry-key-保存").performClick();compose.onNodeWithText("请选择账户和分类").assertIsDisplayed()
-            compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$otherChild"));compose.onNodeWithTag("entry-category-$otherChild").performClick()
+            val otherChildParent=api.categories().first{it.id()==otherChild}.id("parentId");compose.onNodeWithTag("entry-category-$otherChildParent").performClick();compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$otherChild"));compose.onNodeWithTag("entry-category-$otherChild").performClick()
             compose.onNodeWithTag("entry-comment").performTextReplacement("QA隐藏复制-$suffix");compose.onNodeWithTag("entry-comment").performImeAction();compose.onNodeWithTag("entry-key-保存").performClick()
             compose.waitUntil(45000){var done=false;model{done=!it.busy&&!it.showEditor};done}
             val copies=(api.call("/api/v1/transactions/list.json?account_ids=$account&count=30&page=1") as JSONObject).array("items").filter{it.optString("comment")=="QA隐藏复制-$suffix"}

@@ -57,14 +57,19 @@ class ReportAcceptanceTest {
         val inputFile=File(context.filesDir,"qa-config.json");assumeTrue(inputFile.isFile);val input=JSONObject(inputFile.readText());var stage="launch"
         try{
             scenario=ActivityScenario.launch(MainActivity::class.java);scenario!!.onActivity{vm=ViewModelProvider(it)[BooksModel::class.java]}
-            if(vm.token==null){scenario!!.onActivity{vm.login(input.getString("username"),input.getString("password"),"")}}
+            scenario!!.onActivity{vm.login(input.getString("username"),input.getString("password"),"")}
             idle()
             val existing=vm.accounts.lastOrNull{it.optString("name").startsWith("统计参照-")};val suffix=existing?.optString("name")?.substringAfterLast("-")?:UUID.randomUUID().toString().take(6);val name="统计参照-$suffix";var account=existing?.id().orEmpty();var usd=vm.accounts.firstOrNull{it.optString("name")=="统计外币-$suffix"}?.id().orEmpty();var food=vm.categories.firstOrNull{it.optString("name")=="统计三餐-$suffix"}?.id().orEmpty();var snack=vm.categories.firstOrNull{it.optString("name")=="统计零食-$suffix"}?.id().orEmpty();var salary=vm.categories.firstOrNull{it.optString("name")=="统计工资-$suffix"}?.id().orEmpty()
             stage="seed-isolated-api"
             if(existing==null)runBlocking{
                 fun base(title:String)=JSONObject().put("name",title).put("icon","1").put("iconType",0).put("color","FF623D").put("comment","").put("clientSessionId",UUID.randomUUID().toString())
                 suspend fun addAccount(title:String,currency:String)=(vm.api.call("/api/v1/accounts/add.json",base(title).put("type",1).put("category",1).put("currency",currency).put("balance","0").put("balanceTime",java.time.Instant.now().epochSecond)) as JSONObject).id()
-                suspend fun addCategory(title:String,type:Int,parent:String)=(vm.api.call("/api/v1/transaction/categories/add.json",base(title).put("type",type).put("parentId",parent).put("hidden",false)) as JSONObject).id()
+                var categoryRevision=(vm.api.call("/api/v1/transaction/categories/revision.json") as JSONObject).getString("revision")
+                suspend fun addCategory(title:String,type:Int,parent:String):String {
+                    val result=vm.api.call("/api/v1/transaction/categories/add.json",base(title).put("type",type).put("parentId",parent).put("hidden",false).put("expectedRevision",categoryRevision)) as JSONObject
+                    categoryRevision=(vm.api.call("/api/v1/transaction/categories/revision.json") as JSONObject).getString("revision")
+                    return result.id()
+                }
                 account=addAccount(name,"CNY");usd=addAccount("统计外币-$suffix","USD")
                 val expenseParent=addCategory("统计支出-$suffix",2,"0");food=addCategory("统计三餐-$suffix",2,expenseParent);snack=addCategory("统计零食-$suffix",2,expenseParent)
                 val incomeParent=addCategory("统计收入-$suffix",1,"0");salary=addCategory("统计工资-$suffix",1,incomeParent)

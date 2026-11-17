@@ -28,6 +28,7 @@ class ThemeAcceptanceTest {
     private fun exists(tag:String)=compose.onAllNodesWithTag(tag,useUnmergedTree=true).fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()
     private fun idle(){compose.waitUntil(45_000){!vm.busy&&vm.token!=null};compose.waitForIdle()}
     private fun back(){inst.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);compose.waitForIdle()}
+    private fun settleUnexpectedEditor(){repeat(80){if(vm.showEditor){compose.onNodeWithContentDescription("取消记账").performClick();idle()};android.os.SystemClock.sleep(250)}}
     private fun capture(name:String){
         compose.waitForIdle();android.os.SystemClock.sleep(250)
         val ui=inst.uiAutomation;val info=ui.serviceInfo;info.flags=info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;ui.serviceInfo=info
@@ -42,9 +43,9 @@ class ThemeAcceptanceTest {
     }
     private fun launch(){
         assumeTrue(BuildConfig.DEBUG&&BuildConfig.API_BASE_URL=="http://127.0.0.1:18090")
-        scenario=ActivityScenario.launch(MainActivity::class.java);scenario!!.onActivity{vm=ViewModelProvider(it)[BooksModel::class.java]}
+        scenario=ActivityScenario.launch(MainActivity::class.java);scenario!!.onActivity{vm=ViewModelProvider(it)[BooksModel::class.java];if(vm.instantEntry)vm.updateInstantEntry(false)}
         if(vm.token==null){val input=JSONObject(File(context.filesDir,"qa-config.json").readText());scenario!!.onActivity{vm.login(input.getString("username"),input.getString("password"),"")}}
-        idle()
+        idle();settleUnexpectedEditor()
     }
     private fun navigate(name:String){
         if(name in setOf("搜索","家庭","设置")){
@@ -63,7 +64,7 @@ class ThemeAcceptanceTest {
         // Empty right edge beside the title, far from text, radios and touch ripples.
         val x=(bounds.right-3).toInt().coerceIn(0,bitmap.width-1);val y=(bounds.top+3).toInt().coerceIn(0,bitmap.height-1)
         val color=bitmap.getPixel(x,y);bitmap.recycle();val r=android.graphics.Color.red(color);val g=android.graphics.Color.green(color);val b=android.graphics.Color.blue(color)
-        if(dark)check(r<65&&g<65&&b<65){"dark_background_missing"}else check(r>220&&g>220&&b>220){"light_background_missing"}
+        if(dark)check(r<65&&g<65&&b<65){"dark_background_missing sample=$color bounds=$bounds"}else check(r>220&&g>220&&b>220){"light_background_missing sample=$color bounds=$bounds"}
     }
     private fun fingerprint():String=runBlocking{
         val accounts=vm.api.accounts().sortedBy{it.id()}.map{org.json.JSONArray(listOf(it.id(),it.optString("currency"),it.optString("balance")))}
@@ -76,13 +77,24 @@ class ThemeAcceptanceTest {
     }
     private fun shellNight(mode:String){check(mode in setOf("yes","no","auto"));android.os.ParcelFileDescriptor.AutoCloseInputStream(inst.uiAutomation.executeShellCommand("cmd uimode night $mode")).use{it.readBytes()};android.os.SystemClock.sleep(350)}
     private fun pages(prefix:String){
+        if(vm.showEditor){compose.onNodeWithContentDescription("取消记账").performClick();idle()}
+        back();idle();settleUnexpectedEditor()
         capture("$prefix-home")
-        val pictured=vm.transactions.firstOrNull{it.array("pictures").isNotEmpty()}?:error("synthetic_picture_fixture_missing")
+        compose.runOnIdle{check(!vm.showEditor){"unexpected_editor_before_picture"}}
+        val pictured=runBlocking{vm.api.completeSearch(LedgerSearchFilter(picturesOnly=true)).items.firstOrNull{it.array("pictures").isNotEmpty()}}?:error("synthetic_picture_fixture_missing")
         val picture=pictured.array("pictures").first();val extension=android.net.Uri.parse(picture.optString("originalUrl")).path?.substringAfterLast('.')?.lowercase();check(extension in setOf("jpg","jpeg","png","webp"))
         val imageSha=runBlocking{sha(vm.api.picture("/api/v1/family/pictures/${picture.id("pictureId")}.$extension"))}
         val imageFile=File(folder,"picture-original-sha.txt");if(imageFile.exists())check(imageFile.readText()==imageSha)else imageFile.writeText(imageSha)
-        compose.onNodeWithTag("ledger-list").performScrollToNode(hasTestTag("transaction-${pictured.id()}"));compose.onNodeWithTag("transaction-${pictured.id()}").performClick()
-        compose.waitUntil(30_000){compose.onAllNodesWithContentDescription("交易图片附件").fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()};capture("$prefix-picture");back()
+        navigate("搜索")
+        val pictureComment=pictured.optString("comment")
+        if(pictureComment.isNotBlank()){
+            compose.onNodeWithTag("search-keyword").performTextClearance()
+            compose.onNodeWithTag("search-keyword").performTextInput(pictureComment)
+            compose.onNodeWithTag("search-keyword").performImeAction()
+        }
+        compose.waitUntil(45_000){compose.onAllNodesWithTag("search-transaction-${pictured.id()}",useUnmergedTree=true).fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()}
+        compose.onNodeWithTag("search-transaction-${pictured.id()}").performScrollTo().performClick()
+        compose.waitUntil(30_000){compose.onAllNodesWithContentDescription("交易图片附件").fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()};capture("$prefix-picture");back();compose.onAllNodesWithContentDescription("返回").filter(hasClickAction()).onLast().performClick();idle()
 
         compose.onNodeWithContentDescription("日历视图").performClick();compose.waitUntil(30_000){exists("calendar-month-card")&&!vm.busy};capture("$prefix-calendar");compose.onNodeWithContentDescription("返回流水").performClick();idle()
         compose.onNodeWithContentDescription("月报表").performClick();compose.waitUntil(30_000){exists("report-list")};capture("$prefix-report");compose.onNodeWithContentDescription("返回").performClick()
@@ -104,7 +116,7 @@ class ThemeAcceptanceTest {
             shellNight("no");compose.waitUntil(5000){context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK==android.content.res.Configuration.UI_MODE_NIGHT_NO};assertBackground(false);capture("system-light")
             stage="persist";compose.onNodeWithTag("theme-light").performClick();assertBackground(false);scenario?.close();scenario=ActivityScenario.launch(MainActivity::class.java);scenario!!.onActivity{vm=ViewModelProvider(it)[BooksModel::class.java]};idle();settings();scenario!!.recreate();idle();compose.onNodeWithTag("theme-light").assertIsSelected();assertBackground(false);capture("light-after-activity-recreate")
             check(fingerprint()==original.getString("stableBusinessSha"));File(folder,"stage1-result.json").writeText(JSONObject().put("passed",true).put("bothThemesActualPages",true).put("systemLightDarkActualCommands",true).put("activityRecreationKeepsLight",true).put("businessUnchanged",true).put("readyForExactPackageColdStart",true).toString())
-        }catch(e:Throwable){runCatching{File(folder,"sanitized-failure-stack.txt").writeText(e.javaClass.name+"\n"+e.stackTrace.joinToString("\n"))};runCatching{capture("90-failure-$stage")};throw AssertionError("Theme synthetic stage=$stage class=${e.javaClass.simpleName}")}
+        }catch(e:Throwable){runCatching{File(folder,"sanitized-failure-stack.txt").writeText(e.javaClass.name+"\n"+(e.message.orEmpty())+"\n"+e.stackTrace.joinToString("\n"))};runCatching{capture("90-failure-$stage")};throw AssertionError("Theme synthetic stage=$stage class=${e.javaClass.simpleName} message=${e.message?.take(120)}")}
         finally{scenario?.close()}
     }
     @Test fun stage2ActualColdStartKeepsSelectionAndRestoresOriginalPreference(){

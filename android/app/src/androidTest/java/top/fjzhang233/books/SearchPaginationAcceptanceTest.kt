@@ -35,7 +35,7 @@ class SearchPaginationAcceptanceTest {
     private fun waitFor(label:String,predicate:()->Boolean){val end=android.os.SystemClock.elapsedRealtime()+if(label.startsWith("main-"))15_000 else 45_000;while(android.os.SystemClock.elapsedRealtime()<end){if(predicate())return;android.os.SystemClock.sleep(400)};throw AssertionError("Search isolated stage timed out: $label")}
     private fun has(text:String)=nodes().any{it.text?.toString()==text}
     private fun tap(label:String){
-        val node=nodes().firstOrNull{it.text?.toString()==label||it.contentDescription?.toString()==label}?:error("Search control missing")
+        val node=nodes().firstOrNull{it.contentDescription?.toString()==label}?:nodes().firstOrNull{it.text?.toString()==label}?:error("Search control missing")
         var target:AccessibilityNodeInfo?=node
         while(target!=null&&!target.isClickable)target=target.parent
         check(target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)==true)
@@ -76,7 +76,8 @@ class SearchPaginationAcceptanceTest {
     private fun summary(plan:JSONObject,name:String){val e=plan.getJSONObject("expected").getJSONObject(name);waitFor("summary-visible-$name"){if(has("搜索汇总"))true else{nodes().firstOrNull{it.isScrollable}?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);false}};waitFor("summary-$name"){has("${e.getInt("count")}笔账单")&&has("CNY · 完整匹配结果")};seek("搜索汇总",false);for(key in listOf("incomeMinor","expenseMinor","balanceMinor")){val v=e.getLong(key);if(v!=0L||key=="balanceMinor")check(has(java.math.BigDecimal.valueOf(v,2).toPlainString()))};check(has("外币未计入 CNY 汇总")==e.getBoolean("foreign"));screenshot(name)}
     @Test fun realPagesAndCombinedFiltersUseEveryMatchingRecord(){
         assumeTrue(BuildConfig.DEBUG&&BuildConfig.API_BASE_URL=="http://127.0.0.1:18090")
-        val plan=JSONObject(File(context.filesDir,"qa-search-pagination.json").readText());val privateInput=JSONObject(File(context.filesDir,"qa-config.json").readText());val marker=plan.getString("marker");var stage="login"
+        val planFile=File(context.filesDir,"qa-search-pagination.json");assumeTrue("Requires private pagination fixture",planFile.isFile)
+        val plan=JSONObject(planFile.readText());val privateInput=JSONObject(File(context.filesDir,"qa-config.json").readText());val marker=plan.getString("marker");var stage="login"
         try{
             activity=ActivityScenario.launch(MainActivity::class.java);model{if(it.token!=null)it.logout()};waitFor("logout"){var done=false;model{done=it.token==null&&!it.busy};done};model{it.login(privateInput.getString("username"),privateInput.getString("password"),"")};waitFor("ready"){var done=false;model{done=it.token!=null&&!it.busy};done}
             stage="main";waitFor("main-surface"){nodes().any{it.contentDescription?.toString()=="打开菜单"}||has("搜索")};if(has("搜索")){instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);nativeIdle()};waitFor("main-menu-stable"){nodes().any{it.contentDescription?.toString()=="打开菜单"}};stage="main-menu-target";tapNative("打开菜单");nativeIdle();waitFor("drawer"){has("搜索")};stage="drawer-search-target";tapNative("搜索");waitFor("search"){has("搜索汇总")};setQuery(marker);summary(plan,"all")
