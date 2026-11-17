@@ -561,6 +561,85 @@ func (s *TransactionService) GetTransactionCount(c core.Context, uid int64, maxT
 	return sess.Count(&models.Transaction{})
 }
 
+// GetTransactionSearchSummary aggregates only the rows matching the same predicates as the search list.
+// It deliberately runs on the server so Android never has to download the complete match set merely to
+// render the first summary card. Transfers and balance adjustments are not income or expense.
+func (s *TransactionService) GetTransactionSearchSummary(c core.Context, uid int64, maxTransactionTime int64, minTransactionTime int64, transactionType models.TransactionType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, noTags bool, amountFilter string, keyword string, matchMode core.MatchMode, mustHavePictures bool) (*models.TransactionSearchSummaryResponse, error) {
+	if uid <= 0 {
+		return nil, errs.ErrUserIdInvalid
+	}
+
+	var transactionDbType models.TransactionDbType
+	var err error
+	if transactionType > 0 {
+		transactionDbType, err = transactionType.ToTransactionDbType()
+		if err != nil {
+			return nil, err
+		}
+	}
+	condition, conditionParams := s.buildTransactionQueryCondition(uid, maxTransactionTime, minTransactionTime, transactionDbType, categoryIds, accountIds, tagFilters, amountFilter, keyword, matchMode, true)
+
+	accounts := make([]*models.Account, 0)
+	if err = s.UserDataDB(uid).NewSession(c).Where("uid=? AND deleted=?", uid, false).Find(&accounts); err != nil {
+		return nil, err
+	}
+	accountCurrency := make(map[int64]string, len(accounts))
+	for _, account := range accounts {
+		accountCurrency[account.AccountId] = account.Currency
+	}
+
+	type summaryRow struct {
+		TransactionId   int64                    `xorm:"transaction_id"`
+		TransactionTime int64                    `xorm:"transaction_time"`
+		Type            models.TransactionDbType `xorm:"type"`
+		AccountId       int64                    `xorm:"account_id"`
+		Amount          int64                    `xorm:"amount"`
+	}
+	var income, expense big.Int
+	var excludedForeign int64
+	var lastTime, lastID int64
+	for {
+		if c != nil && c.Err() != nil {
+			return nil, c.Err()
+		}
+		pageCondition := condition
+		pageParams := append([]any(nil), conditionParams...)
+		if lastID > 0 {
+			pageCondition += " AND (transaction_time < ? OR (transaction_time = ? AND transaction_id < ?))"
+			pageParams = append(pageParams, lastTime, lastTime, lastID)
+		}
+		sess := s.UserDataDB(uid).NewSession(c).Table(&models.Transaction{}).Select("transaction_id, transaction_time, type, account_id, amount").Where(pageCondition, pageParams...)
+		sess = s.appendFilterTagIdsConditionToQuery(sess, uid, maxTransactionTime, minTransactionTime, tagFilters, noTags)
+		sess = s.appendFilterPicturesConditionToQuery(sess, uid, mustHavePictures)
+		rows := make([]*summaryRow, 0, pageCountForLoadTransactionAmounts)
+		if err = sess.OrderBy("transaction_time desc, transaction_id desc").Limit(pageCountForLoadTransactionAmounts).Find(&rows); err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if row.Type != models.TRANSACTION_DB_TYPE_INCOME && row.Type != models.TRANSACTION_DB_TYPE_EXPENSE {
+				continue
+			}
+			if accountCurrency[row.AccountId] != "CNY" {
+				excludedForeign++
+				continue
+			}
+			if row.Type == models.TRANSACTION_DB_TYPE_INCOME {
+				income.Add(&income, big.NewInt(row.Amount))
+			} else {
+				expense.Add(&expense, big.NewInt(row.Amount))
+			}
+		}
+		if len(rows) < pageCountForLoadTransactionAmounts {
+			break
+		}
+		last := rows[len(rows)-1]
+		lastTime, lastID = last.TransactionTime, last.TransactionId
+	}
+
+	net := new(big.Int).Sub(&income, &expense)
+	return &models.TransactionSearchSummaryResponse{IncomeMinor: income.String(), ExpenseMinor: expense.String(), NetMinor: net.String(), ExcludedForeignTransactions: excludedForeign}, nil
+}
+
 // CreateTransaction saves a new transaction to database
 func (s *TransactionService) CreateTransaction(c core.Context, transaction *models.Transaction, tagIds []int64, pictureIds []int64) error {
 	if transaction.Uid <= 0 {
@@ -3172,12 +3251,22 @@ func (s *TransactionService) buildTransactionQueryCondition(uid int64, maxTransa
 	}
 
 	if keyword != "" {
+		pattern := "%%" + keyword + "%%"
+		commentCondition := "comment LIKE ?"
 		if matchMode == core.MATCH_MODE_IGNORE_CASE {
-			condition = condition + " AND LOWER(comment) LIKE LOWER(?)"
-		} else {
-			condition = condition + " AND comment LIKE ?"
+			commentCondition = "LOWER(comment) LIKE LOWER(?)"
 		}
-		conditionParams = append(conditionParams, "%%"+keyword+"%%")
+		// The Android search box follows 钱迹's single-box model: a keyword may
+		// match a note, category name, tag name, or an exact decimal amount.
+		categorySubQuery := "SELECT category_id FROM transaction_category WHERE deleted=? AND (uid=? OR uid=?) AND LOWER(name) LIKE LOWER(?)"
+		tagSubQuery := "SELECT transaction_id FROM transaction_tag_index WHERE uid=? AND deleted=? AND tag_id IN (SELECT tag_id FROM transaction_tag WHERE uid=? AND deleted=? AND LOWER(name) LIKE LOWER(?))"
+		condition = condition + " AND (" + commentCondition + " OR category_id IN (" + categorySubQuery + ") OR transaction_id IN (" + tagSubQuery + ") OR related_id IN (" + tagSubQuery + ")"
+		conditionParams = append(conditionParams, pattern, false, uid, models.SharedDictionaryOwnerUID, pattern, uid, false, uid, false, pattern, uid, false, uid, false, pattern)
+		if amount, err := utils.ParseAmount(keyword); err == nil {
+			condition += " OR amount=?"
+			conditionParams = append(conditionParams, amount)
+		}
+		condition += ")"
 	}
 
 	return condition, conditionParams

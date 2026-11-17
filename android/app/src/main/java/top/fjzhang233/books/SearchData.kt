@@ -23,16 +23,17 @@ internal data class LedgerSearchFilter(
     val picturesOnly:Boolean=false,
     val ignoreCase:Boolean=true,
 ) {
-    fun query(page:Int):String {
+    fun query(page:Int=1,maxTime:Long?=null,withCount:Boolean=true):String {
         require(page>0&&type in 0..4&&tagMode in 0..3)
         require(keyword.length<=255){"搜索内容最多255字"}
         require((accountIds+categoryIds+tagIds).all{Regex("[0-9]+").matches(it)}){"筛选项目无效，请重新选择"}
         val first=firstDate?.let(LocalDate::parse);val last=lastDate?.let(LocalDate::parse)
         require(first==null||last==null||!last.isBefore(first)){"结束日期不能早于开始日期"}
-        val params=linkedMapOf("count" to SEARCH_PAGE_SIZE.toString(),"page" to page.toString(),"with_count" to "true","with_pictures" to "true","type" to type.toString(),"keyword" to keyword.trim(),"match_mode" to if(ignoreCase)"1" else "0")
+        val params=linkedMapOf("count" to SEARCH_PAGE_SIZE.toString(),"page" to page.toString(),"with_count" to withCount.toString(),"with_pictures" to "true","type" to type.toString(),"keyword" to keyword.trim(),"match_mode" to if(ignoreCase)"1" else "0")
         val zone=ZoneId.of("Asia/Shanghai")
         first?.let{params["min_time"]=it.atStartOfDay(zone).toInstant().toEpochMilli().toString()}
-        last?.let{params["max_time"]=Math.subtractExact(it.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),1).toString()}
+        val dateMax=last?.let{Math.subtractExact(it.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),1)}
+        listOfNotNull(dateMax,maxTime).minOrNull()?.let{params["max_time"]=it.toString()}
         if(accountIds.isNotEmpty())params["account_ids"]=accountIds.sorted().joinToString(",")
         if(categoryIds.isNotEmpty())params["category_ids"]=categoryIds.sorted().joinToString(",")
         if(tagIds.isNotEmpty())params["tag_filter"]="$tagMode:"+tagIds.sorted().joinToString(",")
@@ -58,12 +59,33 @@ internal fun searchMinor(value:String):Long {
     require(Regex("-?(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,2})?").matches(value.trim())){"请输入有效金额，最多两位小数"}
     return BigDecimal(value.trim()).movePointRight(2).longValueExact()
 }
-internal data class LedgerSearchResult(val items:List<JSONObject>,val total:Long) {
+internal data class LedgerSearchResult(val items:List<JSONObject>,val total:Long,val nextTimeSequenceId:Long?=null) {
     fun hasMore(page:Int):Boolean=page.toLong()*SEARCH_PAGE_SIZE<total
 }
+/** The API's max_time bound is inclusive; the returned cursor is the extra row after this page. */
+internal fun searchNextMaxTime(cursor:Long):Long= Math.decrementExact(cursor)
 internal suspend fun BooksApi.search(filter:LedgerSearchFilter,page:Int):LedgerSearchResult {
-    val response=call("/api/v1/transactions/list.json?"+filter.query(page)) as JSONObject
-    return LedgerSearchResult(response.array("items"),response.getLong("totalCount"))
+    return search(filter,page,null,true)
+}
+internal suspend fun BooksApi.search(filter:LedgerSearchFilter,page:Int,cursor:Long?,withCount:Boolean):LedgerSearchResult {
+    val response=call("/api/v1/transactions/list.json?"+filter.query(page,cursor,withCount)) as JSONObject
+    return LedgerSearchResult(response.array("items"),response.optLong("totalCount",-1),response.optString("nextTimeSequenceId").toLongOrNull())
+}
+
+internal data class LedgerSearchSummary(val total:Long,val amounts:CalendarAmounts,val excludedForeign:Boolean)
+internal data class LedgerSearchCache(
+    val filterJson:String,
+    val items:List<JSONObject>,
+    val total:Long,
+    val summary:LedgerSearchSummary?,
+    val nextTimeSequenceId:Long?,
+    val storedAt:Long,
+)
+internal suspend fun BooksApi.searchSummary(filter:LedgerSearchFilter):LedgerSearchSummary {
+    val response=call("/api/v1/transactions/search/summary.json?"+filter.query(1,null,true)) as JSONObject
+    val income=response.optString("incomeMinor","0").toBigInteger()
+    val expense=response.optString("expenseMinor","0").toBigInteger()
+    return LedgerSearchSummary(response.optLong("totalCount",0),CalendarAmounts(income,expense),response.optLong("excludedForeignTransactions",0)>0)
 }
 
 /** A bounded complete result, never a first-page financial summary. */

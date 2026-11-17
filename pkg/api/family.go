@@ -78,7 +78,10 @@ func buildFamilyCSV(overview *models.FamilyOverview) ([]byte, error) {
 		rows = append(rows, []string{overview.Month, overview.Timezone, overview.Currency, "成员", familyCSVText(member.Nickname), member.IncomeMinor, member.ExpenseMinor, member.NetMinor})
 	}
 	for _, category := range overview.Categories {
-		rows = append(rows, []string{overview.Month, overview.Timezone, overview.Currency, "支出分类", familyCSVText(category.Name), "", category.ExpenseMinor, ""})
+		rows = append(rows, []string{overview.Month, overview.Timezone, overview.Currency, "分类", familyCSVText(category.Name), category.IncomeMinor, category.ExpenseMinor, ""})
+	}
+	for _, day := range overview.Daily {
+		rows = append(rows, []string{overview.Month, overview.Timezone, overview.Currency, "每日", day.Date, day.IncomeMinor, day.ExpenseMinor, day.NetMinor})
 	}
 	for _, month := range overview.Trend {
 		rows = append(rows, []string{month.Month, overview.Timezone, overview.Currency, "月度趋势", month.Month, month.IncomeMinor, month.ExpenseMinor, month.NetMinor})

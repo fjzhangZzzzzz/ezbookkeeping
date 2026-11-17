@@ -41,6 +41,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -57,24 +58,35 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
 /** Own transactions only. Shared family records keep their separate read-only view. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun LedgerSearch(vm:BooksModel,dismiss:()->Unit,detail:@Composable (JSONObject,()->Unit)->Unit) {
-    var savedFilter by rememberSaveable{mutableStateOf(LedgerSearchFilter().toJson())}
+    val cached=vm.searchCache
+    var savedFilter by rememberSaveable{mutableStateOf(cached?.filterJson?:LedgerSearchFilter().toJson())}
     val filter=remember(savedFilter){LedgerSearchFilter.fromJson(savedFilter)}
     var keyword by rememberSaveable{mutableStateOf(filter.keyword)}
     var panel by rememberSaveable{mutableStateOf<String?>(null)}
     var group by rememberSaveable{mutableStateOf("day")}
     var ascending by rememberSaveable{mutableStateOf(false)}
-    var snapshot by remember{mutableStateOf<LedgerSearchSnapshot?>(null)}
+    var items by remember{mutableStateOf(cached?.items.orEmpty())}
+    var total by remember{mutableStateOf(cached?.total?:-1L)}
+    var summary by remember{mutableStateOf(cached?.summary)}
+    var nextTimeSequenceId by remember{mutableStateOf(cached?.nextTimeSequenceId)}
     var loading by remember{mutableStateOf(false)}
+    var loadingMore by remember{mutableStateOf(false)}
     var problem by remember{mutableStateOf("")}
     var selected by remember{mutableStateOf<JSONObject?>(null)}
     val scope=rememberCoroutineScope();val focus=LocalFocusManager.current
+    fun saveCache(currentFilter:LedgerSearchFilter){vm.searchCache=LedgerSearchCache(currentFilter.toJson(),items,total,summary,nextTimeSequenceId,System.currentTimeMillis())}
     fun runSearch(next:LedgerSearchFilter=filter) {
         if(loading)return
         focus.clearFocus();panel=null
         runCatching{next.query(1)}.onFailure{problem=it.message?:"请检查筛选条件"}.onSuccess{
-            savedFilter=next.toJson();keyword=next.keyword;loading=true;problem="";snapshot=null
+            savedFilter=next.toJson();keyword=next.keyword;loading=true;problem="";items=emptyList();summary=null;nextTimeSequenceId=null
             scope.launch{
-                try { snapshot=withContext(Dispatchers.Default){vm.api.completeSearch(next)} }
+                try {
+                    val first=async(Dispatchers.IO){vm.api.search(next,1,null,false)}
+                    val aggregate=async(Dispatchers.IO){vm.api.searchSummary(next)}
+                    val page=first.await();val totals=aggregate.await()
+                    items=page.items;total=totals.total;summary=totals;nextTimeSequenceId=page.nextTimeSequenceId;saveCache(next)
+                }
                 catch(e:CancellationException){throw e}
                 catch(e:ApiFailure){problem=e.message?:"搜索未完成";if(e.sessionExpired)vm.act{throw e}}
                 catch(e:IllegalArgumentException){problem=e.message?:"请检查筛选条件"}
@@ -83,14 +95,25 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
             }
         }
     }
-    LaunchedEffect(vm.showEditor){if(!vm.showEditor)runSearch()}
-    val rows=remember(snapshot,ascending){snapshot?.items.orEmpty().sortedWith(if(ascending)compareBy<JSONObject>{it.optLong("time")}.thenBy{it.id()}else compareByDescending<JSONObject>{it.optLong("time")}.thenByDescending{it.id()})}
+    fun loadMore(){
+        val cursor=nextTimeSequenceId?:return
+        if(loading||loadingMore)return
+        loadingMore=true;problem=""
+        scope.launch{
+            try{
+                val page=withContext(Dispatchers.IO){vm.api.search(filter,1,searchNextMaxTime(cursor),false)}
+                val known=items.mapTo(HashSet()){it.id()};items=items+page.items.filter{known.add(it.id())};nextTimeSequenceId=page.nextTimeSequenceId;saveCache(filter)
+            }catch(e:CancellationException){throw e}catch(e:Exception){problem=e.message?:"加载更多失败，请重试"}finally{loadingMore=false}
+        }
+    }
+    LaunchedEffect(Unit){if(cached==null||System.currentTimeMillis()-cached.storedAt>5*60_000)runSearch()}
+    LaunchedEffect(vm.showEditor){if(!vm.showEditor&&items.isNotEmpty())runSearch()}
+    val rows=remember(items,ascending){items.sortedWith(if(ascending)compareBy<JSONObject>{it.optLong("time")}.thenBy{it.id()}else compareByDescending<JSONObject>{it.optLong("time")}.thenByDescending{it.id()})}
     val groups=remember(rows,group){rows.groupBy{when(group){"none"->"";"month"->YearMonth.from(searchRowDay(it)).toString();else->searchRowDay(it).toString()}}}
-    Dialog(onDismissRequest={if(panel!=null)panel=null else dismiss()},properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
-        Surface(Modifier.fillMaxSize(),color=ledgerColors.background,contentColor=ledgerColors.text){
-            BackHandler{if(panel!=null)panel=null else dismiss()}
-            Column(Modifier.fillMaxSize().systemBarsPadding()){
-                Row(Modifier.fillMaxWidth().heightIn(min=56.dp),verticalAlignment=Alignment.CenterVertically){IconButton(onClick=dismiss){Icon(Icons.Outlined.ArrowBack,"返回")};Text("搜索账单",Modifier.padding(start=8.dp),fontWeight=FontWeight.Bold,fontSize=20.sp)}
+    Surface(Modifier.fillMaxSize(),color=ledgerColors.background,contentColor=ledgerColors.text){
+        BackHandler{if(panel!=null)panel=null else dismiss()}
+        Column(Modifier.fillMaxSize().systemBarsPadding()){
+                Row(Modifier.fillMaxWidth().heightIn(min=56.dp),verticalAlignment=Alignment.CenterVertically){IconButton(onClick=dismiss){Icon(Icons.Outlined.ArrowBack,"返回")};Text("搜索",Modifier.padding(start=8.dp),fontWeight=FontWeight.Bold,fontSize=20.sp)}
                 Row(Modifier.fillMaxWidth()){
                     SearchDrop(searchDateLabel(filter),panel=="date",Modifier.weight(1f)){panel=if(panel=="date")null else "date"}
                     SearchDrop(if(filter.accountIds.isEmpty())"全部账户" else "${filter.accountIds.size}个账户",panel=="accounts",Modifier.weight(1f)){panel=if(panel=="accounts")null else "accounts"}
@@ -99,14 +122,15 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
                 Box(Modifier.weight(1f).fillMaxWidth()){
                     LazyColumn(Modifier.fillMaxSize().then(if(panel!=null)Modifier.clearAndSetSemantics{} else Modifier).testTag("search-results"),contentPadding=PaddingValues(start=12.dp,end=12.dp,top=12.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(0.dp)){
                         item{
-                            BasicTextField(keyword,{keyword=it},singleLine=true,textStyle=TextStyle(color=ledgerColors.text,fontSize=14.sp),cursorBrush=SolidColor(searchBlue),keyboardOptions=KeyboardOptions(imeAction=ImeAction.Search),keyboardActions=KeyboardActions(onSearch={runSearch(filter.copy(keyword=keyword))}),modifier=Modifier.fillMaxWidth().testTag("search-keyword"),decorationBox={field->Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clip(RoundedCornerShape(8.dp)).background(searchSurface),verticalAlignment=Alignment.CenterVertically){IconButton(onClick={runSearch(filter.copy(keyword=keyword))},enabled=!loading){Icon(Icons.Outlined.Search,"搜索")};Box(Modifier.weight(1f)){if(keyword.isEmpty())Text("搜索备注",fontSize=14.sp,color=searchMuted);field()};if(keyword.isNotEmpty())IconButton(onClick={keyword="";runSearch(filter.copy(keyword=""))},enabled=!loading){Icon(Icons.Outlined.Close,"清除搜索")}}})
+                        BasicTextField(keyword,{keyword=it},singleLine=true,textStyle=TextStyle(color=ledgerColors.text,fontSize=14.sp),cursorBrush=SolidColor(searchBlue),keyboardOptions=KeyboardOptions(imeAction=ImeAction.Search),keyboardActions=KeyboardActions(onSearch={runSearch(filter.copy(keyword=keyword))}),modifier=Modifier.fillMaxWidth().testTag("search-keyword"),decorationBox={field->Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clip(RoundedCornerShape(8.dp)).background(searchSurface),verticalAlignment=Alignment.CenterVertically){IconButton(onClick={runSearch(filter.copy(keyword=keyword))},enabled=!loading){Icon(Icons.Outlined.Search,"搜索")};Box(Modifier.weight(1f)){if(keyword.isEmpty())Text("搜索：分类、备注、标签、金额",fontSize=14.sp,color=searchMuted);field()};if(keyword.isNotEmpty())IconButton(onClick={keyword="";runSearch(filter.copy(keyword=""))},enabled=!loading){Icon(Icons.Outlined.Close,"清除搜索")}}})
                         }
 
-                        if(loading)item{Row(Modifier.fillMaxWidth().padding(24.dp),horizontalArrangement=Arrangement.Center){CircularProgressIndicator(Modifier.size(24.dp));Text("搜索中…",Modifier.padding(start=12.dp))}}
+                        if(loading&&items.isEmpty())item{Row(Modifier.fillMaxWidth().padding(24.dp),horizontalArrangement=Arrangement.Center){CircularProgressIndicator(Modifier.size(24.dp));Text("搜索中…",Modifier.padding(start=12.dp))}}
+                        if(loading&&items.isNotEmpty())item{Text("正在更新搜索结果…",Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp),fontSize=12.sp,color=searchMuted)}
                         if(problem.isNotBlank())item{Column{Text(problem,color=searchRed);TextButton(onClick={runSearch(filter.copy(keyword=keyword))},enabled=!loading){Text("重试")}}}
-                        snapshot?.let{result->
+                        summary?.let{result->
                             item{Spacer(Modifier.height(12.dp));Surface(color=searchSurface,shape=RoundedCornerShape(8.dp)){Column(Modifier.fillMaxWidth().padding(12.dp)){
-                                Row(verticalAlignment=Alignment.CenterVertically){Text("搜索汇总",Modifier.weight(1f),fontWeight=FontWeight.Bold,fontSize=16.sp);Text("${result.items.size}笔账单",fontSize=12.sp);IconButton(onClick={ascending=!ascending}){Icon(if(ascending)Icons.Outlined.ArrowUpward else Icons.Outlined.ArrowDownward,if(ascending)"时间升序，点击改降序" else "时间降序，点击改升序",Modifier.size(18.dp))}}
+                                Row(verticalAlignment=Alignment.CenterVertically){Text("搜索汇总",Modifier.weight(1f),fontWeight=FontWeight.Bold,fontSize=16.sp);Text("${total.coerceAtLeast(0)}笔账单",fontSize=12.sp);IconButton(onClick={ascending=!ascending}){Icon(if(ascending)Icons.Outlined.ArrowUpward else Icons.Outlined.ArrowDownward,if(ascending)"时间升序，点击改降序" else "时间降序，点击改升序",Modifier.size(18.dp))}}
                                 Row(Modifier.fillMaxWidth().padding(top=12.dp),horizontalArrangement=Arrangement.spacedBy(16.dp)){
                                     if(result.amounts.expense.signum()!=0)SearchAmount("支出",result.amounts.expense.toString(),searchRed,Modifier.weight(1f))
                                     if(result.amounts.income.signum()!=0)SearchAmount("收入",result.amounts.income.toString(),searchGreen,Modifier.weight(1f))
@@ -115,7 +139,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
                                 Text("CNY · 完整匹配结果",Modifier.padding(top=10.dp),fontSize=11.sp,color=searchMuted)
                                 if(result.excludedForeign)Text("外币未计入 CNY 汇总",Modifier.padding(top=6.dp),fontSize=11.sp,color=searchMuted)
                             }}}
-                            if(result.items.isEmpty())item{Text("暂无匹配账单",Modifier.fillMaxWidth().padding(32.dp),color=searchMuted)}
+                            if(items.isEmpty())item{Text("暂无匹配账单",Modifier.fillMaxWidth().padding(32.dp),color=searchMuted)}
                             groups.forEach{(date,dayRows)->
                                 if(date.isNotBlank())item(key="heading-$date"){
                                     val amount=remember(dayRows){LedgerSearchSnapshot(dayRows).amounts}
@@ -124,16 +148,16 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
                                 itemsIndexed(dayRows,key={_,row->row.id()}){index,row->SearchTransactionRow(row,index==0,index==dayRows.lastIndex){selected=row}}
                             }
                         }
+                        if(nextTimeSequenceId!=null)item{TextButton(onClick=::loadMore,enabled=!loadingMore,modifier=Modifier.fillMaxWidth()){Text(if(loadingMore)"加载中…" else "加载更多")}}
                     }
                     if(panel!=null){
                         Box(Modifier.fillMaxSize().background(ledgerColors.background.copy(alpha=0.6f)).clickable{panel=null})
                         SearchFilterPanel(vm,filter.copy(keyword=keyword),panel!!,group,{group=it},{panel=null},{runSearch(it)})
                     }
                 }
-            }
         }
-        selected?.let{item->detail(item){selected=null;runSearch()}}
     }
+    selected?.let{item->detail(item){selected=null;runSearch()}}
 }
 @Composable private fun SearchAmount(label:String,amount:String,color:Color,modifier:Modifier){Column(modifier){Text(label,fontSize=12.sp,color=searchMuted);Text(money(amount),Modifier.padding(top=6.dp),fontSize=20.sp,color=color,maxLines=1,overflow=TextOverflow.Ellipsis)}}
 @Composable private fun SearchDrop(label:String,active:Boolean,modifier:Modifier,onClick:()->Unit){Row(modifier.heightIn(min=48.dp).clickable(role=Role.Button,onClick=onClick).padding(horizontal=8.dp),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){Text(label,fontSize=14.sp,color=if(active)searchBlue else ledgerColors.text,maxLines=1,overflow=TextOverflow.Ellipsis);Icon(if(active)Icons.Outlined.ArrowDropUp else Icons.Outlined.ArrowDropDown,null,Modifier.size(18.dp),tint=searchMuted)}}

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"xorm.io/xorm/schemas"
+
 	"github.com/mayswind/ezbookkeeping/pkg/core"
 	"github.com/mayswind/ezbookkeeping/pkg/errs"
 	"github.com/mayswind/ezbookkeeping/pkg/utils"
@@ -148,6 +150,16 @@ type Transaction struct {
 	CreatedUnixTime          int64
 	UpdatedUnixTime          int64
 	DeletedUnixTime          int64
+}
+
+// TableIndices adds a covering index for family aggregation. The query filters
+// by uid/deleted/time and then only reads the remaining projected columns, so
+// keeping type/category/account/amount in the same index avoids a table lookup
+// for every transaction in a family range.
+func (*Transaction) TableIndices() []*schemas.Index {
+	index := schemas.NewIndex("IDX_transaction_uid_deleted_time_family", schemas.IndexType)
+	index.AddColumn("uid", "deleted", "transaction_time", "type", "category_id", "account_id", "amount")
+	return []*schemas.Index{index}
 }
 
 // TransactionWithAccountBalance represents a transaction item with account balance
@@ -453,6 +465,16 @@ type TransactionInfoResponse struct {
 // TransactionCountResponse represents transaction count response
 type TransactionCountResponse struct {
 	TotalCount int64 `json:"totalCount"`
+}
+
+// TransactionSearchSummaryResponse is the bounded aggregate returned alongside a search's first page.
+// Amounts are decimal strings because a search can span many years and must not lose integer precision.
+type TransactionSearchSummaryResponse struct {
+	TotalCount                  int64  `json:"totalCount"`
+	IncomeMinor                 string `json:"incomeMinor"`
+	ExpenseMinor                string `json:"expenseMinor"`
+	NetMinor                    string `json:"netMinor"`
+	ExcludedForeignTransactions int64  `json:"excludedForeignTransactions"`
 }
 
 // TransactionInfoPageWrapperResponse represents a response of transaction which contains items and next id

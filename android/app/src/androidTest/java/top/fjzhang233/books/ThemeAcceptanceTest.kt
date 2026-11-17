@@ -46,8 +46,16 @@ class ThemeAcceptanceTest {
         if(vm.token==null){val input=JSONObject(File(context.filesDir,"qa-config.json").readText());scenario!!.onActivity{vm.login(input.getString("username"),input.getString("password"),"")}}
         idle()
     }
-    private fun navigate(name:String){if(compose.onAllNodesWithContentDescription("打开菜单").fetchSemanticsNodes(atLeastOneRootRequired=false).isEmpty()){compose.onNodeWithContentDescription("返回",useUnmergedTree=true).performClick();compose.waitForIdle()};compose.onNodeWithContentDescription("打开菜单").performClick();compose.onNodeWithTag("nav-$name").performClick();compose.waitForIdle();idle()}
-    private fun settings(){navigate("我的");compose.onNodeWithTag("theme-settings").assertExists()}
+    private fun navigate(name:String){
+        if(name in setOf("搜索","家庭","设置")){
+            if(compose.onAllNodesWithContentDescription("打开菜单").fetchSemanticsNodes(atLeastOneRootRequired=false).isEmpty()){compose.onNodeWithContentDescription("返回",useUnmergedTree=true).performClick();compose.waitForIdle()}
+            compose.onNodeWithContentDescription("打开菜单").performClick();compose.onNodeWithTag("nav-$name").performClick()
+        } else {
+            navigate("设置");compose.onNodeWithText(name).performClick()
+        }
+        compose.waitForIdle();idle()
+    }
+    private fun settings(){navigate("设置");compose.onNodeWithTag("theme-settings").assertExists()}
     private fun assertBackground(dark:Boolean){
         compose.waitForIdle();android.os.SystemClock.sleep(250)
         val bitmap=inst.uiAutomation.takeScreenshot()?:error("screenshot_missing")
@@ -68,7 +76,7 @@ class ThemeAcceptanceTest {
     }
     private fun shellNight(mode:String){check(mode in setOf("yes","no","auto"));android.os.ParcelFileDescriptor.AutoCloseInputStream(inst.uiAutomation.executeShellCommand("cmd uimode night $mode")).use{it.readBytes()};android.os.SystemClock.sleep(350)}
     private fun pages(prefix:String){
-        navigate("流水");capture("$prefix-home")
+        capture("$prefix-home")
         val pictured=vm.transactions.firstOrNull{it.array("pictures").isNotEmpty()}?:error("synthetic_picture_fixture_missing")
         val picture=pictured.array("pictures").first();val extension=android.net.Uri.parse(picture.optString("originalUrl")).path?.substringAfterLast('.')?.lowercase();check(extension in setOf("jpg","jpeg","png","webp"))
         val imageSha=runBlocking{sha(vm.api.picture("/api/v1/family/pictures/${picture.id("pictureId")}.$extension"))}
@@ -78,13 +86,13 @@ class ThemeAcceptanceTest {
 
         compose.onNodeWithContentDescription("日历视图").performClick();compose.waitUntil(30_000){exists("calendar-month-card")&&!vm.busy};capture("$prefix-calendar");compose.onNodeWithContentDescription("返回流水").performClick();idle()
         compose.onNodeWithContentDescription("月报表").performClick();compose.waitUntil(30_000){exists("report-list")};capture("$prefix-report");compose.onNodeWithContentDescription("返回").performClick()
-        navigate("搜索账单");compose.waitUntil(45_000){compose.onAllNodesWithText("CNY · 完整匹配结果").fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()};capture("$prefix-search");back()
+        navigate("搜索");compose.waitUntil(45_000){compose.onAllNodesWithText("CNY · 完整匹配结果").fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()};capture("$prefix-search");back()
         compose.onNodeWithTag("add-transaction").performClick();compose.waitUntil(5000){exists("entry-categories")};capture("$prefix-entry")
         compose.onNodeWithTag("entry-account").performClick();capture("$prefix-account-picker");back()
         compose.onNodeWithTag("entry-date").performClick();capture("$prefix-date")
         compose.onNodeWithTag("entry-date-switch-time").performClick();compose.waitUntil(5000){exists("entry-date-clock")};capture("$prefix-clock");compose.onNodeWithTag("entry-date-cancel").performClick()
         compose.onNode(hasText("#") and hasClickAction()).performClick();capture("$prefix-tags");back();compose.onNodeWithContentDescription("取消记账").performClick();idle()
-        for(name in listOf("账户","家庭","分类与标签","登录设备","关于与更新")){navigate(name);capture("$prefix-"+when(name){"账户"->"accounts";"家庭"->"family";"分类与标签"->"catalog";"登录设备"->"sessions";else->"about"})}
+        for(name in listOf("账户","家庭","分类与标签","登录设备","关于")){navigate(name);capture("$prefix-"+when(name){"账户"->"accounts";"家庭"->"family";"分类与标签"->"catalog";"登录设备"->"sessions";else->"about"});back()}
     }
     @Test fun stage1ActualThemeSwitchSystemAndReadOnlyPages(){
         var stage="launch"
@@ -102,7 +110,7 @@ class ThemeAcceptanceTest {
     @Test fun stage2ActualColdStartKeepsSelectionAndRestoresOriginalPreference(){
         var stage="cold-launch"
         try{launch();val original=JSONObject(File(folder,"original.json").readText());val prefs=context.getSharedPreferences("appearance",0);check(prefs.getString("theme",null)=="light");settings();compose.onNodeWithTag("theme-light").assertIsSelected();assertBackground(false);capture("light-after-real-cold-start");check(fingerprint()==original.getString("stableBusinessSha"))
-            stage="restore";check((if(original.getBoolean("themePresent"))prefs.edit().putString("theme",original.getString("theme"))else prefs.edit().remove("theme")).commit());shellNight(when(original.getInt("night")){0->"auto";1->"no";else->"yes"});navigate("流水")
+            stage="restore";check((if(original.getBoolean("themePresent"))prefs.edit().putString("theme",original.getString("theme"))else prefs.edit().remove("theme")).commit());shellNight(when(original.getInt("night")){0->"auto";1->"no";else->"yes"});back()
             File(folder,"stage2-result.json").writeText(JSONObject().put("passed",true).put("lightPreferenceRetainedAcrossRealColdStart",true).put("originalPreferenceAndSystemModeRestored",true).put("businessUnchanged",true).toString())
         }catch(e:Throwable){throw AssertionError("Theme synthetic stage=$stage class=${e.javaClass.simpleName}")}
         finally{scenario?.close()}

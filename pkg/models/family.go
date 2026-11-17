@@ -16,7 +16,13 @@ type FamilyMemberSummary struct {
 type FamilyCategorySummary struct {
 	Id           int64  `json:"id,string"`
 	Name         string `json:"name"`
+	IncomeMinor  string `json:"incomeMinor"`
 	ExpenseMinor string `json:"expenseMinor"`
+}
+
+type FamilyDaySummary struct {
+	Date string `json:"date"`
+	FamilyAmounts
 }
 
 type FamilyMonthSummary struct {
@@ -41,6 +47,7 @@ type FamilyOverview struct {
 	Totals                      FamilyAmounts           `json:"totals"`
 	Members                     []FamilyMemberSummary   `json:"members"`
 	Categories                  []FamilyCategorySummary `json:"categories"`
+	Daily                       []FamilyDaySummary      `json:"daily"`
 	Trend                       []FamilyMonthSummary    `json:"trend"`
 	Accounts                    []FamilyAccount         `json:"accounts"`
 	HasExcludedForeignCurrency  bool                    `json:"hasExcludedForeignCurrency"`

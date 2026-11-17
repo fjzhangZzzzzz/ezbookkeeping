@@ -29,6 +29,7 @@ internal suspend fun commitThenRefresh(commit: suspend () -> Unit, afterCommit: 
 
 class BooksModel(app: Application) : AndroidViewModel(app) {
     private val store = TokenStore(app)
+    private val preferences = app.getSharedPreferences("family-books-preferences-v1", 0)
     var token by mutableStateOf(store.read()); private set
     val api = BooksApi(BuildConfig.API_BASE_URL) { token }
     var busy by mutableStateOf(false); private set
@@ -64,10 +65,14 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var familyItems by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var sessions by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var month by mutableStateOf(BooksApi.month()); private set
+    var familyMemberId by mutableStateOf("0"); private set
     var ledgerMonth by mutableStateOf(BooksApi.month()); private set
     var dailyAmounts by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var weeklyAmounts by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var ledgerDay by mutableStateOf<String?>(null); private set
+    internal var searchCache by mutableStateOf<LedgerSearchCache?>(null)
+    var instantEntry by mutableStateOf(preferences.getBoolean("instant_entry", false)); private set
+    private var initialLoadHandled = false
     var editTransaction by mutableStateOf<JSONObject?>(null)
     var showEditor by mutableStateOf(false)
     var newTransactionDay by mutableStateOf<String?>(null); private set
@@ -236,6 +241,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         refreshAt = System.currentTimeMillis()
     }
     private suspend fun loadAll() {
+        searchCache = null
         if(entityWrites.blocked)entityWrites.invalidateIdentity()
         refreshSession()
         accounts = api.accounts()
@@ -254,15 +260,18 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         page = 1; val listed=api.ledgerPage(page,ledgerMonth,ledgerDay);transactions=listed.items;hasMoreTransactions=listed.hasMore;dailyAmounts=api.dailyAmounts(ledgerMonth)
         val today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));weeklyAmounts=api.dailyRange(BooksApi.dayBounds(today.minusDays(6).toString()).first,BooksApi.dayBounds(today.toString()).second)
         family = api.family(month)
-        val result = api.familyTransactions(month); familyItems = result.array("items"); familyCursor = result.optString("nextCursor")
+        val result = api.familyTransactions(month, memberId=familyMemberId); familyItems = result.array("items"); familyCursor = result.optString("nextCursor")
         if(accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation){
             transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
         }
+        if(!initialLoadHandled && instantEntry && accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation) showEditor=true
+        initialLoadHandled=true
         pendingCheckReady=accounts.isNotEmpty()
         if(entityWrites.blocked)entityWrites.refresh()
     }
     fun dismissFeedback(value:String){if(error==value)error="";if(notice==value)notice=""}
     fun reload() = act { loadAll() }
+    fun updateInstantEntry(enabled:Boolean){instantEntry=enabled;preferences.edit().putBoolean("instant_entry",enabled).apply()}
     fun resume() { if (token != null && !busy) act { refreshSession(); loadCategories() } }
     fun loadMore() = act {if(!hasMoreTransactions)return@act;val result=api.ledgerPage(page+1,ledgerMonth,ledgerDay);hasMoreTransactions=result.hasMore;if(result.items.isNotEmpty()){page++;transactions=(transactions+result.items).distinctBy{it.id()}}}
     fun changeLedgerMonth(value:String)=act {
@@ -277,11 +286,16 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun changeMonth(value: String) = act {
         require(runCatching { java.time.YearMonth.parse(value) }.isSuccess) { "请输入 YYYY-MM 格式月份" }
         month = value; family = api.family(value)
-        val result = api.familyTransactions(value); familyItems = result.array("items"); familyCursor = result.optString("nextCursor")
+        val result = api.familyTransactions(value, memberId=familyMemberId); familyItems = result.array("items"); familyCursor = result.optString("nextCursor")
+    }
+    fun changeFamilyMember(value:String) = act {
+        require(value == "0" || Regex("[1-9][0-9]*").matches(value)) { "成员筛选无效" }
+        familyMemberId=value
+        val result=api.familyTransactions(month,memberId=value);familyItems=result.array("items");familyCursor=result.optString("nextCursor")
     }
     fun moreFamily() = act {
         if (familyCursor.isEmpty()) { notice = "已显示全部家庭流水"; return@act }
-        val result = api.familyTransactions(month, familyCursor); familyItems = familyItems + result.array("items"); familyCursor = result.optString("nextCursor")
+        val result = api.familyTransactions(month, familyCursor, familyMemberId); familyItems = familyItems + result.array("items"); familyCursor = result.optString("nextCursor")
     }
     fun openTransaction(id: String) = act {
         require(pendingCheckReady){"请先刷新账本，核对未完成的保存"}
@@ -430,7 +444,8 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         transactionSubmission.detachForLogout()
         clearTransactionDraft()
         store.clear(); token = null; refreshAt = 0; defaultAccountId = ""; accounts = emptyList(); categories = emptyList(); categoryRevision = null; tags = emptyList()
-        tagGroups = emptyList(); transactions = emptyList(); familyItems = emptyList(); family = JSONObject(); sessions = emptyList()
+        tagGroups = emptyList(); transactions = emptyList(); familyItems = emptyList(); family = JSONObject(); sessions = emptyList(); familyMemberId = "0"
+        searchCache = null
         hasMoreTransactions=false;dailyAmounts=emptyList();weeklyAmounts=emptyList();ledgerDay=null;newTransactionDay=null;editTransaction = null; showEditor = false; oidcCallbackToken = null; twoFactorToken = null;draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false
         if (clearFlow) protectedFlow.clear()
     }

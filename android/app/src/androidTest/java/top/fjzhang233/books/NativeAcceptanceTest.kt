@@ -30,7 +30,7 @@ class NativeAcceptanceTest {
     private fun model(block:(BooksModel)->Unit){scenario?.onActivity{block(ViewModelProvider(it)[BooksModel::class.java])}}
     private fun ready(){compose.waitUntil(45_000){var idle=false;model{idle=!it.busy};idle}}
     private fun navigate(title:String){compose.onNodeWithContentDescription("打开菜单").performClick();compose.waitForIdle();compose.onNodeWithTag("nav-$title",useUnmergedTree=true).performClick()}
-    private fun refresh(){navigate("刷新数据");ready()}
+    private fun refresh(){model{it.reload()};ready()}
     private fun choose(text:String){compose.waitUntil(10_000){compose.onAllNodesWithTag("choice-list",useUnmergedTree=true).fetchSemanticsNodes().isNotEmpty()};compose.onNodeWithTag("choice-list",useUnmergedTree=true).performScrollToNode(hasText(text));compose.onNode(hasText(text) and hasClickAction()).performClick();compose.waitUntil(10_000){compose.onAllNodesWithTag("choice-list",useUnmergedTree=true).fetchSemanticsNodes().isEmpty()}}
     private fun enterCent(){listOf("0",".","0","1").forEach{compose.onNodeWithTag("entry-key-$it").performClick()}}
     private fun hideIme(){val ui=InstrumentationRegistry.getInstrumentation().uiAutomation;val info=ui.serviceInfo;info.flags=info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;ui.serviceInfo=info;compose.waitUntil(5000){val windows=ui.windows;windows.any{it.type==android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION}&&windows.none{it.type==android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD}}}
@@ -76,11 +76,11 @@ class NativeAcceptanceTest {
         try{
             runBlocking{var token:String?=null;val api=BooksApi(BuildConfig.API_BASE_URL){token};token=api.login(input.getString("username"),input.getString("password"),"").getString("token");api.call("/api/logout.json")}
             launch();if(!ledgerVisible())login(input)else ready()
-            stage="drawer-back";compose.onNodeWithContentDescription("打开菜单").performClick();compose.waitForIdle();compose.onNodeWithTag("nav-流水",useUnmergedTree=true).assertIsDisplayed();scenario!!.onActivity{it.onBackPressedDispatcher.onBackPressed()};awaitLedger()
+            stage="drawer-back";compose.onNodeWithContentDescription("打开菜单").performClick();compose.waitForIdle();check(compose.onAllNodesWithTag("nav-流水",useUnmergedTree=true).fetchSemanticsNodes(atLeastOneRootRequired=false).isEmpty());scenario!!.onActivity{it.onBackPressedDispatcher.onBackPressed()};awaitLedger()
             stage="account-create";navigate("账户");compose.onNodeWithText("新建账户").performClick()
             val name="原生验收"+System.currentTimeMillis().toString().takeLast(7);val first=name+"第一笔";val second=name+"第二笔"
             compose.onNodeWithText("账户名称").performTextInput(name);compose.onNodeWithText("保存账户").performClick();compose.waitUntil(45_000){!exists("保存账户")};ready();compose.onNodeWithTag("accounts-list").performScrollToNode(hasText(name));compose.onNodeWithText(name).assertExists()
-            stage="editor-open";navigate("流水");awaitLedger();compose.onNodeWithTag("add-transaction",useUnmergedTree=true).performClick()
+            stage="editor-open";awaitLedger();compose.onNodeWithTag("add-transaction",useUnmergedTree=true).performClick()
             stage="account-select";compose.onNodeWithTag("entry-account").performClick();choose("$name · CNY")
             stage="category-select";var expectedCategory="";model{expectedCategory=it.categories.single{it.optString("name")==input.getString("expenseCategory")&&it.id("parentId")!="0"&&it.optInt("type")==2}.id()};compose.onNodeWithTag("entry-category-$expectedCategory").assertIsDisplayed().performClick()
             stage="native-photo-picker";photo=preparePhoto();pick(photo)
@@ -106,7 +106,7 @@ class NativeAcceptanceTest {
     private var sessionStage="session-start"
     private fun exerciseRevocations(input:JSONObject,firstId:String){
         var old:String?=null;model{old=it.token};check(old!=null)
-        sessionStage="session-ui-logout";navigate("我的");compose.onNodeWithText("退出登录",substring=false).performClick();await("退出此设备？");compose.onNodeWithText("退出",substring=false).performClick();await("用户名或邮箱");reject(old!!)
+        sessionStage="session-ui-logout";navigate("设置");compose.onNodeWithText("退出登录",substring=false).performClick();await("退出此设备？");compose.onNodeWithText("退出",substring=false).performClick();await("用户名或邮箱");reject(old!!)
         login(input)
         var a:String?=null;var b:String?=null
         runBlocking{val api=BooksApi(BuildConfig.API_BASE_URL){null};a=api.login(input.getString("username"),input.getString("password"),"").getString("token");b=api.login(input.getString("username"),input.getString("password"),"").getString("token")}
@@ -179,7 +179,7 @@ class NativeAcceptanceTest {
         check(browserPackages.isNotEmpty())
         return passwordShown
     }
-    private fun logoutUi(){navigate("我的");compose.onNodeWithText("退出登录",substring=false).performClick();await("退出此设备？");compose.onNodeWithText("退出",substring=false).performClick();await("用户名或邮箱")}
+    private fun logoutUi(){navigate("设置");compose.onNodeWithText("退出登录",substring=false).performClick();await("退出此设备？");compose.onNodeWithText("退出",substring=false).performClick();await("用户名或邮箱")}
     @Test fun nativeOidcSystemBrowserRoundtrip(){
         val input=fixture();val saved=File(context.filesDir,"qa-business-result.json");assumeTrue("Requires synthetic business baseline",saved.isFile)
         val known=JSONObject(saved.readText()).getString("firstTransactionId")
@@ -284,5 +284,5 @@ class NativeAcceptanceTest {
             finally { if(token!=null) runCatching { api.call("/api/logout.json") } }
         }
     }
-    @Test fun aboutIsAvailableWithoutLogin(){fixture();try{launch();if(compose.onAllNodesWithContentDescription("打开菜单").fetchSemanticsNodes().isNotEmpty())navigate("关于与更新")else compose.onNodeWithContentDescription("关于与更新").performClick();await("关于与更新")}finally{scenario?.close();scenario=null}}
+    @Test fun aboutIsAvailableWithoutLogin(){fixture();try{launch();if(compose.onAllNodesWithContentDescription("打开菜单").fetchSemanticsNodes().isNotEmpty()){navigate("设置");compose.onNodeWithText("关于").performClick()}else compose.onNodeWithContentDescription("关于").performClick();await("当前版本")}finally{scenario?.close();scenario=null}}
 }

@@ -116,6 +116,42 @@ func (a *TransactionsApi) TransactionCountHandler(c *core.WebContext) (any, *err
 	return countResp, nil
 }
 
+// TransactionSearchSummaryHandler returns the exact aggregate for a transaction search without returning every matching row.
+func (a *TransactionsApi) TransactionSearchSummaryHandler(c *core.WebContext) (any, *errs.Error) {
+	var request models.TransactionCountRequest
+	if err := c.ShouldBindQuery(&request); err != nil {
+		log.Warnf(c, "[transactions.TransactionSearchSummaryHandler] parse request failed, because %s", err.Error())
+		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
+	}
+	uid := c.GetCurrentUid()
+	accountIds, err := a.accounts.GetAccountOrSubAccountIds(c, request.AccountIds, uid)
+	if err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+	categoryIds, err := a.transactionCategories.GetCategoryOrSubCategoryIds(c, request.CategoryIds, uid)
+	if err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+	noTags := request.TagFilter == models.TransactionNoTagFilterValue
+	var tagFilters []*models.TransactionTagFilter
+	if !noTags {
+		tagFilters, err = models.ParseTransactionTagFilter(request.TagFilter)
+		if err != nil {
+			return nil, errs.Or(err, errs.ErrOperationFailed)
+		}
+	}
+	total, err := a.transactions.GetTransactionCount(c, uid, request.MaxTime, request.MinTime, request.Type, categoryIds, accountIds, tagFilters, noTags, request.AmountFilter, request.Keyword, request.MatchMode, request.MustHavePictures)
+	if err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+	result, err := a.transactions.GetTransactionSearchSummary(c, uid, request.MaxTime, request.MinTime, request.Type, categoryIds, accountIds, tagFilters, noTags, request.AmountFilter, request.Keyword, request.MatchMode, request.MustHavePictures)
+	if err != nil {
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+	result.TotalCount = total
+	return result, nil
+}
+
 // TransactionListHandler returns transaction list of current user
 func (a *TransactionsApi) TransactionListHandler(c *core.WebContext) (any, *errs.Error) {
 	var transactionListReq models.TransactionListByMaxTimeRequest

@@ -36,6 +36,11 @@ func (db *XOrmDatabase) IsSQLite() bool {
 	return db.databaseType == settings.Sqlite3DbType
 }
 
+// IsMySQL reports whether the underlying database uses MySQL.
+func (db *XOrmDatabase) IsMySQL() bool {
+	return db.databaseType == settings.MySqlDbType
+}
+
 // NewSession starts a new session with the specified context
 func (db *XOrmDatabase) NewSession(c core.Context) DatabaseSession {
 	return &XOrmSession{

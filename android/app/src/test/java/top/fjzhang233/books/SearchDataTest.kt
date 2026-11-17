@@ -32,6 +32,10 @@ class SearchDataTest {
         assertEquals(original,LedgerSearchFilter.fromJson(original.toJson()))
         assertEquals(LedgerSearchFilter(),LedgerSearchFilter.fromJson(LedgerSearchFilter().toJson()))
     }
+    @Test fun paginationCursorMovesPastInclusiveBoundary() {
+        assertEquals(999L,searchNextMaxTime(1000L))
+        assertThrows(ArithmeticException::class.java){searchNextMaxTime(Long.MIN_VALUE)}
+    }
     @Test fun summaryIncludesLaterPagesAndExcludesForeignAndNonFlowTypes()=runBlocking {
         val calls=mutableListOf<Int>()
         val first=(1..30).map{row(it)}

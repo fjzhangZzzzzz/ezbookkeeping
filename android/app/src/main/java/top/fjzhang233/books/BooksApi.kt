@@ -156,7 +156,7 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
         require(call("/api/v1/transaction/pictures/remove_unused.json",JSONObject().put("id",id))==true) { "未用图片清理未完成" }
     }
     suspend fun family(month: String) = call("/api/v1/family/overview.json?month=$month") as JSONObject
-    suspend fun familyTransactions(month: String, cursor: String = "") = call("/api/v1/family/transactions/list.json?month=$month&cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}") as JSONObject
+    suspend fun familyTransactions(month: String, cursor: String = "", memberId: String = "0") = call("/api/v1/family/transactions/list.json?month=$month&member_id=$memberId&cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}") as JSONObject
     companion object {
         fun dayBounds(day:String):Pair<Long,Long>{val value=java.time.LocalDate.parse(day);val zone=ZoneId.of("Asia/Shanghai");return value.atStartOfDay(zone).toEpochSecond() to value.plusDays(1).atStartOfDay(zone).toEpochSecond()-1}
         fun monthBounds(month:String):Pair<Long,Long> {

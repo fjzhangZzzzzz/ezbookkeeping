@@ -83,63 +83,74 @@ class MainActivity : ComponentActivity() {
     override fun onResume() { super.onResume(); model.resume(); updates.resume() }
 }
 
+private enum class AppRoute { LEDGER, SEARCH, FAMILY, SETTINGS, ACCOUNTS, CATALOG, SESSIONS, ABOUT }
+
+private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, String>(
+    save = { it.name },
+    restore = { value -> runCatching { AppRoute.valueOf(value) }.getOrDefault(AppRoute.LEDGER) },
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BooksApp(vm: BooksModel, updates: UpdateModel) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    var settingsPage by rememberSaveable { mutableStateOf("") }
+    var route by rememberSaveable(stateSaver = appRouteSaver) { mutableStateOf(AppRoute.LEDGER) }
     val context = LocalContext.current
     val feedback=remember{SnackbarHostState()}
     var monthPicker by rememberSaveable{mutableStateOf(false)}
     var calendar by rememberSaveable{mutableStateOf(false)}
     var report by rememberSaveable{mutableStateOf(false)}
-    var search by rememberSaveable{mutableStateOf(false)}
     LaunchedEffect(vm.error,vm.notice,vm.showEditor){if(!vm.showEditor){val message=vm.error.ifBlank{vm.notice};if(message.isNotBlank()){if(vm.error.isBlank())android.widget.Toast.makeText(context,message,android.widget.Toast.LENGTH_SHORT).show() else feedback.showSnackbar(message,duration=SnackbarDuration.Long);vm.dismissFeedback(message)}}}
     val drawer=rememberDrawerState(DrawerValue.Closed)
     val scope=rememberCoroutineScope()
     var wasAuthenticated by remember{mutableStateOf(vm.token!=null)}
-    LaunchedEffect(vm.token!=null){val authenticated=vm.token!=null;if(wasAuthenticated&&!authenticated){settingsPage="";tab=0;drawer.close()};wasAuthenticated=authenticated}
+    LaunchedEffect(vm.token!=null){val authenticated=vm.token!=null;if(wasAuthenticated&&!authenticated){route=AppRoute.LEDGER;drawer.close()};wasAuthenticated=authenticated}
     LaunchedEffect(vm.browserUrl) { vm.browserUrl?.let { url ->
         runCatching { CustomTabsIntent.Builder().build().launchUrl(context, android.net.Uri.parse(url)) }.onFailure { vm.browserFailed() }
         vm.browserUrl = null
     } }
-    BackHandler(enabled = settingsPage.isNotEmpty()) { settingsPage = "" }
+    BackHandler(enabled = route != AppRoute.LEDGER) {
+        route = when (route) {
+            AppRoute.ACCOUNTS, AppRoute.CATALOG, AppRoute.SESSIONS, AppRoute.ABOUT -> AppRoute.SETTINGS
+            else -> AppRoute.LEDGER
+        }
+    }
     BackHandler(enabled=drawer.currentValue!=DrawerValue.Closed||drawer.targetValue!=DrawerValue.Closed){scope.launch{drawer.close()}}
     ModalNavigationDrawer(drawerState=drawer,gesturesEnabled=vm.token!=null,drawerContent={
         if(vm.token!=null) ModalDrawerSheet(modifier=Modifier.width(288.dp),drawerContainerColor=ledgerColors.surface,drawerShape=androidx.compose.ui.graphics.RectangleShape) {
             Text("家庭账本",Modifier.padding(start=24.dp,top=28.dp,bottom=8.dp),style=MaterialTheme.typography.headlineSmall)
             Text(vm.nickname,Modifier.padding(start=24.dp,bottom=20.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
-            data class Destination(val title:String,val icon:androidx.compose.ui.graphics.vector.ImageVector,val target:Int,val page:String="")
-            val destinations=listOf(Destination("流水",Icons.Outlined.ReceiptLong,0),Destination("搜索账单",Icons.Outlined.Search,0,"search"),Destination("账户",Icons.Outlined.AccountBalanceWallet,1),Destination("家庭",Icons.Outlined.People,2),Destination("分类与标签",Icons.Outlined.Category,3,"catalog"),Destination("登录设备",Icons.Outlined.Devices,3,"sessions"),Destination("我的",Icons.Outlined.Settings,3),Destination("关于与更新",Icons.Outlined.Info,3,"about"),Destination("刷新数据",Icons.Outlined.Refresh,0,"refresh"))
-            destinations.forEach { item -> NavigationDrawerItem(label={Text(item.title)},icon={Icon(item.icon,null)},selected=tab==item.target&&settingsPage==item.page,onClick={if(item.page=="search")search=true else if(item.page=="refresh")vm.reload()else{tab=item.target;settingsPage=item.page;if(item.page=="sessions")vm.getSessions()};scope.launch{drawer.close()}},modifier=Modifier.padding(horizontal=12.dp).testTag("nav-${item.title}")) }
+            data class Destination(val title:String,val icon:androidx.compose.ui.graphics.vector.ImageVector,val target:AppRoute)
+            val destinations=listOf(
+                Destination("搜索",Icons.Outlined.Search,AppRoute.SEARCH),
+                Destination("家庭",Icons.Outlined.People,AppRoute.FAMILY),
+                Destination("设置",Icons.Outlined.Settings,AppRoute.SETTINGS),
+            )
+            destinations.forEach { item -> NavigationDrawerItem(label={Text(item.title)},icon={Icon(item.icon,null)},selected=route==item.target,onClick={route=item.target;scope.launch{drawer.close()}},modifier=Modifier.padding(horizontal=12.dp).testTag("nav-${item.title}")) }
         }
     }) {
-    val home=vm.token!=null&&tab==0&&settingsPage.isEmpty()
+    val home=vm.token!=null&&route==AppRoute.LEDGER
     Box(Modifier.fillMaxSize().background(ledgerColors.background)){
     if(home){Image(androidx.compose.ui.res.painterResource(R.drawable.ledger_landscape),null,Modifier.fillMaxWidth().height(240.dp),contentScale=androidx.compose.ui.layout.ContentScale.Crop);Box(Modifier.fillMaxWidth().height(240.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(ledgerColors.background.copy(alpha=if(ledgerColors.dark).35f else .78f),ledgerColors.background.copy(alpha=if(ledgerColors.dark).72f else .94f)))))}
     Scaffold(containerColor=if(home)Color.Transparent else ledgerColors.background,contentColor=MaterialTheme.colorScheme.onSurface,snackbarHost={SnackbarHost(feedback)},
-        topBar = { CenterAlignedTopAppBar(colors=TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor=Color.Transparent),expandedHeight=56.dp,title={if(vm.token!=null&&tab==0&&settingsPage.isEmpty()) Row(Modifier.clickable{monthPicker=true},verticalAlignment=Alignment.CenterVertically){Text(vm.ledgerMonth,fontSize=18.sp);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))} else Text(if(settingsPage=="about") "关于与更新" else if(vm.token==null) "家庭账本" else when(settingsPage){"catalog"->"分类与标签";"sessions"->"登录设备";else->listOf("我的流水","我的账户","家庭总览","我的")[tab]})},
-            navigationIcon={if(settingsPage.isNotEmpty())IconButton(onClick={settingsPage=""}){Icon(Icons.Outlined.ArrowBack,"返回")}else if(vm.token!=null) IconButton(onClick={scope.launch{drawer.open()}}){Icon(Icons.Outlined.Menu,"打开菜单")}},
-            actions={if(vm.token!=null&&tab==0&&settingsPage.isEmpty()){IconButton(onClick={calendar=true}){Icon(Icons.Outlined.CalendarMonth,"日历视图")};IconButton(onClick={report=true}){Icon(Icons.Outlined.BarChart,"月报表")}}else if(vm.token==null)IconButton(onClick={settingsPage="about"}){Icon(Icons.Outlined.Info,"关于与更新")}}) },
+        topBar = { CenterAlignedTopAppBar(colors=TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor=Color.Transparent),expandedHeight=56.dp,title={if(vm.token!=null&&route==AppRoute.LEDGER) Row(Modifier.clickable{monthPicker=true},verticalAlignment=Alignment.CenterVertically){Text(vm.ledgerMonth,fontSize=18.sp);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))} else Text(when(route){AppRoute.SEARCH->"搜索";AppRoute.FAMILY->"家庭";AppRoute.SETTINGS->"设置";AppRoute.ACCOUNTS->"账户";AppRoute.CATALOG->"分类与标签";AppRoute.SESSIONS->"登录设备";AppRoute.ABOUT->"关于";else->"家庭账本"})},
+            navigationIcon={if(route!=AppRoute.LEDGER)IconButton(onClick={route=when(route){AppRoute.ACCOUNTS,AppRoute.CATALOG,AppRoute.SESSIONS,AppRoute.ABOUT->AppRoute.SETTINGS;else->AppRoute.LEDGER}}){Icon(Icons.Outlined.ArrowBack,"返回")}else if(vm.token!=null) IconButton(onClick={scope.launch{drawer.open()}}){Icon(Icons.Outlined.Menu,"打开菜单")}},
+            actions={if(vm.token!=null&&route==AppRoute.LEDGER){IconButton(onClick={calendar=true}){Icon(Icons.Outlined.CalendarMonth,"日历视图")};IconButton(onClick={report=true}){Icon(Icons.Outlined.BarChart,"月报表")}}else if(vm.token==null&&route!=AppRoute.ABOUT)IconButton(onClick={route=AppRoute.ABOUT}){Icon(Icons.Outlined.Info,"关于")}}) },
         floatingActionButtonPosition=FabPosition.Center,
-        floatingActionButton = { if (vm.token != null && tab == 0 && settingsPage.isEmpty()) FloatingActionButton(onClick={vm.newTransaction()},modifier=Modifier.size(56.dp).testTag("add-transaction"),shape=androidx.compose.foundation.shape.CircleShape,containerColor=MaterialTheme.colorScheme.primary,contentColor=MaterialTheme.colorScheme.onPrimary) { Icon(Icons.Outlined.Add,"记一笔",Modifier.size(28.dp)) } }
+        floatingActionButton = { if (vm.token != null && route == AppRoute.LEDGER) FloatingActionButton(onClick={vm.newTransaction()},modifier=Modifier.size(56.dp).testTag("add-transaction"),shape=androidx.compose.foundation.shape.CircleShape,containerColor=MaterialTheme.colorScheme.primary,contentColor=MaterialTheme.colorScheme.onPrimary) { Icon(Icons.Outlined.Add,"记一笔",Modifier.size(28.dp)) } }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 
 
-            if (updates.release != null && settingsPage != "about") TextButton(onClick = { settingsPage = "about" }, modifier = Modifier.fillMaxWidth()) { Text("发现新版本 ${updates.release!!.versionName} · 查看更新") }
-            if (settingsPage == "about") UpdatePage(updates)
+            if (route == AppRoute.ABOUT) UpdatePage(updates)
             else if (vm.token == null) LoginPage(vm)
-            else when (settingsPage) {
-                "catalog" -> CatalogPage(vm)
-                "sessions" -> SessionsPage(vm)
-                "about" -> UpdatePage(updates)
-                else -> when(tab) {
-                    0 -> TransactionsPage(vm)
-                    1 -> AccountsPage(vm)
-                    2 -> FamilyPage(vm)
-                    else -> SettingsPage(vm) { settingsPage = it; if (it == "sessions") vm.getSessions() }
-                }
+            else when (route) {
+                AppRoute.SEARCH -> LedgerSearch(vm,{route=AppRoute.LEDGER}){item,close->LedgerTransactionDetails(vm,item,close)}
+                AppRoute.FAMILY -> FamilyPage(vm)
+                AppRoute.SETTINGS -> SettingsPage(vm) { page -> route=when(page){"accounts"->AppRoute.ACCOUNTS;"catalog"->AppRoute.CATALOG;"sessions"->AppRoute.SESSIONS;"about"->AppRoute.ABOUT;else->AppRoute.SETTINGS}; if(page=="sessions")vm.getSessions() }
+                AppRoute.ACCOUNTS -> AccountsPage(vm)
+                AppRoute.CATALOG -> CatalogPage(vm)
+                AppRoute.SESSIONS -> SessionsPage(vm)
+                else -> TransactionsPage(vm)
             }
         }
     }
@@ -147,7 +158,6 @@ class MainActivity : ComponentActivity() {
     }
     if(calendar)LedgerCalendar(vm,{calendar=false;if(vm.token!=null)vm.changeLedgerDay(null)},{monthPicker=true})
     if(report)LedgerReport(vm){report=false}
-    if(search && vm.token!=null)LedgerSearch(vm,{search=false}){item,close->LedgerTransactionDetails(vm,item,close)}
     if(monthPicker) LedgerMonthPicker(vm.ledgerMonth,{monthPicker=false}){vm.changeLedgerMonth(it);monthPicker=false}
     if (vm.showEditor && vm.token != null) TransactionEditor(vm)
     if(vm.entityReviewOpen && vm.token!=null)PendingEntityDialog(vm)
@@ -317,14 +327,14 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
             OutlinedTextField(month, { month = it }, Modifier.weight(1f), label = { Text("月份 YYYY-MM") }, singleLine = true)
             Button(onClick = { vm.changeMonth(month) }, enabled = !vm.busy) { Text("查看") }
         } }
+        item { Choice("流水成员", listOf("0" to "全家") + vm.family.array("members").map { it.id() to it.optString("nickname") }, vm.familyMemberId, enabled=!vm.busy) { vm.changeFamilyMember(it) } }
         item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("全家本月收支 · CNY", style = MaterialTheme.typography.titleMedium)
                 val total = vm.family.optJSONObject("totals") ?: JSONObject()
                 Text("支出 ¥${money(total.optString("expenseMinor", "0"))}", style = MaterialTheme.typography.headlineMedium)
                 Text("收入 ¥${money(total.optString("incomeMinor", "0"))}    结余 ¥${money(total.optString("netMinor", "0"))}")
-                Text("按 Asia/Shanghai 统计 · 外币不计入", style = MaterialTheme.typography.bodySmall)
-                if (vm.family.optBoolean("hasExcludedForeignCurrency")) Text("本月有外币交易已排除，请到各成员账户查看。", color = MaterialTheme.colorScheme.error)
+                Text("按 Asia/Shanghai 统计", style = MaterialTheme.typography.bodySmall)
             }
         } }
         items(vm.family.array("members"), key = { "member" + it.id() }) { item ->
@@ -334,11 +344,20 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         items(vm.family.array("accounts"), key = { "account" + it.id() }) { item ->
             ListItem(modifier=Modifier.testTag("family-account-${item.id()}"),headlineContent = { Text(item.optString("name")) }, supportingContent = { Text(item.optString("ownerName")) }, trailingContent = { Text("${item.optString("currency")} ${money(item.optString("balanceMinor"))}") })
         }
+        item { Text("每日统计", style = MaterialTheme.typography.titleMedium) }
+        if (vm.family.array("daily").isEmpty()) item { Text("本月暂无收支统计", style = MaterialTheme.typography.bodySmall) }
+        items(vm.family.array("daily"), key = { "day" + it.optString("date") }) { item ->
+            ListItem(headlineContent={Text(item.optString("date"))}, supportingContent={Text("收 ¥${money(item.optString("incomeMinor"))} · 支 ¥${money(item.optString("expenseMinor"))}")}, trailingContent={Text("¥${money(item.optString("netMinor"))}")})
+        }
+        item { Text("分类报表", style = MaterialTheme.typography.titleMedium) }
+        items(vm.family.array("categories"), key = { "category" + it.id() }) { item ->
+            ListItem(headlineContent={Text(item.optString("name").ifBlank{"未分类"})}, supportingContent={Text("收 ¥${money(item.optString("incomeMinor"))} · 支 ¥${money(item.optString("expenseMinor"))}")})
+        }
         item { Text("家庭流水 · 共享查看", style = MaterialTheme.typography.titleMedium) }
         if (vm.familyItems.isEmpty()) item { EmptyState("本月还没有家庭流水", "活跃成员的流水将在这里汇总。") }
         items(vm.familyItems, key = { "transaction" + it.id() }) { item ->
             Card(Modifier.fillMaxWidth().clickable { selected = item }) {
-                ListItem(headlineContent = { Text(item.optString("categoryName")) }, supportingContent = { Text(item.optString("ownerName") + " · " + item.optString("comment").ifBlank { item.optString("accountName") }) }, trailingContent = { Text("${item.optString("currency")} ${money(item.optString("amountMinor"))}") })
+                ListItem(headlineContent = { Text(item.optString("categoryName")) }, supportingContent = { Text(item.optString("ownerName") + " · " + item.optString("comment").ifBlank { item.optString("accountName") }) }, trailingContent = { Text("${item.optString("currency").ifBlank { "CNY" }} ${money(item.optString("amountMinor"))}") })
             }
         }
         if (vm.familyItems.isNotEmpty()) item { TextButton(onClick = vm::moreFamily, enabled = !vm.busy) { Text("更多家庭流水") } }
@@ -346,7 +365,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     selected?.let { item -> AlertDialog(onDismissRequest = { selected = null }, title = { Text(item.optString("categoryName")) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(item.optString("ownerName") + " · " + displayTime(item.optLong("time")))
-            Text("${item.optString("currency")} ${money(item.optString("amountMinor"))}")
+            Text("${item.optString("currency").ifBlank { "CNY" }} ${money(item.optString("amountMinor"))}")
             Text(item.optString("comment")); Text("家庭共享仅查看；编辑自己的流水请前往「流水」。", style = MaterialTheme.typography.bodySmall)
             item.array("pictures").forEach { Picture(vm, "/api/v1/family/pictures/${it.id()}.${it.optString("extension")}") }
         }
@@ -379,11 +398,24 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         ThemeSettings()
         Text("你好，${vm.nickname}", style = MaterialTheme.typography.headlineSmall)
         Text("每人独立记账，全家共同看见。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        listOf("catalog" to "分类与标签", "sessions" to "登录设备与会话", "about" to "关于与应用更新").forEach { (key, title) ->
+        Text("记账", style = MaterialTheme.typography.titleMedium)
+        listOf("accounts" to "账户", "catalog" to "分类与标签").forEach { (key, title) ->
             OutlinedCard(onClick = { navigate(key) }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text(title) }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
         }
-        Text(if(vm.externalLinked) "Pocket ID 已关联" else "Pocket ID 尚未关联")
-        OutlinedButton(onClick = { vm.beginOidc(true) }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(if(vm.externalLinked) "已关联 · 网页安全设置可管理" else "关联 Pocket ID") }
+        Text("安全", style = MaterialTheme.typography.titleMedium)
+        OutlinedCard(onClick = { navigate("sessions") }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text("登录设备") }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
+        Card(Modifier.fillMaxWidth()) { ListItem(
+            headlineContent = { Text("第三方登录") },
+            supportingContent = { Text(if(vm.externalLinked) "Pocket ID 已关联，可在网页安全设置中管理" else "可选：关联 Pocket ID 以便登录") },
+            trailingContent = { TextButton(onClick = { vm.beginOidc(true) }, enabled = !vm.busy) { Text(if(vm.externalLinked) "已关联" else "关联") } },
+        ) }
+        Text("应用", style = MaterialTheme.typography.titleMedium)
+        Card(Modifier.fillMaxWidth()) { ListItem(
+            headlineContent = { Text("秒开模式") },
+            supportingContent = { Text("冷启动时直接打开记账页面；从后台回来不会重复打开") },
+            trailingContent = { Switch(checked=vm.instantEntry,onCheckedChange=vm::updateInstantEntry,enabled=!vm.busy) },
+        ) }
+        OutlinedCard(onClick = { navigate("about") }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text("关于") }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
         OutlinedButton(onClick = { logoutConfirm = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("退出登录") }
     }
     if (logoutConfirm) AlertDialog(onDismissRequest = { logoutConfirm = false }, title = { Text("退出此设备？") }, text = { Text("退出会撤销此设备当前会话。其他设备可在登录设备页管理。") },
@@ -416,7 +448,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
 
 
 @Composable internal fun AccountEditor(vm: BooksModel, original: JSONObject?, close: () -> Unit, submit: (String,JSONObject,()->Unit)->Unit = vm::saveEntity, preset:AccountPreset?=null) {
-    var name by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("name") ?: preset?.label ?: "") }; var currency by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("currency") ?: "CNY") }
+    var name by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("name") ?: preset?.label ?: "") }
     var balance by rememberSaveable(original?.id()) { mutableStateOf("0.00") }; var category by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("category") ?: preset?.category?.toString() ?: "1") }; var comment by rememberSaveable(original?.id()) { mutableStateOf(original?.optString("comment") ?: "") }
     var localError by rememberSaveable(original?.id()) { mutableStateOf("") }
     val locked=vm.busy||vm.entityBlocked
@@ -426,8 +458,8 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     AlertDialog(onDismissRequest = {if(!vm.busy&&!vm.entityBlocked)close()}, title = { Text(if (original == null) "新建账户" else "编辑账户资料") }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(name, { if(!vm.busy&&!vm.entityBlocked&&it.length <= 64) name = it }, label = { Text("账户名称") }, singleLine = true,enabled=!locked)
         Choice("账户类型", listOf("1" to "现金", "2" to "银行卡", "3" to "信用卡", "4" to "虚拟账户", "5" to "负债", "6" to "应收款", "7" to "投资理财", "8" to "储蓄", "9" to "定期存款"), category,enabled=!locked) { if(!vm.busy&&!vm.entityBlocked)category = it }
-        if (original == null) { OutlinedTextField(currency, { if(!vm.busy&&!vm.entityBlocked)currency = it.uppercase().take(3) }, label = { Text("币种代码") }, singleLine = true,enabled=!locked); OutlinedTextField(balance, { if(!vm.busy&&!vm.entityBlocked)balance = it }, label = { Text(initialAccountBalanceLabel(category.toIntOrNull()?:1,currency)) }, supportingText={if(isLiabilityAccountCategory(category.toIntOrNull()?:1))Text("填写当前欠款，金额不能为负数")}, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,enabled=!locked) }
-        else Text("编辑资料不会调整余额。余额随记账更新。", style = MaterialTheme.typography.bodySmall)
+        if (original == null) { Text("币种：CNY", style = MaterialTheme.typography.bodyMedium); OutlinedTextField(balance, { if(!vm.busy&&!vm.entityBlocked)balance = it }, label = { Text(initialAccountBalanceLabel(category.toIntOrNull()?:1,"CNY")) }, supportingText={if(isLiabilityAccountCategory(category.toIntOrNull()?:1))Text("填写当前欠款，金额不能为负数")}, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,enabled=!locked) }
+        else { Text("币种：${original.optString("currency","CNY")}", style = MaterialTheme.typography.bodyMedium); Text("编辑资料不会调整余额。余额随记账更新。", style = MaterialTheme.typography.bodySmall) }
         OutlinedTextField(comment, { if(!vm.busy&&!vm.entityBlocked&&it.length <= 255) comment = it }, label = { Text("备注") },enabled=!locked)
         if (localError.isNotEmpty()) Text(localError, color = MaterialTheme.colorScheme.error)
         if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error)
@@ -436,7 +468,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         runCatching {
             require(name.isNotBlank()) { "请填写名称" }
             val body = JSONObject().put("name", name.trim()).put("category", category.toInt()).put("icon", original?.optString("icon") ?: preset?.icon ?: "1").put("iconType", 0).put("color", original?.optString("color") ?: preset?.color ?: "006B5C").put("comment", comment)
-            if (original == null) { require(Regex("[A-Z]{3}").matches(currency)){"请输入有效的三位币种代码"}; val minor = initialAccountBalanceMinor(balance,category.toInt()); body.put("type", 1).put("currency", currency).put("balance", minor.toString()).put("balanceTime", balanceTime).put("clientSessionId", requestId) }
+            if (original == null) { val minor = initialAccountBalanceMinor(balance,category.toInt()); body.put("type", 1).put("currency", "CNY").put("balance", minor.toString()).put("balanceTime", balanceTime).put("clientSessionId", requestId) }
             else { body.put("id", original.id()).put("hidden", original.optBoolean("hidden")); if(category=="3"){ if(original.has("creditCardStatementDate")) body.put("creditCardStatementDate",original.get("creditCardStatementDate")); original.optString("creditCardLimit").toLongOrNull()?.takeIf{limit->limit>0}?.let{limit->body.put("creditCardLimit",limit.toString())} } }
             body
         }.onSuccess { submit("/api/v1/accounts/${if (original == null) "add" else "modify"}.json", it, close) }.onFailure { localError = if(it is ArithmeticException) "余额超出可用范围" else it.message?:"请检查名称、币种和余额格式" }

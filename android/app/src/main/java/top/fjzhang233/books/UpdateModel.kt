@@ -83,6 +83,5 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
             waitingPermission=false; prefs.edit().putBoolean("waiting",false).apply()
             if(getApplication<Application>().packageManager.canRequestPackageInstalls()) install() else message="未授予此来源安装权限，可稍后重试"
         }
-        check(false)
     }
 }

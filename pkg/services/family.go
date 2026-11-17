@@ -87,14 +87,25 @@ func (s *FamilyService) readScope(c core.Context, actorUID int64) (*familyReadSc
 	return scope, nil
 }
 
-type familyAmountAccumulator struct{ income, expense big.Int }
+type familyAmountAccumulator struct {
+	income, expense big.Int
+	scratch         big.Int
+}
 
 func (a *familyAmountAccumulator) add(transaction *models.Transaction) {
-	amount := big.NewInt(transaction.Amount)
-	if transaction.Type == models.TRANSACTION_DB_TYPE_INCOME {
+	a.addValues(transaction.Type, transaction.Amount)
+}
+
+func (a *familyAmountAccumulator) addValues(transactionType models.TransactionDbType, amount int64) {
+	a.scratch.SetInt64(amount)
+	a.addBigValues(transactionType, &a.scratch)
+}
+
+func (a *familyAmountAccumulator) addBigValues(transactionType models.TransactionDbType, amount *big.Int) {
+	if transactionType == models.TRANSACTION_DB_TYPE_INCOME {
 		a.income.Add(&a.income, amount)
 	}
-	if transaction.Type == models.TRANSACTION_DB_TYPE_EXPENSE {
+	if transactionType == models.TRANSACTION_DB_TYPE_EXPENSE {
 		a.expense.Add(&a.expense, amount)
 	}
 }
@@ -118,7 +129,31 @@ func familyTransactionCondition(scope *familyReadScope, start, end time.Time) bu
 	return builder.And(builder.Eq{"deleted": false}, builder.In("uid", scope.uids), builder.Gte{"transaction_time": utils.GetMinTransactionTimeFromUnixTime(start.Unix())}, builder.Lt{"transaction_time": utils.GetMinTransactionTimeFromUnixTime(end.Unix())})
 }
 
-// Overview streams one year of rows with a composite cursor. It never uses floating-point money or current exchange rates.
+// familyOverviewTransaction contains only the columns needed by Overview. In
+// particular, it avoids materializing comments, geo data, and other fields for
+// every row in a year-long family range.
+type familyOverviewTransaction struct {
+	Uid         int64                    `xorm:"uid"`
+	Type        models.TransactionDbType `xorm:"type"`
+	CategoryId  int64                    `xorm:"category_id"`
+	AccountId   int64                    `xorm:"account_id"`
+	DayBucket   int64                    `xorm:"day_bucket"`
+	TotalAmount string                   `xorm:"total_amount"`
+	RowCount    int64                    `xorm:"row_count"`
+}
+
+func familyDayBucketExpression(db datastore.Database) string {
+	// Family statistics use Asia/Shanghai, which has a fixed UTC+08:00 offset.
+	// SQLite and PostgreSQL perform integer division for integer operands. MySQL
+	// needs FLOOR because / returns a decimal expression.
+	if xormDatabase, ok := db.(*datastore.XOrmDatabase); ok && xormDatabase.IsMySQL() {
+		return "FLOOR((transaction_time / 1000 + 28800) / 86400)"
+	}
+	return "((transaction_time / 1000 + 28800) / 86400)"
+}
+
+// Overview loads only the projected columns needed for aggregation. It never
+// uses floating-point money or current exchange rates.
 func (s *FamilyService) Overview(c core.Context, actorUID int64, month string) (*models.FamilyOverview, error) {
 	start, end, err := familyMonthRange(month)
 	if err != nil {
@@ -128,10 +163,11 @@ func (s *FamilyService) Overview(c core.Context, actorUID int64, month string) (
 	if err != nil {
 		return nil, err
 	}
-	result := &models.FamilyOverview{Month: start.Format("2006-01"), Timezone: familyTimezoneName, Currency: "CNY", Members: []models.FamilyMemberSummary{}, Categories: []models.FamilyCategorySummary{}, Trend: []models.FamilyMonthSummary{}, Accounts: []models.FamilyAccount{}}
+	result := &models.FamilyOverview{Month: start.Format("2006-01"), Timezone: familyTimezoneName, Currency: "CNY", Members: []models.FamilyMemberSummary{}, Categories: []models.FamilyCategorySummary{}, Daily: []models.FamilyDaySummary{}, Trend: []models.FamilyMonthSummary{}, Accounts: []models.FamilyAccount{}}
 	var total familyAmountAccumulator
 	memberAmounts := make(map[int64]*familyAmountAccumulator)
-	categoryAmounts := make(map[int64]*big.Int)
+	categoryAmounts := make(map[int64]*familyAmountAccumulator)
+	dailyAmounts := make(map[string]*familyAmountAccumulator)
 	trendAmounts := make(map[string]*familyAmountAccumulator)
 	for _, member := range scope.members {
 		memberAmounts[member.Uid] = &familyAmountAccumulator{}
@@ -140,68 +176,75 @@ func (s *FamilyService) Overview(c core.Context, actorUID int64, month string) (
 	for i := 0; i < 12; i++ {
 		trendAmounts[trendStart.AddDate(0, i, 0).Format("2006-01")] = &familyAmountAccumulator{}
 	}
+	database := s.UserDataDB(actorUID)
 	condition := familyTransactionCondition(scope, trendStart, end)
-	var lastTime, lastID int64
-	for {
-		if c != nil && c.Err() != nil {
-			return nil, c.Err()
+	if c != nil && c.Err() != nil {
+		return nil, c.Err()
+	}
+	var rows []familyOverviewTransaction
+	dayBucketExpression := familyDayBucketExpression(database)
+	err = database.NewSession(c).Table(&models.Transaction{}).Select(fmt.Sprintf("uid, type, category_id, account_id, %s AS day_bucket, SUM(amount) AS total_amount, COUNT(1) AS row_count", dayBucketExpression)).Where(condition).GroupBy("uid, type, category_id, account_id, day_bucket").Find(&rows)
+	if err != nil {
+		return nil, err
+	}
+	var aggregateAmount big.Int
+	for i := range rows {
+		transaction := &rows[i]
+		if transaction.Type != models.TRANSACTION_DB_TYPE_INCOME && transaction.Type != models.TRANSACTION_DB_TYPE_EXPENSE {
+			continue
 		}
-		pageCondition := condition
-		if lastID > 0 {
-			pageCondition = builder.And(condition, builder.Or(builder.Lt{"transaction_time": lastTime}, builder.And(builder.Eq{"transaction_time": lastTime}, builder.Lt{"transaction_id": lastID})))
+		category := scope.categories[transaction.CategoryId]
+		if category != nil && category.FamilyInternalTransfer {
+			continue
 		}
-		var rows []*models.Transaction
-		err = s.UserDataDB(actorUID).NewSession(c).Where(pageCondition).OrderBy("transaction_time desc, transaction_id desc").Limit(1000).Find(&rows)
-		if err != nil {
-			return nil, err
+		account := scope.accounts[transaction.AccountId]
+		if account == nil || account.Uid != transaction.Uid {
+			return nil, errs.ErrAccountNotFound
 		}
-		for _, transaction := range rows {
-			if transaction.Type != models.TRANSACTION_DB_TYPE_INCOME && transaction.Type != models.TRANSACTION_DB_TYPE_EXPENSE {
-				continue
-			}
-			category := scope.categories[transaction.CategoryId]
-			if category != nil && category.FamilyInternalTransfer {
-				continue
-			}
-			account := scope.accounts[transaction.AccountId]
-			if account == nil || account.Uid != transaction.Uid {
-				return nil, errs.ErrAccountNotFound
-			}
-			if account.Currency != "CNY" {
-				result.ExcludedForeignTransactions++
-				result.HasExcludedForeignCurrency = true
-				continue
-			}
-			transactionMonth := time.Unix(utils.GetUnixTimeFromTransactionTime(transaction.TransactionTime), 0).In(start.Location()).Format("2006-01")
-			if amounts := trendAmounts[transactionMonth]; amounts != nil {
-				amounts.add(transaction)
-			}
-			if transactionMonth != result.Month {
-				continue
-			}
-			total.add(transaction)
-			memberAmounts[transaction.Uid].add(transaction)
-			if transaction.Type == models.TRANSACTION_DB_TYPE_EXPENSE {
-				if categoryAmounts[transaction.CategoryId] == nil {
-					categoryAmounts[transaction.CategoryId] = new(big.Int)
-				}
-				categoryAmounts[transaction.CategoryId].Add(categoryAmounts[transaction.CategoryId], big.NewInt(transaction.Amount))
-			}
+		if account.Currency != "CNY" {
+			result.ExcludedForeignTransactions += int(transaction.RowCount)
+			result.HasExcludedForeignCurrency = true
+			continue
 		}
-		if len(rows) < 1000 {
-			break
+		if _, ok := aggregateAmount.SetString(transaction.TotalAmount, 10); !ok {
+			return nil, fmt.Errorf("invalid aggregated family amount %q", transaction.TotalAmount)
 		}
-		last := rows[len(rows)-1]
-		lastTime, lastID = last.TransactionTime, last.TransactionId
+		transactionTime := transaction.DayBucket*86400 - 28800
+		transactionMonth := time.Unix(transactionTime, 0).In(start.Location()).Format("2006-01")
+		if amounts := trendAmounts[transactionMonth]; amounts != nil {
+			amounts.addBigValues(transaction.Type, &aggregateAmount)
+		}
+		if transactionMonth != result.Month {
+			continue
+		}
+		total.addBigValues(transaction.Type, &aggregateAmount)
+		memberAmounts[transaction.Uid].addBigValues(transaction.Type, &aggregateAmount)
+		day := time.Unix(transactionTime, 0).In(start.Location()).Format("2006-01-02")
+		if dailyAmounts[day] == nil {
+			dailyAmounts[day] = &familyAmountAccumulator{}
+		}
+		dailyAmounts[day].addBigValues(transaction.Type, &aggregateAmount)
+		if categoryAmounts[transaction.CategoryId] == nil {
+			categoryAmounts[transaction.CategoryId] = &familyAmountAccumulator{}
+		}
+		categoryAmounts[transaction.CategoryId].addBigValues(transaction.Type, &aggregateAmount)
 	}
 	result.Totals = total.response()
 	for _, member := range scope.members {
 		result.Members = append(result.Members, models.FamilyMemberSummary{Id: member.Uid, Nickname: member.Nickname, FamilyAmounts: memberAmounts[member.Uid].response()})
 	}
 	for id, amount := range categoryAmounts {
-		result.Categories = append(result.Categories, models.FamilyCategorySummary{Id: id, Name: familyCategoryName(scope, id), ExpenseMinor: amount.String()})
+		result.Categories = append(result.Categories, models.FamilyCategorySummary{Id: id, Name: familyCategoryName(scope, id), IncomeMinor: amount.response().IncomeMinor, ExpenseMinor: amount.response().ExpenseMinor})
 	}
 	sort.Slice(result.Categories, func(i, j int) bool { return result.Categories[i].Id < result.Categories[j].Id })
+	days := make([]string, 0, len(dailyAmounts))
+	for day := range dailyAmounts {
+		days = append(days, day)
+	}
+	sort.Strings(days)
+	for _, day := range days {
+		result.Daily = append(result.Daily, models.FamilyDaySummary{Date: day, FamilyAmounts: dailyAmounts[day].response()})
+	}
 	for i := 0; i < 12; i++ {
 		key := trendStart.AddDate(0, i, 0).Format("2006-01")
 		result.Trend = append(result.Trend, models.FamilyMonthSummary{Month: key, FamilyAmounts: trendAmounts[key].response()})
