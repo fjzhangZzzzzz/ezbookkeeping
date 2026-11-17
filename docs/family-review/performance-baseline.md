@@ -82,7 +82,7 @@ latency is above the single-request gates because the SQLite deployment is
 intentionally configured with one open connection. This is a concurrency
 stability result, not a claim that ten simultaneous million-row requests are
 interactive. SQLite data files and connection settings matching the release
-environment, plus Android device traces, remain required before release
+environment, plus Android emulator traces, remain required before release
 capacity is declared. MySQL/PostgreSQL are not support or acceptance targets
 for this project.
 
