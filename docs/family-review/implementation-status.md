@@ -1,10 +1,18 @@
 # 实施状态
 
-## 当前交付与部署边界
+## 当前交付与部署边界（0.1.7 / Android 0.1.6）
 
-- 最新服务端为[公开预发行 `family-v0.1.4`](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.4)，源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`；固定 `linux/amd64` digest `sha256:6794136afc1738b806890f93596763749ac2ad96a51eb1e5ac69ab99afc36fa4`，config ID `sha256:0746be1306aeb3a24494430013bbf40b59cafe76abd187c5aa2eaced7238f658`。完整来源和恢复索引见 [homelab 交接](homelab-handoff.md)，后续文档提交不能替代镜像源码标识。
+- 当前应用发布为 Family `family-v0.1.7`（运行源码 `cad1d59ac37b7eff3163a3809f75f98f8ce9b66f`）和 Android `android-v0.1.6` / versionCode `8`；服务端与 APK 继续独立发布、独立锁定、独立部署。后端镜像不内嵌 APK，Android 更新只使用自部署记账站点的公开工件通道。
+- 0.1.7 已实现账户安全删除/自动归档：空余额且无交易、转账或模板引用时删除；否则归档并保留历史；默认账户删除前自动切换。该语义由桌面 Web、移动 Web 和 Android 共同遵守。
+- 分类共享、内部往来保护、分类改名保留引用以及 Android 钱迹式父类/子类展开已落地；四字名称是家庭共享分类的维护规范，Android 编辑入口已限制为四字，服务端/桌面通用名称上限不应被误写成同一硬约束。长期规则见 [ADR-0001](../adr/0001-category-and-account-lifecycle.md)。
+- 当前生产部署、Backrest 快照与隔离恢复证据不在本仓库重复；请以 `homelab-infra/docs/status.md` 和其 Runbook 为唯一权威。应用仓库只保留应用发布、客户端行为和人工业务验收边界。
+- 用户已确认真实手机自托管更新、密码/Pocket ID 同 UID、记账附件、保持登录、退出重登及桌面撤销手机会话；真实 Pocket ID/TLS 恢复仍不能由应用仓库的模拟器或协议测试推导通过。
+
+## 历史交付与部署边界（0.1.4 检查点）
+
+- 当时服务端为[公开预发行 `family-v0.1.4`](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.4)，源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`；固定 `linux/amd64` digest `sha256:6794136afc1738b806890f93596763749ac2ad96a51eb1e5ac69ab99afc36fa4`，config ID `sha256:0746be1306aeb3a24494430013bbf40b59cafe76abd187c5aa2eaced7238f658`。完整来源和恢复索引见 [homelab 交接](homelab-handoff.md)，后续文档提交不能替代镜像源码标识。
 - [Actions 43621154413](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621154413) 完整 Linux Go/Web 检查、构建、准确镜像 smoke 和 publish 全绿；独立匿名公开 Release/GHCR manifest/config 核验及原 CI 归档全部 13 层校验通过。0.1.4 只增加自部署 Android 静态工件分发，不内嵌 APK、不修改 schema 或原生认证 bridge。旧 0.1.3 发布补建经过仅索引[该版发行说明](releases/family-v0.1.3.md)，不混同本次成功流水线。
-- **本轮部署验收基线为 0.1.4 与 Android 0.1.1/code3、运维包 2.4.162（previous 161）。** 运行源码仍为上述 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`，不同于后续交接文档提交。后端 image `0746be13…` 与自托管公共 APK 已按同一正式配置流程激活；双机检查及公网 GET/HEAD/304/Range、原件 SHA/MIME/cache/路径边界协议通过，不激活共享 Caddy 或 Glance。
+- **该历史检查点的部署验收基线为 0.1.4 与 Android 0.1.1/code3、运维包 2.4.162（previous 161）。** 运行源码仍为上述 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`，不同于后续交接文档提交。后端 image `0746be13…` 与自托管公共 APK 已按同一正式配置流程激活；双机检查及公网 GET/HEAD/304/Range、原件 SHA/MIME/cache/路径边界协议通过，不激活共享 Caddy 或 Glance。
 - Android `0.1.0` / code `2` 公开历史保持不可变；新 `0.1.1` / code `3` 正式 [tag CI 43621801593](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621801593) 全绿、实际 APK SHA256 `133b73c664de942842dbff5e6f105d8a16bd9bdfdccdc1e8b13d01735af2fc29`，签名/包信息与匿名公开原件核验通过。专用模拟器从内部 `0.1.1-internal-selfhost` / code2 通过实际 books 检测下载、系统确认 Update 安装到官方 code3，读回完整 SHA/固定证书并再查最新版通过；升级非 adb install，未输入凭据，不代表旧公开包 GitHub OTA 或真实登录跨版本通过。客户端只访问自部署端点，无 GitHub 回退，契约见 [Android 发行](android-release.md)。
 - 升级前预点 `d3db122461c8394d6fedb7752e6c3c7ced7c554f6b02ee47c01a9c534b7b50ae` 与升级后点 `8d6ab8968394538e07e0323475c2e5d9c4c05c48f0c0cdf0d5d767d102fb3961` 实际备份均完整成功，日常计划已恢复。新的 0.1.4 同点隔离业务恢复已通过：162 标准恢复 W `restore-836c4wds` 与 161 标准恢复的预点最新合法业务 checkpoint 比对一致，原密码/UID/现余额/交易/PNG、同点 Android 原件及 HTTP 协议、隔离副本禁用/清会话均通过；cleanW 指纹不变，none/无端口容器已停止。正式 HTTPS 另以原用户仅读并仅退出本次会话的密码烟测通过；旧 012 baseline 不改，只保留原 UID/交易/PNG 锚，不硬比旧余额/数量。
 - 原生界面已按真钱迹 Android 4.5.5-1242 深色专用模拟器实拍对照；此前本地真实合成记账/附件、进程冷启、会话撤销与系统浏览器合成 OIDC 通过。用户已确认实体手机正式包/自托管更新检查、密码与原 Pocket ID Passkey 同原数据、桌面撤销手机会话通过。用户已补充确认手机资金账户记账/附件/关闭重开保持登录/退出重登通过；资金账户属于现有登录用户下的记账对象，不是新登录用户，禁止为此创建新用户名或密码。真实已登录跨版本升级、真实 OIDC+TLS 恢复仍待现场验收，不由模拟器和协议健康推导。PWA 安装调查已按原生客户端选择暂停。
@@ -40,7 +48,7 @@
 - Go1.27.4/CGO_ENABLED=1/CC=clang完整go test -p2 ./...退出0；沿用上游BUILD_PIPELINE=1、CHECK_3RD_API=0，仅跳过第三方在线汇率探测。未将外部服务在线失败归为家庭回归。
 - 非作者独立QA见[independent-qa.md](independent-qa.md)：真实Chrome桌面及移动视口、保存成功后丢响应再重试、第二笔新request-id、共享字典导出/解析/导入、停用/删除、stdin开通/改密码、附件/转账/self边界均有实际证据；当前检查范围无未关闭P1/P2。
 
-## Linux与生产交付边界
+## 历史 Linux 与生产交付边界（早期候选）
 
 - 已通过批准环境严格SSH核验control-01身份，Docker29.9.2、8CPU、约6.2GiB可用内存、473GiB空闲磁盘；候选18882无监听。最初沙箱TCP假阴性已经纠正，不需用户排网络。
 - control直接DockerHub超时；独立Linux代理使用已验证官方摘要的镜像离线传输/既有代理路线，正在构建和隔离运行。Compose候选语法校验通过，不代表生产已部署。精确候选生产范围在deploy/homelab/integration-review.md，由根另派基础设施代理准备实际infra变更，不激活。

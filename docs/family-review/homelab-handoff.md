@@ -6,7 +6,14 @@
 
 Family 后端和 Android APK 独立发行。每次 Family Release 的 `build-info.json` 记录 `companion_artifacts.android.status`：`unchanged` 表示相对最近 Android 标签没有 Android 源码差异，`pending` 表示有差异但尚未形成新的 Android Release。运维仓库只把工件锁中的 APK 视为可部署输入，不从该状态字段推导已部署或已验收。四种状态分别记录为源码已提交、Release 已发布、自托管已部署、人工已验收；未提交的本机 Android 修改不属于任何已发布状态。
 
-## 当前应用交付：0.1.4
+## 当前应用交付：0.1.7 / Android 0.1.6
+
+- 当前 Family Release 为 `family-v0.1.7`，运行源码提交为 `cad1d59ac37b7eff3163a3809f75f98f8ce9b66f`；当前 Android Release 为 `android-v0.1.6` / versionCode `8`，两者分别发行、分别锁定和分别验收。Family 镜像仍包含 Go 后端、桌面 Web、移动 Web 和 PWA；APK 继续由记账站点自托管，不嵌入后端镜像。
+- 0.1.7 的账户生命周期为：无交易、无转账/模板引用且余额为零的账户可永久删除；存在引用或余额的账户自动归档并保留历史数据；删除默认账户前切换到可用账户。账户列表、选择器、排序和删除/归档结果在桌面 Web、移动 Web 与 Android 保持同一语义。
+- 分类与 Android 交互以应用仓库的[分类与账户生命周期决策](../adr/0001-category-and-account-lifecycle.md)及 `android/README.md` 为准。生产部署、Backrest、快照、恢复工作区和运维包版本只以 `homelab-infra` 的现行 `docs/status.md` 与 Runbook 为准，不在本仓库复制。
+- 当前应用的人工验收边界：真实手机自托管更新、密码与 Pocket ID 同 UID 登录、记账/附件、保持登录、退出重登及桌面撤销手机会话已由用户确认；真实 Pocket ID/TLS 隔离恢复仍属于运维仓库的未完成边界，不能由应用仓库单独宣称通过。
+
+## 历史应用交付：0.1.4
 
 - [公开预发行 `family-v0.1.4`](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/family-v0.1.4) 已由正式标签流水线完整发布，源码为 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`。[Actions 43621154413](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621154413) 的完整 Linux Go/Web 检查、构建、准确镜像 smoke 和 publish 均成功；没有把第三方实时汇率探测记为本地业务测试。
 - 固定完整 `linux/amd64` 镜像为 `ghcr.io/fjzhangzzzzzz/ezbookkeeping-family@sha256:6794136afc1738b806890f93596763749ac2ad96a51eb1e5ac69ab99afc36fa4`；config/image ID 为 `sha256:0746be1306aeb3a24494430013bbf40b59cafe76abd187c5aa2eaced7238f658`。镜像仍包含 Go 后端、桌面 Web、移动 Web 和 PWA，不内嵌独立 Android APK。
@@ -14,7 +21,7 @@ Family 后端和 Android APK 独立发行。每次 Family Release 的 `build-inf
 - 0.1.4 新增 `/android/update.json` 与版本化 APK 的匿名静态 GET/HEAD 分发、缓存与路径边界保护；目录为空时 404，不新增服务或端口。APK 独立签名发布，原始 CI manifest 与校验清单一并交付并只读挂载；新增分发路径沿用现有 Caddy 回源。未改数据库 schema 或 0.1.3 [原生 OAuth 交接](native-oauth2.md)。详见[0.1.4 发行说明](releases/family-v0.1.4.md)与 [Android 发行](android-release.md)。
 - `android-v0.1.0` / code `2` 为已公开的旧 GitHub 更新客户端，其标签和附件不改写；`0.1.1` / code `3` 使用同签名自托管更新。正式 [Android tag CI 43621801593](https://github.com/fjzhangZzzzzz/ezbookkeeping/actions/runs/43621801593) 的 verify/build/publish 已全绿，[android-v0.1.1](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/tag/android-v0.1.1) 已公开。实际包为 `top.fjzhang233.books` / `0.1.1` / code `3` / minSdk `26`，源码同为 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353`。APK SHA256 `133b73c664de942842dbff5e6f105d8a16bd9bdfdccdc1e8b13d01735af2fc29`，原 `update.json` SHA256 `cd89dfb5da817e66fad6147e86a2b2eccb543b79dbfaa41f6dcbcecaa7b16f43`，`SHA256SUMS` 自身 SHA256 `6291edb49dca1b29551d884a4d6777e373f2ed27dd76e10c46ea17e800ecddd1`。独立 apksigner/aapt 验证唯一固定签名、非 debuggable 及版本，匿名 Release 三件套与正式 CI 原件逐字节相同；不将“已发布”写成“已挂载/已安装/已验收”。旧公开包需要一次从自家 HTTPS 地址手工安装同签名新版本；后续客户端不访问 GitHub API/asset，不作该渠道回退。
 
-## 当前生产：0.1.4 与 Android 0.1.1 已部署
+## 历史生产检查点：0.1.4 与 Android 0.1.1
 
 本轮集成以 homelab `2.4.162` 正式激活并验收，运维源码 `455885e795d7260ee5afb9e8652a264c1a648b26`，前一版为 `2.4.161`。应用使用上节已发布的 `0.1.4` / 运行源码 `f8da00a8fcf23ff4412db8bf792c6f0f60a32353` / digest `6794136a…` / config `0746be13…`；本页及后续交接文档提交与镜像运行源码是不同标识。Android `0.1.1` / code `3` 原始 CI 三件套已由独立组件激活至 books HTTPS，固定父目录只读挂载，未重写 metadata、未将 APK 嵌入镜像，也未激活共享 Caddy/Glance。
 
@@ -31,6 +38,6 @@ Family 后端和 Android APK 独立发行。每次 Family Release 的 `build-inf
 
 首批私有交接位于维护电脑 `output/homelab-private-handoff.md`，被 Git 忽略，不随源码/Release 分发。现有 `/etc/homelab/ezbookkeeping/credentials.json`、独立运行凭据及初始密码受限文件按 homelab 约定核验，不覆盖已有内容、不回显值。账号创建/启停仍使用 CLI；`--conf-path` 指定全局配置，密码仅经 `--password-stdin` 输入。
 
-升级接手时先读 `C:/Users/fjzha/Projects/homelab-infra` 当前 AGENTS、HEAD、工作树、清单和 Runbook，保护未提交工作。按正式归档发布、prepare/激活及精确网络准入流程采纳 [deploy/homelab](../../deploy/homelab/README.md) 输入，不直接执行旧 `2.4.149` 草案或把示例 `18882` 当实时事实。本次 0.1.4 及 Android 接入不要求新增公网端口、Pocket ID 实例或 Passkey。
+升级接手时先读 `C:/Users/fjzha/Projects/homelab-infra` 当前 AGENTS、HEAD、工作树、清单和 Runbook，保护未提交工作。按正式归档发布、prepare/激活及精确网络准入流程采纳 [deploy/homelab](../../deploy/homelab/README.md) 输入，不直接执行旧 `2.4.149` 草案或把示例 `18882` 当实时事实。历史 0.1.4/Android 接入未要求新增公网端口、Pocket ID 实例或 Passkey；后续版本继续以运维仓库现行清单为准。
 
 沿用 Backrest 唯一调度/执行入口，升级前取得一致性备份并准备匹配的数据、附件、配置/密钥、源码与镜像恢复资料；真实快照的隔离恢复必须使用同快照实际内容。恢复实例对外开放前撤销恢复会话并复核禁用用户。本次 schema 未变不意味着今后跨 schema 升级失败时可只切旧镜像；应按匹配备份恢复。后续正式升级与 Android 选版仍沿既定授权窗口推进；本次已部署及已验范围以上节为准。

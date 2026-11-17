@@ -2,7 +2,7 @@
 
 本目录只提供应用侧配置契约和 Compose 参考，**不得直接覆盖正式配置或绕过 Ansible 执行**。主机与准入、服务及备份范围、版本与摘要的唯一权威分别是 `homelab-infra/inventory/hosts.yml`、`inventory/services.yml`、`inventory/artifacts.lock.json`；现行操作见该仓库 `docs/runbooks/ezbookkeeping.md` 及 Backrest Runbook。先读其 AGENTS、当前 HEAD/工作树和清单，再按正式配置包 prepare/激活流程操作。
 
-当前源码、镜像、Android 发行与生产版本的区别见[应用交接](../../docs/family-review/homelab-handoff.md)；不从历史离线镜像或旧本地草案重新初始化。0.1.4 与 Android 0.1.1/code3 已经 homelab 2.4.162 正式部署，公网静态分发及专用模拟器自托管系统升级已通过；新真实快照的同点隔离业务恢复与正式 HTTPS 密码仅读烟测也已通过。用户已确认手机正式包/更新检查、密码及 Passkey 登录和桌面撤销手机会话；资金账户记账/附图/保持登录等仍待补验，进度以交接及 homelab 记录为准。
+当前源码、镜像、Android 发行与生产版本的区别见[应用交接](../../docs/family-review/homelab-handoff.md)；不从历史离线镜像或旧本地草案重新初始化。当前应用为 Family 0.1.7、Android 0.1.6；生产运维包、Backrest、快照和恢复状态只以 `homelab-infra` 的现行清单、状态页和 Runbook 为准。用户已确认手机自托管更新、密码/Pocket ID 同 UID、记账附件、保持登录、退出重登及桌面撤销手机会话；应用仓库不据此替代运维仓库的隔离恢复或剩余边界。
 
 ## 现有路径与配置
 
@@ -14,7 +14,7 @@
 
 ## 独立 Android 工件
 
-后端 0.1.4 提供匿名 `/android/update.json` 和 `/android/releases/<versionName>/<apkAssetName>`。独立签名 APK、原始 CI manifest 和 SHA256SUMS 由 homelab 的 Android 组件验证、选版；GitHub 仅为不可变构建/发行取件来源，客户端只从自部署 HTTPS 检测与下载。
+后端从 0.1.4 起提供匿名 `/android/update.json` 和 `/android/releases/<versionName>/<apkAssetName>`。独立签名 APK、原始 CI manifest 和 SHA256SUMS 由 homelab 的 Android 组件验证、选版；GitHub 仅为不可变构建/发行取件来源，客户端只从自部署 HTTPS 检测与下载。
 
 固定宿主父目录 `/srv/homelab/ezbookkeeping/android` 只读挂载到 `/ezbookkeeping/public/android`。`current` 相对指向 `releases/<versionName>`，根 `update.json` 相对指向 `current/update.json`；版本化 APK 不覆盖、未验证 staging 不进入公开树。后端镜像只建空挂载目标，不内嵌 APK；未挂工件时返回 404。后续只切已验证工件选择，无须后端重建或共享 Caddy/Glance 激活，不新增服务、端口和网络准入。首次增加挂载仍按正式组件部署流程执行。
 

@@ -25,6 +25,7 @@ Android 原生客户端的服务端交接接口、安全边界和验证口径见
 | 交付物 | 内容 |
 |---|---|
 | [实施状态](implementation-status.md) / [homelab 交接](homelab-handoff.md) | 最新应用交付状态、已验工件与运维接手边界 |
+| [ADR-0001：分类与资金账户生命周期](../adr/0001-category-and-account-lifecycle.md) | 共享分类、四字维护规范、二级选择和账户删除/归档的长期产品语义 |
 | [实施与部署计划](implementation-plan.md) | 六阶段实施、control/edge部署拓扑、原生OIDC、Backrest接入与上线步骤 |
 | [当前简化方案](simplified-scope.md) | 已确认决策、最低验收、独立维护与17/28/45人天重估 |
 | [01 可行性评估](01-feasibility.md) | 原需求范围的架构与可行性证据，产品条款以简化方案为准 |
