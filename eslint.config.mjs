@@ -15,6 +15,7 @@ export default [
     {
         ignores: [
             'dist/**',
+            'output/**',
             '**/*.{js,jsx,cjs,mjs}'
         ]
     },

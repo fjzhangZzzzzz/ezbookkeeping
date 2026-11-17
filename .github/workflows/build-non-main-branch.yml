@@ -5,7 +5,8 @@ on:
   push:
     branches-ignore:
       - main
-      - 'family/**'
+      - 'webapp/**'
+      - 'android/**'
 
 jobs:
   setup:

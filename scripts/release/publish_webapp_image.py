@@ -67,8 +67,8 @@ def main():
     commit = os.environ["GITHUB_SHA"]
     tag = os.environ["RELEASE_TAG"]
     assert re.fullmatch(r"[a-f0-9]{40}", commit)
-    assert re.fullmatch(r"family-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag)
-    version = tag.removeprefix("family-v")
+    assert re.fullmatch(r"webapp-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag)
+    version = tag.removeprefix("webapp-v")
     assert json.loads(Path("package.json").read_text())["version"] == version
     image = "ghcr.io/fjzhangzzzzzz/ezbookkeeping-family"
     image_path = image.removeprefix("ghcr.io/")
@@ -108,17 +108,18 @@ def main():
     metadata = {
         "schema": 1,
         "product": "ezbookkeeping-family",
+        "component": "webapp",
         "version": version,
         "tag": tag,
         "source": {"repository": f"https://github.com/{repository}", "commit": commit},
-        "upstream": json.loads(Path("family-release.json").read_text())["upstream"],
+        "upstream": json.loads(Path("webapp-release.json").read_text())["upstream"],
         "image": {"platform": "linux/amd64", "reference": f"{image}@{digest}", "digest": digest, "tags": [f"{image}:{ref}" for ref in references], "config_id": local["Id"], "anonymous_pull_verified": True},
         "build": {"method": "GitHub Actions Linux Dockerfile; backend and frontend from the same source commit", "workflow": f"https://github.com/{repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}", "backend_vet_tests": True, "frontend_typecheck_lint_tests_build": True, "third_party_api_probes": False},
         "smoke": smoke,
         "companion_artifacts": {"android": android_companion_status()},
         "deployment_acceptance": "Public HTTPS, Pocket ID login and backup/restore acceptance belong to homelab and are not claimed by this release."
     }
-    filename = f"ezbookkeeping-family-{version}-build-info.json"
+    filename = f"ezbookkeeping-family-webapp-{version}-release.json"
     asset = output / filename
     asset.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (output / "SHA256SUMS").write_text(f"{hashlib.sha256(asset.read_bytes()).hexdigest()}  {filename}\n", encoding="utf-8")
@@ -127,9 +128,10 @@ def main():
     if result.returncode == 0:
         raise RuntimeError("Release already exists; refusing to replace it")
     assert "404" in result.stderr, "Could not verify release absence"
-    subprocess.run(["gh", "release", "create", tag, str(asset), str(output / "SHA256SUMS"), "--repo", repository, "--verify-tag", "--target", commit, "--title", f"ezBookkeeping Family {version}", "--prerelease", "--notes-file", f"docs/family-review/releases/{tag}.md"], check=True)
+    subprocess.run(["gh", "release", "create", tag, str(asset), str(output / "SHA256SUMS"), "--repo", repository, "--verify-tag", "--target", commit, "--title", f"ezBookkeeping Family Webapp {version}", "--prerelease", "--notes-file", f"docs/family-review/releases/{tag}.md"], check=True)
     print(f"Published {image}@{digest}")
 
 
 if __name__ == "__main__":
     main()
+

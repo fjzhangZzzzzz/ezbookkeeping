@@ -1,16 +1,16 @@
-name: Build and Publish Family Release
+name: Build and Publish Webapp Release
 
 on:
   push:
     tags:
-      - 'family-v*'
+      - 'webapp-v*'
 
 permissions:
   contents: read
 
 # Serialize releases so version/commit tags cannot race between workflow runs.
 concurrency:
-  group: family-release
+  group: webapp-release
   cancel-in-progress: false
 
 env:
@@ -34,8 +34,8 @@ jobs:
           python3 - <<'PY'
           import json, os, pathlib, re, subprocess
           tag = os.environ['RELEASE_TAG']
-          assert re.fullmatch(r'family-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag), 'Invalid family release tag'
-          version = tag.removeprefix('family-v')
+          assert re.fullmatch(r'webapp-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag), 'Invalid webapp release tag'
+          version = tag.removeprefix('webapp-v')
           notes = pathlib.Path('docs/family-review/releases') / (tag + '.md')
           assert notes.is_file() and notes.read_text(encoding='utf-8').strip(), 'Missing or empty release notes: ' + str(notes)
           package = json.load(open('package.json'))
@@ -55,7 +55,7 @@ jobs:
             --build-arg BUILD_NODE_OPTIONS=--max-old-space-size=8192 \
             --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
-            --label org.opencontainers.image.version="${GITHUB_REF_NAME#family-v}" \
+            --label org.opencontainers.image.version="${GITHUB_REF_NAME#webapp-v}" \
             --tag ezbookkeeping-family:ci .
 
       - name: Smoke test the exact image
@@ -63,7 +63,7 @@ jobs:
           mkdir -p release-artifact
           python3 scripts/release/smoke_image.py \
             --image ezbookkeeping-family:ci --commit "$GITHUB_SHA" \
-            --version "${GITHUB_REF_NAME#family-v}" \
+            --version "${GITHUB_REF_NAME#webapp-v}" \
             --output release-artifact/smoke.json
 
       - name: Save verified image and its checksum
@@ -74,7 +74,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: family-image-${{ github.sha }}
+          name: webapp-release-image-${{ github.sha }}
           path: release-artifact/
           if-no-files-found: error
           retention-days: 7
@@ -95,7 +95,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: family-image-${{ github.sha }}
+          name: webapp-release-image-${{ github.sha }}
           path: release-artifact
 
       - name: Load the verified image
@@ -113,8 +113,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: python3 scripts/release/publish_image.py
+        run: python3 scripts/release/publish_webapp_image.py
 
       - name: Log out of GHCR
         if: always()
         run: docker logout ghcr.io
+
