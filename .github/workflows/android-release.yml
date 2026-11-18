@@ -193,7 +193,7 @@ jobs:
           set -euo pipefail
           ADB="$ANDROID_HOME/platform-tools/adb"
           EMULATOR_LOG="$RUNNER_TEMP/family-upgrade-emulator.log"
-          trap '"$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true' EXIT
+          trap 'timeout 30s "$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true' EXIT
           "$ADB" kill-server >/dev/null 2>&1 || true
           nohup "$ANDROID_HOME/emulator/emulator" -avd family-upgrade -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect -accel on > "$EMULATOR_LOG" 2>&1 &
           EMULATOR_PID=$!
@@ -202,17 +202,17 @@ jobs:
             exit 1
           fi
           BOOT_DEADLINE=$((SECONDS + 5 * 60))
-          until "$ADB" shell getprop sys.boot_completed | grep -m 1 '1'; do
+          until BOOT_COMPLETED="$(timeout 30s "$ADB" shell getprop sys.boot_completed | tr -d '\r')" && grep -m 1 -q '1' <<< "$BOOT_COMPLETED"; do
             if ! kill -0 "$EMULATOR_PID" 2>/dev/null || (( SECONDS >= BOOT_DEADLINE )); then
               cat "$EMULATOR_LOG"
               exit 1
             fi
             sleep 2
           done
-          "$ADB" shell settings put global window_animation_scale 0
-          "$ADB" shell settings put global transition_animation_scale 0
-          "$ADB" shell settings put global animator_duration_scale 0
-          python3 scripts/release/android_upgrade_regression.py android-release-artifact \
+          timeout 30s "$ADB" shell settings put global window_animation_scale 0
+          timeout 30s "$ADB" shell settings put global transition_animation_scale 0
+          timeout 30s "$ADB" shell settings put global animator_duration_scale 0
+          timeout 5m python3 scripts/release/android_upgrade_regression.py android-release-artifact \
             --baseline-url 'https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/download/android-v0.1.8/ezbookkeeping-family-android-0.1.8.apk' \
             --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" \
             --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
