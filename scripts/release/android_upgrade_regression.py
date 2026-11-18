@@ -60,7 +60,7 @@ def install_apk(adb: str, path: Path, slot: str) -> None:
 
     try:
         last_output = ""
-        for attempt in range(1, 13):
+        for attempt in range(1, 3):
             ready = subprocess.run(
                 [adb, "shell", "cmd", "package", "list", "packages"],
                 check=False,
@@ -78,15 +78,15 @@ def install_apk(adb: str, path: Path, slot: str) -> None:
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=180,
+                timeout=450,
             )
             last_output = f"{install.stdout.strip()} {install.stderr.strip()}".strip()
             if install.returncode == 0 and "Success" in last_output:
                 return
-            if attempt < 12:
+            if attempt < 2:
                 time.sleep(10)
 
-        raise SystemExit(f"could not install {path.name} after 12 attempts: {last_output}")
+        raise SystemExit(f"could not install {path.name} after 2 attempts: {last_output}")
     finally:
         subprocess.run([adb, "shell", "rm", "-f", remote_path], check=False, timeout=60)
 
