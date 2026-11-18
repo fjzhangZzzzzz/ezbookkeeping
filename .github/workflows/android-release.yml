@@ -198,10 +198,10 @@ jobs:
           y
           y
           EOF
-          timeout 12m "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" platform-tools emulator 'build-tools;36.0.0' 'system-images;android-30;google_apis;x86'
+          timeout 12m "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" platform-tools emulator 'build-tools;36.0.0' 'system-images;android-26;google_apis;x86'
           export ANDROID_AVD_HOME="$RUNNER_TEMP/family-avd"
           mkdir -p "$ANDROID_AVD_HOME"
-          echo no | "$AVD_MANAGER" create avd --force --name family-upgrade --package 'system-images;android-30;google_apis;x86' --device pixel_2
+          echo no | "$AVD_MANAGER" create avd --force --name family-upgrade --package 'system-images;android-26;google_apis;x86' --device pixel_2
           "$AVD_MANAGER" list avd
       - name: Start emulator and run upgrade regression
         run: |
@@ -228,8 +228,11 @@ jobs:
           timeout 30s "$ADB" shell settings put global window_animation_scale 0
           timeout 30s "$ADB" shell settings put global transition_animation_scale 0
           timeout 30s "$ADB" shell settings put global animator_duration_scale 0
-          timeout 12m python3 scripts/release/android_upgrade_regression.py android-release-artifact \
-            --baseline-url 'https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/download/android-v0.1.8/ezbookkeeping-family-android-0.1.8.apk' \
-            --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" \
-            --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
-            --adb "$ADB"
+          if ! timeout 15m python3 scripts/release/android_upgrade_regression.py android-release-artifact \
+              --baseline-url 'https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/download/android-v0.1.8/ezbookkeeping-family-android-0.1.8.apk' \
+              --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" \
+              --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
+              --adb "$ADB"; then
+            cat "$EMULATOR_LOG"
+            exit 1
+          fi
