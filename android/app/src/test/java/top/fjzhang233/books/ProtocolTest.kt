@@ -67,7 +67,7 @@ class ProtocolTest {
             assertFalse(error.sessionExpired); assertTrue(error.message.orEmpty().contains("服务端"))
         } finally { server.shutdown() }
     }
-    private fun metadata()=JSONObject().put("schemaVersion",1).put("channel","stable").put("packageId",UpdatePolicy.PACKAGE).put("versionName","0.2.0").put("versionCode",2).put("minSdk",26).put("apkAssetName","ezbookkeeping-android-0.2.0.apk").put("apkSha256","a".repeat(64)).put("signingCertificateSha256",UpdatePolicy.CERTIFICATE).put("sourceCommit","b".repeat(40))
+    private fun metadata()=JSONObject().put("schemaVersion",1).put("channel","stable").put("packageId",UpdatePolicy.PACKAGE).put("versionName","0.2.0").put("versionCode",2).put("minSdk",26).put("apkAssetName",UpdatePolicy.apkAssetName("0.2.0")).put("apkSha256","a".repeat(64)).put("signingCertificateSha256",UpdatePolicy.CERTIFICATE).put("sourceCommit","b".repeat(40))
     @Test fun selfHostedUpdaterRejectsWrongPackageChannelDowngradeOriginAndSigner() {
         val release=UpdatePolicy.parse(metadata(),1,35)
         assertEquals(2,release.versionCode.toInt())
@@ -86,6 +86,18 @@ class ProtocolTest {
         assertThrows(IllegalArgumentException::class.java){UpdatePolicy.verifyIdentity("wrong.package",2,26,setOf(UpdatePolicy.CERTIFICATE),setOf(UpdatePolicy.CERTIFICATE),release,35)}
         assertThrows(IllegalArgumentException::class.java){UpdatePolicy.verifyIdentity(UpdatePolicy.PACKAGE,2,26,setOf(UpdatePolicy.CERTIFICATE),setOf("wrong-installed"),release,35)}
         UpdatePolicy.verifyIdentity(UpdatePolicy.PACKAGE,2,26,setOf(UpdatePolicy.CERTIFICATE),setOf(UpdatePolicy.CERTIFICATE),release,35)
+    }
+    @Test fun selfHostedUpdaterUsesStableCiAssetNameAndRejectsFamilyAlias() {
+        val release=UpdatePolicy.parse(metadata(),1,35)
+        assertEquals("ezbookkeeping-android-0.2.0.apk",release.assetName)
+        assertFalse(UpdatePolicy.allowed("https://books.fjzhang233.top/android/releases/0.2.0/ezbookkeeping-family-android-0.2.0.apk"))
+        val error=assertThrows(UpdateProtocolFailure::class.java) { UpdatePolicy.parse(metadata().put("apkAssetName","ezbookkeeping-family-android-0.2.0.apk"),1,35) }
+        assertEquals(UpdateFailureCategory.MANIFEST_FORMAT,error.category)
+    }
+    @Test fun selfHostedUpdaterClassifiesInvalidVersionWithoutLeakingMetadata() {
+        val error=assertThrows(UpdateProtocolFailure::class.java) { UpdatePolicy.parse(metadata().put("versionName","../0.2.0"),1,35) }
+        assertEquals(UpdateFailureCategory.INVALID_VERSION,error.category)
+        assertFalse(error.message.orEmpty().contains("0.2.0"))
     }
     @Test fun selfHostedTransportUsesAnonymousHeadersAndConditional304Only() {
         val requests=mutableListOf<okhttp3.Request>();var status=200

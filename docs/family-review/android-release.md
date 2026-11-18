@@ -18,9 +18,9 @@ Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjz
 
 入口 `.github/workflows/android-release.yml` 使用固定提交的官方 Actions、GitHub 公开仓库 runner 和最小权限。`main` 或 `android/**` 分支 push，以及涉及 Android/此工作流的 PR，先运行不读取 Secrets 的 debug 单测、lint 和组装；fork PR 不接触签名作业。手动 workflow_dispatch 只构建签名制品供审阅；只有新的 `android-vX.Y.Z` tag 才进入发布作业。首次 push/tag 前需主会话审阅和授权。不得覆盖已有 tag、Release 或附件，工作流不使用 clobber。
 
-Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properties 固定官方 distributionSha256Sum；这两个摘要与 workflow 一起审阅。SDK platform 固定 android-36、build-tools 固定 36.0.0，通过 sdkmanager 幂等安装。协议单测在 debug verify 作业完成（允许仅本机模拟 HTTP）；release 作业运行 lintRelease、assembleRelease，不为通过测试放宽 release 网络安全策略；随后用 Android 官方 apksigner 验证实际 APK 签名并与上面的固定证书指纹比较，用 aapt 验证包名、版本、minSdk 和非 debuggable。metadata 来自实际验证的 APK。发布作业只下载这份构建制品并检查 SHA256SUMS，不重新构建。只发布独立 Android Release，不更换运行中的服务端镜像。
+Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properties 固定官方 distributionSha256Sum；这两个摘要与 workflow 一起审阅。SDK platform 固定 android-36、build-tools 固定 36.0.0，通过 sdkmanager 幂等安装。协议单测在 debug verify 作业完成（允许仅本机模拟 HTTP）；release 作业运行 lintRelease、assembleRelease，不为通过测试放宽 release 网络安全策略；随后用 Android 官方 apksigner 验证实际 APK 签名并与上面的固定证书指纹比较，用 aapt 验证包名、版本、minSdk 和非 debuggable。metadata 来自实际验证的 APK。发布作业只下载这份构建制品并检查 SHA256SUMS，不重新构建。只有 Android tag 才继续执行升级回归：下载不可变的 `android-v0.1.8` 基线，在隔离模拟器中安装 code10，再用同一批真实签名的下一版本 APK 完成 manifest 发现、HTTP 下载、摘要、签名和 `adb install -r` 升级；回归通过后才允许 publish job。只发布独立 Android Release，不更换运行中的服务端镜像。
 
-新 Release 包含 `ezbookkeeping-family-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流只使用免费公开 runner，不启用付费 runner、缓存或额外服务。
+新 Release 包含 `ezbookkeeping-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流在生成真实清单后使用 `scripts/release/validate_android_update.py` 按客户端同一文件名、路径、摘要和清单规则复核，并在发布 job 再次复核；工作流只使用免费公开 runner，不启用付费 runner、缓存或额外服务。
 
 ## 与 Webapp 发布协调
 
@@ -32,7 +32,7 @@ Webapp 与 Android 仍是独立发布通道，不共用版本号、签名或镜�
 
 ## update.json 契约与信任边界
 
-schemaVersion=1，channel 固定 stable；字段 packageId、versionName、整数 versionCode、整数 minSdk、apkAssetName、apkSha256、signingCertificateSha256、sourceCommit。tag 必须精确等于 `android-v` + versionName，APK asset 名必须精确匹配 `ezbookkeeping-family-android-` + versionName + `.apk`。sourceCommit 是构建源码 commit，不能替代 APK SHA 或签名。
+schemaVersion=1，channel 固定 stable；字段 packageId、versionName、整数 versionCode、整数 minSdk、apkAssetName、apkSha256、signingCertificateSha256、sourceCommit。tag 必须精确等于 `android-v` + versionName，APK asset 名必须精确匹配 `ezbookkeeping-android-` + versionName + `.apk`。sourceCommit 是构建源码 commit，不能替代 APK SHA 或签名。CI 生成的 `update.json`、APK 和 `SHA256SUMS` 必须互相指向同一文件名和摘要，不能通过手工改清单修复协议冲突。
 
 客户端只匿名访问固定自部署地址 `https://books.fjzhang233.top/android/update.json`，不发送应用 Bearer Token；APK 路径由已验证的 versionName 与 apkAssetName 固定导出为 `/android/releases/<versionName>/<apkAssetName>`。不接受任意下载 URL、跨源跳转或 GitHub API/asset 回退。检查元数据时要求重新验证缓存并限制响应大小，忽略相同及更低 versionCode；更新提示后由用户确认下载，再交系统安装器确认安装及所需的安装来源权限。
 

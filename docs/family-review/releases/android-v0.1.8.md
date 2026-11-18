@@ -24,3 +24,7 @@
 - 正式发布 APK、`update.json` 和 `SHA256SUMS` 由 Android release workflow 使用专用签名材料生成并校验；本文件不替代 CI 产物校验。
 
 Webapp 本次另有家庭总览 API 变更，将以独立的 `webapp-v0.1.10` 发布；本 Android Release 不替代 Webapp Release。
+
+## 发布后协议审计说明
+
+该 Release 的 CI 曾生成 `ezbookkeeping-family-android-0.1.8.apk`，与已发布客户端要求的稳定文件名 `ezbookkeeping-android-0.1.8.apk` 不一致，导致客户端在清单解析阶段拒绝更新。该不可变 Release、tag、APK 和线上 `update.json` 不通过手工修改；后续 Android Release 恢复稳定旧文件名并增加 CI 协议门禁。临时别名或旧格式清单不属于正式修复方案。

@@ -25,6 +25,12 @@ import kotlin.coroutines.resumeWithException
 
 data class AndroidRelease(val versionName: String, val versionCode: Long, val minSdk: Int, val assetName: String, val sha256: String, val downloadUrl: String, val sourceCommit: String)
 
+enum class UpdateFailureCategory { NETWORK, MANIFEST_FORMAT, INVALID_VERSION, APK_INTEGRITY, APK_SIGNATURE }
+
+class UpdateProtocolFailure(val category: UpdateFailureCategory, message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
+
+class UpdateFailure(val category: UpdateFailureCategory, message: String, cause: Throwable? = null) : IOException(message, cause)
+
 object UpdatePolicy {
     const val PACKAGE = "top.fjzhang233.books"
     const val CERTIFICATE = "6fe857a17e79298dee70334a4900df8935312bf312ef9f9ad6a23897a9f3735d"
@@ -32,28 +38,46 @@ object UpdatePolicy {
     const val MANIFEST_URL = "$ORIGIN/android/update.json"
     const val MAX_APK_BYTES = 100L * 1024 * 1024
     private const val VERSION_PATTERN = "(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)"
+    private const val APK_PREFIX = "ezbookkeeping-android-"
+    private fun protocol(condition: Boolean, category: UpdateFailureCategory, message: String) {
+        if (!condition) throw UpdateProtocolFailure(category, message)
+    }
+    fun apkAssetName(version: String): String {
+        protocol(Regex(VERSION_PATTERN).matches(version), UpdateFailureCategory.INVALID_VERSION, "更新版本信息无效")
+        return "$APK_PREFIX$version.apk"
+    }
     fun apkUrl(version: String, assetName: String): String {
-        require(Regex(VERSION_PATTERN).matches(version))
-        require(assetName == "ezbookkeeping-android-$version.apk")
+        protocol(Regex(VERSION_PATTERN).matches(version), UpdateFailureCategory.INVALID_VERSION, "更新版本信息无效")
+        protocol(assetName == apkAssetName(version), UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容")
         return "$ORIGIN/android/releases/$version/$assetName"
     }
     fun allowed(url: String): Boolean {
         if (url == MANIFEST_URL) return true
-        val match = Regex("${Regex.escape(ORIGIN)}/android/releases/($VERSION_PATTERN)/ezbookkeeping-android-($VERSION_PATTERN)\\.apk").matchEntire(url) ?: return false
+        val match = Regex("${Regex.escape(ORIGIN)}/android/releases/($VERSION_PATTERN)/${Regex.escape(APK_PREFIX)}($VERSION_PATTERN)\\.apk").matchEntire(url) ?: return false
         return match.groupValues[1] == match.groupValues[2]
     }
-    fun parse(metadata: JSONObject, installed: Long, sdk: Int): AndroidRelease {
-        require(metadata.getInt("schemaVersion") == 1 && metadata.getString("channel") == "stable")
+    fun parse(metadata: JSONObject, installed: Long, sdk: Int): AndroidRelease = try {
+        protocol(metadata.getInt("schemaVersion") == 1 && metadata.getString("channel") == "stable", UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容")
         val version = metadata.getString("versionName")
-        require(metadata.getString("packageId") == PACKAGE && Regex(VERSION_PATTERN).matches(version))
-        require(metadata.get("versionCode").toString().matches(Regex("[1-9][0-9]*")))
-        val code = metadata.getLong("versionCode"); require(code > installed && code <= Int.MAX_VALUE)
-        val min = metadata.getInt("minSdk"); require(min in 26..sdk)
-        val name = metadata.getString("apkAssetName"); val url = apkUrl(version, name)
-        val hash = metadata.getString("apkSha256").lowercase(); require(hash.matches(Regex("[0-9a-f]{64}")))
-        require(metadata.getString("signingCertificateSha256").lowercase().replace(":", "") == CERTIFICATE)
-        require(metadata.getString("sourceCommit").matches(Regex("[0-9a-f]{40}")))
-        return AndroidRelease(version, code, min, name, hash, url, metadata.getString("sourceCommit"))
+        protocol(metadata.getString("packageId") == PACKAGE, UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容")
+        protocol(Regex(VERSION_PATTERN).matches(version), UpdateFailureCategory.INVALID_VERSION, "更新版本信息无效")
+        protocol(metadata.get("versionCode").toString().matches(Regex("[1-9][0-9]*")), UpdateFailureCategory.INVALID_VERSION, "更新版本信息无效")
+        val code = metadata.getLong("versionCode")
+        protocol(code > installed && code <= Int.MAX_VALUE, UpdateFailureCategory.INVALID_VERSION, "更新版本信息无效")
+        val min = metadata.getInt("minSdk")
+        protocol(min in 26..sdk, UpdateFailureCategory.INVALID_VERSION, "更新版本信息无效")
+        val name = metadata.getString("apkAssetName")
+        val url = apkUrl(version, name)
+        val hash = metadata.getString("apkSha256").lowercase()
+        protocol(hash.matches(Regex("[0-9a-f]{64}")), UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容")
+        protocol(metadata.getString("signingCertificateSha256").lowercase().replace(":", "") == CERTIFICATE, UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容")
+        val sourceCommit = metadata.getString("sourceCommit")
+        protocol(sourceCommit.matches(Regex("[0-9a-f]{40}")), UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容")
+        AndroidRelease(version, code, min, name, hash, url, sourceCommit)
+    } catch (e: UpdateProtocolFailure) {
+        throw e
+    } catch (e: Exception) {
+        throw UpdateProtocolFailure(UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容", e)
     }
     fun verifyIdentity(packageId: String, code: Long, minSdk: Int, candidateSigners: Set<String>, installedSigners: Set<String>, release: AndroidRelease, sdk: Int) {
         require(packageId == PACKAGE && code == release.versionCode && minSdk == release.minSdk && sdk >= minSdk)
@@ -94,18 +118,26 @@ class ReleaseUpdater(private val context: Context) {
         return out.toByteArray()
     }
     suspend fun check(manual: Boolean): AndroidRelease? = withContext(Dispatchers.IO) {
-        val text = http.manifest(if (manual) null else prefs.getString("etag", null)).use { response ->
-            if (response.code == 304) prefs.getString("manifest", null) ?: throw IOException("更新缓存失效")
-            else {
-                if (!response.isSuccessful) throw IOException("家庭账本更新服务暂不可用")
-                val body = bounded(response, 64 * 1024).toString(Charsets.UTF_8)
-                // Validate before caching; metadata never chooses a network origin or arbitrary path.
-                UpdatePolicy.parse(JSONObject(body), 0, Build.VERSION.SDK_INT)
-                prefs.edit().putString("manifest", body).putString("etag", response.header("ETag")).apply(); body
+        try {
+            val text = http.manifest(if (manual) null else prefs.getString("etag", null)).use { response ->
+                if (response.code == 304) prefs.getString("manifest", null) ?: throw IOException("更新缓存失效")
+                else {
+                    if (!response.isSuccessful) throw IOException("家庭账本更新服务暂不可用")
+                    val body = bounded(response, 64 * 1024).toString(Charsets.UTF_8)
+                    // Validate before caching; metadata never chooses a network origin or arbitrary path.
+                    UpdatePolicy.parse(JSONObject(body), 0, Build.VERSION.SDK_INT)
+                    prefs.edit().putString("manifest", body).putString("etag", response.header("ETag")).apply(); body
+                }
             }
+            val release = UpdatePolicy.parse(JSONObject(text), 0, Build.VERSION.SDK_INT)
+            release.takeIf { it.versionCode > BuildConfig.VERSION_CODE.toLong() }
+        } catch (e: UpdateProtocolFailure) {
+            throw e
+        } catch (e: IOException) {
+            throw UpdateFailure(UpdateFailureCategory.NETWORK, "更新服务不可用", e)
+        } catch (e: Exception) {
+            throw UpdateFailure(UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容", e)
         }
-        val release = UpdatePolicy.parse(JSONObject(text), 0, Build.VERSION.SDK_INT)
-        release.takeIf { it.versionCode > BuildConfig.VERSION_CODE.toLong() }
     }
     suspend fun download(release: AndroidRelease, progress: (Long, Long) -> Unit): File = suspendCancellableCoroutine { continuation ->
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
@@ -114,9 +146,9 @@ class ReleaseUpdater(private val context: Context) {
         continuation.invokeOnCancellation { call?.cancel() }
         fun fetch() {
             if (!continuation.isActive) { partial.delete(); return }
-            val next = try { http.apk(release) } catch (_: Exception) { continuation.resumeWithException(IOException("更新地址无效")); return }; call = next
+            val next = try { http.apk(release) } catch (e: Exception) { continuation.resumeWithException(UpdateFailure(UpdateFailureCategory.MANIFEST_FORMAT, "更新清单格式不兼容", e)); return }; call = next
             next.enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) { partial.delete(); if (continuation.isActive) continuation.resumeWithException(IOException("下载中断，请重试")) }
+                override fun onFailure(call: Call, e: IOException) { partial.delete(); if (continuation.isActive) continuation.resumeWithException(UpdateFailure(UpdateFailureCategory.NETWORK, "下载中断，请重试", e)) }
                 override fun onResponse(call: Call, response: Response) {
                     response.use { r ->
                         try {
@@ -133,7 +165,9 @@ class ReleaseUpdater(private val context: Context) {
                             if (!continuation.isActive) throw IOException()
                             if (output.exists()) kotlin.check(output.delete()); kotlin.check(partial.renameTo(output))
                             continuation.resume(output)
-                        } catch (_: Exception) { partial.delete(); if (continuation.isActive) continuation.resumeWithException(IOException("安装包校验未通过，请重新下载")) }
+                        } catch (e: UpdateFailure) { partial.delete(); if (continuation.isActive) continuation.resumeWithException(e) }
+                        catch (e: IOException) { partial.delete(); if (continuation.isActive) continuation.resumeWithException(UpdateFailure(UpdateFailureCategory.NETWORK, "下载失败，请重试", e)) }
+                        catch (e: Exception) { partial.delete(); if (continuation.isActive) continuation.resumeWithException(UpdateFailure(UpdateFailureCategory.APK_INTEGRITY, "安装包完整性校验失败", e)) }
                     }
                 }
             })
@@ -142,18 +176,24 @@ class ReleaseUpdater(private val context: Context) {
     }
     @Suppress("DEPRECATION")
     fun verifyApk(file: File, release: AndroidRelease) {
-        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
-        val candidate = context.packageManager.getPackageArchiveInfo(file.absolutePath, flags) ?: throw IOException("安装包无法解析")
-        val installed = context.packageManager.getPackageInfo(context.packageName, flags)
-        require(candidate.versionName == release.versionName)
-        fun signers(info: android.content.pm.PackageInfo): Set<String> {
-            val certificates = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners else info.signatures
-            return certificates.orEmpty().map { signer -> MessageDigest.getInstance("SHA-256").digest(signer.toByteArray()).joinToString("") { "%02x".format(it) } }.toSet()
+        try {
+            val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+            val candidate = context.packageManager.getPackageArchiveInfo(file.absolutePath, flags) ?: throw IOException("安装包无法解析")
+            val installed = context.packageManager.getPackageInfo(context.packageName, flags)
+            require(candidate.versionName == release.versionName)
+            fun signers(info: android.content.pm.PackageInfo): Set<String> {
+                val certificates = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners else info.signatures
+                return certificates.orEmpty().map { signer -> MessageDigest.getInstance("SHA-256").digest(signer.toByteArray()).joinToString("") { "%02x".format(it) } }.toSet()
+            }
+            val code = if (Build.VERSION.SDK_INT >= 28) candidate.longVersionCode else candidate.versionCode.toLong()
+            val installedCode = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else installed.versionCode.toLong()
+            require(code > installedCode)
+            UpdatePolicy.verifyIdentity(candidate.packageName, code, candidate.applicationInfo?.minSdkVersion ?: 0, signers(candidate), signers(installed), release, Build.VERSION.SDK_INT)
+        } catch (e: UpdateFailure) {
+            throw e
+        } catch (e: Exception) {
+            throw UpdateFailure(UpdateFailureCategory.APK_SIGNATURE, "安装包签名校验失败", e)
         }
-        val code = if (Build.VERSION.SDK_INT >= 28) candidate.longVersionCode else candidate.versionCode.toLong()
-        val installedCode = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else installed.versionCode.toLong()
-        require(code > installedCode)
-        UpdatePolicy.verifyIdentity(candidate.packageName, code, candidate.applicationInfo?.minSdkVersion ?: 0, signers(candidate), signers(installed), release, Build.VERSION.SDK_INT)
     }
     suspend fun install(file: File, release: AndroidRelease): Boolean {
         withContext(Dispatchers.IO) { verifyDownloaded(file, release) }
@@ -169,7 +209,7 @@ class ReleaseUpdater(private val context: Context) {
         require(file.isFile && file.length() in 1..UpdatePolicy.MAX_APK_BYTES)
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { stream -> val buffer = ByteArray(16384); while(true) { val n=stream.read(buffer); if(n < 0) break; digest.update(buffer,0,n) } }
-        require(digest.digest().joinToString("") { "%02x".format(it) } == release.sha256)
+        if (digest.digest().joinToString("") { "%02x".format(it) } != release.sha256) throw UpdateFailure(UpdateFailureCategory.APK_INTEGRITY, "安装包完整性校验失败")
         verifyApk(file, release)
     }
 }

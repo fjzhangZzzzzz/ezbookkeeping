@@ -46,7 +46,18 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
                 if (manual) message = if(found == null) "当前已是部署环境中的最新兼容版本" else "部署环境提供 ${found.versionName}，确认后开始下载"
             }
             catch (e: CancellationException) { throw e }
-            catch (_: Exception) { if(manual) message = "无法检查更新，请检查网络后重试" }
+            catch (e: UpdateProtocolFailure) { if(manual) message = when(e.category) {
+                UpdateFailureCategory.INVALID_VERSION -> "更新版本信息无效，请联系管理员"
+                else -> "更新清单格式不兼容，请联系管理员"
+            } }
+            catch (e: UpdateFailure) { if(manual) message = when(e.category) {
+                UpdateFailureCategory.NETWORK -> "无法连接更新服务，请检查网络后重试"
+                UpdateFailureCategory.MANIFEST_FORMAT -> "更新清单格式不兼容，请联系管理员"
+                UpdateFailureCategory.INVALID_VERSION -> "更新版本信息无效，请联系管理员"
+                UpdateFailureCategory.APK_INTEGRITY -> "安装包完整性校验失败，请重试"
+                UpdateFailureCategory.APK_SIGNATURE -> "安装包签名校验失败，已拒绝安装"
+            } }
+            catch (_: Exception) { if(manual) message = "无法检查更新，请稍后重试" }
             finally { checking = false }
         }
     }
@@ -60,6 +71,12 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
                 ready=true; message="安装包校验通过，请继续系统安装"
                 persist(update)
             } catch(e:CancellationException) { throw e }
+            catch(e:UpdateFailure) { message=when(e.category) {
+                UpdateFailureCategory.NETWORK -> "下载失败，请检查网络后重试"
+                UpdateFailureCategory.APK_INTEGRITY -> "安装包完整性校验失败，请重试"
+                UpdateFailureCategory.APK_SIGNATURE -> "安装包签名校验失败，已拒绝安装"
+                else -> "更新清单格式不兼容，请联系管理员"
+            } }
             catch(_:Exception) { message="下载或校验失败，请重试；不会安装未知或错误签名的文件" }
             finally { downloading=false }
         }
@@ -75,7 +92,11 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
             try {
                 waitingPermission=!updater.install(file,update)
                 prefs.edit().putBoolean("waiting",waitingPermission).apply()
-            } catch(_:Exception) { message="安装校验或系统安装未完成，请重试" }
+            } catch(e:UpdateFailure) { message=when(e.category) {
+                UpdateFailureCategory.APK_INTEGRITY -> "安装包完整性校验失败，请重试"
+                UpdateFailureCategory.APK_SIGNATURE -> "安装包签名校验失败，已拒绝安装"
+                else -> "安装校验未完成，请重试"
+            } } catch(_:Exception) { message="安装校验或系统安装未完成，请重试" }
         }
     }
     fun resume() {

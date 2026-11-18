@@ -9,7 +9,7 @@
 | Webapp tag | `webapp-vX.Y.Z` |
 | Android tag | `android-vX.Y.Z` |
 | Webapp 镜像 | `ghcr.io/fjzhangzzzzzz/ezbookkeeping-family` |
-| Android APK | `ezbookkeeping-family-android-X.Y.Z.apk` |
+| Android APK | `ezbookkeeping-android-X.Y.Z.apk` |
 
 产品名可以出现在镜像、metadata 和 APK 文件名前缀中；发布单元名负责区分后端/Web 与 Android 生命周期。
 
@@ -30,7 +30,7 @@ Android 使用独立 Release，不因 Webapp 发布而重新发布或覆盖：
 
 - tag 精确匹配 `android-vX.Y.Z`；
 - `versionCode` 必须递增；
-- APK 文件名为 `ezbookkeeping-family-android-X.Y.Z.apk`；
+- APK 文件名为 `ezbookkeeping-android-X.Y.Z.apk`；这是客户端已发布版本使用的稳定 OTA 协议，不能改成产品前缀文件名；
 - Release 同时包含 APK、`update.json` 和 `SHA256SUMS`；
 - 签名身份、包名和 metadata 必须由 CI 对实际 APK 校验；
 - Android 源码改动必须进入新的 Android Release，不能由 Webapp Release 代替。

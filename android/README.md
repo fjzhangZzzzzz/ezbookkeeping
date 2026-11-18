@@ -38,7 +38,7 @@ Release 签名只读取环境 `ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWO
 
 ## 更新
 
-客户端只向固定部署环境 `https://books.fjzhang233.top/android/update.json` 匿名检查更新，不查询 GitHub，也没有 GitHub 回退。首次启动和回前台有界检查，手动检查始终重新请求，不把失败或旧缓存当成当前部署版本。manifest 请求显式 `Cache-Control: no-cache`，响应最大 64 KiB；ETag 存在时仅自动检查使用条件重验，不依赖服务器提供 ETag。schemaVersion 1 / stable 的原字段由 CI 生成不可变原件，再由 Ansible 选择部署；客户端不接受元数据中的任意下载 URL，而从严格版本号和文件名唯一导出 `/android/releases/<versionName>/ezbookkeeping-android-<versionName>.apk`。manifest 与 APK 拒绝所有 HTTP 跳转、附加 query/fragment、凭据 URL 和跨源请求，绝不携带应用 Bearer、Cookie 或 OIDC 凭据。
+客户端只向固定部署环境 `https://books.fjzhang233.top/android/update.json` 匿名检查更新，不查询 GitHub，也没有 GitHub 回退。首次启动和回前台有界检查，手动检查始终重新请求，不把失败或旧缓存当成当前部署版本。manifest 请求显式 `Cache-Control: no-cache`，响应最大 64 KiB；ETag 存在时仅自动检查使用条件重验，不依赖服务器提供 ETag。schemaVersion 1 / stable 的原字段由 CI 生成不可变原件，再由 Ansible 选择部署；客户端不接受元数据中的任意下载 URL，而从严格版本号和文件名唯一导出 `/android/releases/<versionName>/ezbookkeeping-android-<versionName>.apk`。`ezbookkeeping-android-<versionName>.apk` 是稳定客户端协议；CI 不得使用 `ezbookkeeping-family-android-*` 替代。manifest 与 APK 拒绝所有 HTTP 跳转、附加 query/fragment、凭据 URL 和跨源请求，绝不携带应用 Bearer、Cookie 或 OIDC 凭据。
 
 APK 独立于 Go 后端镜像，通过固定父目录只读挂载，由后端 `/android/` 静态路由提供。切换 manifest 不意味着修改不可变 APK；同版本不同摘要必须由部署端拒绝。GitHub Release 仅是 CI 发行及灾备来源，不是客户端的运行时检查或下载入口。正式证书仍为既有专用签名身份。
 

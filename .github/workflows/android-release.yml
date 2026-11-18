@@ -119,7 +119,7 @@ jobs:
           apk = pathlib.Path('android/app/build/outputs/apk/release/app-release.apk')
           output = pathlib.Path('android-release-artifact')
           output.mkdir()
-          name = 'ezbookkeeping-family-android-' + version + '.apk'
+          name = 'ezbookkeeping-android-' + version + '.apk'
           shutil.copyfile(apk, output / name)
           metadata = {'schemaVersion': 1, 'channel': 'stable', 'packageId': package[1],
               'versionName': version, 'versionCode': int(package[2]), 'minSdk': int(min_sdk[1]),
@@ -131,6 +131,8 @@ jobs:
                   if path.name != 'SHA256SUMS':
                       sums.write(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n')
           PY
+          python3 scripts/release/validate_android_update.py android-release-artifact \
+            --release-tag "$RELEASE_TAG" --source-commit "$GITHUB_SHA"
       - name: Remove runner signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/android-release.p12"
@@ -141,7 +143,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   publish:
-    needs: build
+    needs: [build, upgrade-regression]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -161,10 +163,44 @@ jobs:
         run: |
           set -euo pipefail
           sha256sum --check SHA256SUMS
-          python3 - <<'PY'
-          import json, os, re
-          manifest = json.load(open('update.json'))
-          assert re.fullmatch(r'android-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', os.environ['RELEASE_TAG'])
-          assert os.environ['RELEASE_TAG'] == 'android-v' + manifest['versionName']
-          PY
+          python3 "$GITHUB_WORKSPACE/scripts/release/validate_android_update.py" "$GITHUB_WORKSPACE/android-release-artifact" \
+            --release-tag "$RELEASE_TAG" --source-commit "$GITHUB_SHA"
           gh release create "$RELEASE_TAG" --verify-tag --title "ezBookkeeping Family Android ${RELEASE_TAG#android-v}" --notes "Native Kotlin/Compose Android client. Android verifies the dedicated release signing identity; see update.json and SHA256SUMS." -- *.apk update.json SHA256SUMS
+
+  upgrade-regression:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/android-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-release-signed-${{ github.sha }}
+          path: android-release-artifact
+      - name: Install emulator image
+        run: |
+          set -euo pipefail
+          SDK_MANAGER="${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager"
+          AVD_MANAGER="${ANDROID_HOME:?}/cmdline-tools/latest/bin/avdmanager"
+          "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" platform-tools emulator 'build-tools;36.0.0' 'system-images;android-35;google_apis;x86_64'
+          echo no | "$AVD_MANAGER" create avd --force --name family-upgrade --package 'system-images;android-35;google_apis;x86_64' --device pixel_2
+      - name: Start emulator and run upgrade regression
+        run: |
+          set -euo pipefail
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          trap '"$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true' EXIT
+          nohup "$ANDROID_HOME/emulator/emulator" -avd family-upgrade -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/family-upgrade-emulator.log" 2>&1 &
+          "$ADB" wait-for-device
+          until "$ADB" shell getprop sys.boot_completed | grep -m 1 '1'; do sleep 2; done
+          "$ADB" shell settings put global window_animation_scale 0
+          "$ADB" shell settings put global transition_animation_scale 0
+          "$ADB" shell settings put global animator_duration_scale 0
+          python3 scripts/release/android_upgrade_regression.py android-release-artifact \
+            --baseline-url 'https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/download/android-v0.1.8/ezbookkeeping-family-android-0.1.8.apk' \
+            --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" \
+            --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
+            --adb "$ADB"
