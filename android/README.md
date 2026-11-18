@@ -4,7 +4,7 @@
 
 ## 构建与测试
 
-工具链固定 Java 17、Gradle Wrapper 8.13、AGP 8.13.2、Kotlin/Compose Compiler 2.2.21、SDK 36，最低 Android 8 / API 26。当前 Android `0.1.10` 使用 `versionCode=12`。已公开的 `0.1.0` / code 2 及其签名保持不可变；后续版本号和代码号单调递增。Wrapper JAR 和分发 ZIP 均采用官方 SHA256。使用系统 Gradle 不代替已核验 wrapper。
+工具链固定 Java 17、Gradle Wrapper 8.13、AGP 8.13.2、Kotlin/Compose Compiler 2.2.21、SDK 36，最低 Android 8 / API 26。当前 Android `0.1.11` 使用 `versionCode=13`。已公开的 `0.1.0` / code 2 及其签名保持不可变；后续版本号和代码号单调递增。Wrapper JAR 和分发 ZIP 均采用官方 SHA256。使用系统 Gradle 不代替已核验 wrapper。
 
 ```sh
 cd android

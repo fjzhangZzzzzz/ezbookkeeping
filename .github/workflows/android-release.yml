@@ -195,7 +195,7 @@ jobs:
           EMULATOR_LOG="$RUNNER_TEMP/family-upgrade-emulator.log"
           trap '"$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true' EXIT
           "$ADB" kill-server >/dev/null 2>&1 || true
-          nohup "$ANDROID_HOME/emulator/emulator" -avd family-upgrade -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect -accel off > "$EMULATOR_LOG" 2>&1 &
+          nohup "$ANDROID_HOME/emulator/emulator" -avd family-upgrade -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect -accel on > "$EMULATOR_LOG" 2>&1 &
           EMULATOR_PID=$!
           if ! timeout 5m "$ADB" wait-for-device; then
             cat "$EMULATOR_LOG"
