@@ -186,16 +186,29 @@ jobs:
           set -euo pipefail
           SDK_MANAGER="${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager"
           AVD_MANAGER="${ANDROID_HOME:?}/cmdline-tools/latest/bin/avdmanager"
-          "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" platform-tools emulator 'build-tools;36.0.0' 'system-images;android-35;google_apis;x86_64'
+          timeout 12m "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" platform-tools emulator 'build-tools;36.0.0' 'system-images;android-35;google_apis;x86_64'
           echo no | "$AVD_MANAGER" create avd --force --name family-upgrade --package 'system-images;android-35;google_apis;x86_64' --device pixel_2
       - name: Start emulator and run upgrade regression
         run: |
           set -euo pipefail
           ADB="$ANDROID_HOME/platform-tools/adb"
+          EMULATOR_LOG="$RUNNER_TEMP/family-upgrade-emulator.log"
           trap '"$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true' EXIT
-          nohup "$ANDROID_HOME/emulator/emulator" -avd family-upgrade -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/family-upgrade-emulator.log" 2>&1 &
-          "$ADB" wait-for-device
-          until "$ADB" shell getprop sys.boot_completed | grep -m 1 '1'; do sleep 2; done
+          "$ADB" kill-server >/dev/null 2>&1 || true
+          nohup "$ANDROID_HOME/emulator/emulator" -avd family-upgrade -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect -accel off > "$EMULATOR_LOG" 2>&1 &
+          EMULATOR_PID=$!
+          if ! timeout 5m "$ADB" wait-for-device; then
+            cat "$EMULATOR_LOG"
+            exit 1
+          fi
+          BOOT_DEADLINE=$((SECONDS + 5 * 60))
+          until "$ADB" shell getprop sys.boot_completed | grep -m 1 '1'; do
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null || (( SECONDS >= BOOT_DEADLINE )); then
+              cat "$EMULATOR_LOG"
+              exit 1
+            fi
+            sleep 2
+          done
           "$ADB" shell settings put global window_animation_scale 0
           "$ADB" shell settings put global transition_animation_scale 0
           "$ADB" shell settings put global animator_duration_scale 0
