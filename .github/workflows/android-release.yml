@@ -195,6 +195,7 @@ jobs:
         run: |
           set -euo pipefail
           ADB="$ANDROID_HOME/platform-tools/adb"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/family-avd"
           EMULATOR_LOG="$RUNNER_TEMP/family-upgrade-emulator.log"
           trap 'timeout 30s "$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true' EXIT
           "$ADB" kill-server >/dev/null 2>&1 || true
