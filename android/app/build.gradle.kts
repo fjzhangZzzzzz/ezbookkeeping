@@ -7,8 +7,8 @@ android {
         applicationId = "top.fjzhang233.books"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "0.1.22"
+        versionCode = 11
+        versionName = "0.1.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {

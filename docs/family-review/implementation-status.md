@@ -4,7 +4,7 @@
 
 - 产品：`ezbookkeeping-family`。
 - Webapp：`webapp-v0.1.10`，源码提交、镜像 digest 和构建结果以对应 Release metadata 为准。
-- Android：`android-v0.1.22`，versionCode `24`，与 Webapp 独立发布、独立签名和独立版本递增。
+- Android：最近正式版本为 `android-v0.1.8`，versionCode `10`；当前源码候选版本为 `0.1.9` / versionCode `11`，与 Webapp 独立发布、独立签名和独立版本递增。
 - Webapp 镜像不内嵌 Android APK；Android 使用独立 APK、`update.json` 和 `SHA256SUMS` 工件。
 - Webapp Release 的准确来源、镜像 digest、构建结果和 Android 关联状态以对应 Release metadata 为准。
 

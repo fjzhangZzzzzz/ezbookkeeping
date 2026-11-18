@@ -1,0 +1,88 @@
+name: Webapp CI
+
+on:
+  pull_request:
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'src/**'
+      - 'public/**'
+      - 'conf/**'
+      - 'templates/**'
+      - 'docker/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - 'vitest.config.ts'
+      - 'eslint.config.mjs'
+      - 'Dockerfile'
+      - 'build.sh'
+      - 'scripts/release/smoke_image.py'
+      - 'scripts/release/publish_webapp_image.py'
+      - 'webapp-release.json'
+      - '.github/workflows/webapp-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'src/**'
+      - 'public/**'
+      - 'conf/**'
+      - 'templates/**'
+      - 'docker/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - 'vitest.config.ts'
+      - 'eslint.config.mjs'
+      - 'Dockerfile'
+      - 'build.sh'
+      - 'scripts/release/smoke_image.py'
+      - 'scripts/release/publish_webapp_image.py'
+      - 'webapp-release.json'
+      - '.github/workflows/webapp-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webapp-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.13.0'
+          cache: npm
+
+      - name: Verify backend
+        run: |
+          go mod download
+          go vet ./...
+          go test ./...
+
+      - name: Verify frontend
+        run: |
+          npm ci
+          npm run lint:check
+          npm run test
+          npm run build

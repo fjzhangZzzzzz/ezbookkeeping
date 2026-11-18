@@ -16,11 +16,15 @@ Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjz
 
 ## 构建及发布
 
-入口 `.github/workflows/android-release.yml` 使用固定提交的官方 Actions、GitHub 公开仓库 runner 和最小权限。`main` 或 `android/**` 分支 push，以及涉及 Android/此工作流的 PR，先运行不读取 Secrets 的 debug 单测、lint 和组装；fork PR 不接触签名作业。手动 workflow_dispatch 只构建签名制品供审阅；只有新的 `android-vX.Y.Z` tag 才进入发布作业。首次 push/tag 前需主会话审阅和授权。不得覆盖已有 tag、Release 或附件，工作流不使用 clobber。
+当前发布流程约束：Android CI 与 Release 分离。`.github/workflows/android-ci.yml` 仅在 Android 相关路径变更时运行不读取 Secrets 的 debug 单测、lint 和组装；`.github/workflows/android-release.yml` 只响应新的 `android-vX.Y.Z` tag，执行签名构建、协议门禁和独立 Release 发布。两者都不在 GitHub 托管 runner 上运行 Android 模拟器；需要设备或安装升级回归时使用本地固定 AVD 脚本完成。发布 job 只构建 Android 必要工件，不构建后端或其他平台。
 
-Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properties 固定官方 distributionSha256Sum；这两个摘要与 workflow 一起审阅。SDK platform 固定 android-36、build-tools 固定 36.0.0，通过 sdkmanager 幂等安装。协议单测在 debug verify 作业完成（允许仅本机模拟 HTTP）；release 作业运行 lintRelease、assembleRelease，不为通过测试放宽 release 网络安全策略；随后用 Android 官方 apksigner 验证实际 APK 签名并与上面的固定证书指纹比较，用 aapt 验证包名、版本、minSdk 和非 debuggable。metadata 来自实际验证的 APK。发布作业只下载这份构建制品并检查 SHA256SUMS，不重新构建。只有 Android tag 才继续执行升级回归：下载不可变的 `android-v0.1.8` 基线，在隔离模拟器中安装 code10，再用同一批真实签名的下一版本 APK 完成 manifest 发现、HTTP 下载、摘要、签名和 `adb install -r` 升级；回归通过后才允许 publish job。只发布独立 Android Release，不更换运行中的服务端镜像。
+本地脚本 `scripts/release/android_local_preflight.ps1` 在 SDK、ADB 和选定 AVD 可用时执行必要的 debug smoke；涉及更新器或安装升级的变更，再使用本地真实签名工件执行完整升级回归。缺少必要依赖时必须先确认，不自动安装或静默跳过。
 
-新 Release 包含 `ezbookkeeping-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流在生成真实清单后使用 `scripts/release/validate_android_update.py` 按客户端同一文件名、路径、摘要和清单规则复核，并在发布 job 再次复核；工作流只使用免费公开 runner，不启用付费 runner、缓存或额外服务。
+Android tag、Release 和附件均不可覆盖；发布命令使用 `--verify-tag`，遇到已存在的 Release 直接失败，不通过新版本号反复试错。
+
+Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properties 固定官方 distributionSha256Sum；这两个摘要与 workflow 一起审阅。SDK platform 固定 android-36、build-tools 固定 36.0.0，通过 sdkmanager 幂等安装。协议单测在 Android CI 完成；release 作业运行 lintRelease、assembleRelease，不为通过测试放宽 release 网络安全策略；随后用 Android 官方 apksigner 验证实际 APK 签名并与固定证书指纹比较，用 aapt 验证包名、版本、minSdk 和非 debuggable。metadata 来自实际 APK。发布作业只下载这份构建制品并检查 SHA256SUMS，不重新构建、不构建后端或其他平台。模拟器回归不放在 GitHub Actions 中。只发布独立 Android Release，不更换运行中的服务端镜像。
+
+新 Release 包含 `ezbookkeeping-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流在生成真实清单后使用 `scripts/release/validate_android_update.py` 按客户端同一文件名、路径、摘要和清单规则复核，并在发布 job 再次复核；工作流只使用免费公开 runner，不启用付费 runner、托管模拟器或额外服务。
 
 ## 与 Webapp 发布协调
 
