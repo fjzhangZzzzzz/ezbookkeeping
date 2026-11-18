@@ -198,10 +198,10 @@ jobs:
           y
           y
           EOF
-          timeout 12m "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" platform-tools emulator 'build-tools;36.0.0' 'system-images;android-35;google_apis;arm64-v8a'
+          timeout 12m "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" platform-tools emulator 'build-tools;36.0.0' 'system-images;android-30;google_apis;x86'
           export ANDROID_AVD_HOME="$RUNNER_TEMP/family-avd"
           mkdir -p "$ANDROID_AVD_HOME"
-          echo no | "$AVD_MANAGER" create avd --force --name family-upgrade --package 'system-images;android-35;google_apis;arm64-v8a' --device pixel_2
+          echo no | "$AVD_MANAGER" create avd --force --name family-upgrade --package 'system-images;android-30;google_apis;x86' --device pixel_2
           "$AVD_MANAGER" list avd
       - name: Start emulator and run upgrade regression
         run: |
