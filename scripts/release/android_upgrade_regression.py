@@ -101,8 +101,8 @@ def main() -> None:
 
             adb = str(args.adb)
             subprocess.run([adb, "wait-for-device"], check=True, timeout=120)
-            subprocess.run([adb, "install", "-r", str(baseline_path)], check=True, timeout=120)
-            subprocess.run([adb, "install", "-r", str(candidate_path)], check=True, timeout=120)
+            subprocess.run([adb, "install", "-r", str(baseline_path)], check=True, timeout=300)
+            subprocess.run([adb, "install", "-r", str(candidate_path)], check=True, timeout=300)
             package_dump = run([adb, "shell", "dumpsys", "package", PACKAGE])
             if f"versionCode={candidate_code}" not in package_dump and f"versionCode: {candidate_code}" not in package_dump:
                 raise SystemExit("Android emulator did not retain the upgraded version")

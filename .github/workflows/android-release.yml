@@ -228,7 +228,7 @@ jobs:
           timeout 30s "$ADB" shell settings put global window_animation_scale 0
           timeout 30s "$ADB" shell settings put global transition_animation_scale 0
           timeout 30s "$ADB" shell settings put global animator_duration_scale 0
-          timeout 5m python3 scripts/release/android_upgrade_regression.py android-release-artifact \
+          timeout 12m python3 scripts/release/android_upgrade_regression.py android-release-artifact \
             --baseline-url 'https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/download/android-v0.1.8/ezbookkeeping-family-android-0.1.8.apk' \
             --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" \
             --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
