@@ -10,6 +10,7 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -43,6 +44,51 @@ def apk_info(path: Path, aapt: Path, apksigner: Path) -> tuple[str, int, str]:
     if not certificate or certificate.group(1).lower() != CERTIFICATE:
         raise SystemExit(f"APK signer mismatch: {path.name}")
     return match.group(1), int(match.group(2)), match.group(3)
+
+
+def install_apk(adb: str, path: Path, slot: str) -> None:
+    remote_path = f"/data/local/tmp/ezbookkeeping-upgrade-{slot}.apk"
+    push = subprocess.run(
+        [adb, "push", str(path), remote_path],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if push.returncode != 0:
+        raise SystemExit(f"could not push {path.name} to emulator: {push.stdout.strip()} {push.stderr.strip()}".strip())
+
+    try:
+        last_output = ""
+        for attempt in range(1, 4):
+            ready = subprocess.run(
+                [adb, "shell", "cmd", "package", "list", "packages"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if ready.returncode != 0:
+                last_output = f"package service readiness failed: {ready.stdout.strip()} {ready.stderr.strip()}".strip()
+                time.sleep(5)
+                continue
+
+            install = subprocess.run(
+                [adb, "shell", "pm", "install", "-r", remote_path],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            last_output = f"{install.stdout.strip()} {install.stderr.strip()}".strip()
+            if install.returncode == 0 and "Success" in last_output:
+                return
+            if attempt < 3:
+                time.sleep(10)
+
+        raise SystemExit(f"could not install {path.name} after 3 attempts: {last_output}")
+    finally:
+        subprocess.run([adb, "shell", "rm", "-f", remote_path], check=False, timeout=60)
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -101,8 +147,8 @@ def main() -> None:
 
             adb = str(args.adb)
             subprocess.run([adb, "wait-for-device"], check=True, timeout=120)
-            subprocess.run([adb, "install", "--no-streaming", "-r", str(baseline_path)], check=True, timeout=300)
-            subprocess.run([adb, "install", "--no-streaming", "-r", str(candidate_path)], check=True, timeout=300)
+            install_apk(adb, baseline_path, "baseline")
+            install_apk(adb, candidate_path, "candidate")
             package_dump = run([adb, "shell", "dumpsys", "package", PACKAGE])
             if f"versionCode={candidate_code}" not in package_dump and f"versionCode: {candidate_code}" not in package_dump:
                 raise SystemExit("Android emulator did not retain the upgraded version")
