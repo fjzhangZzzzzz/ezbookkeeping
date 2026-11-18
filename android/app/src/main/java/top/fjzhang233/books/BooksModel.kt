@@ -259,8 +259,10 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         externalLinked = api.externalAuthLinked()
         page = 1; val listed=api.ledgerPage(page,ledgerMonth,ledgerDay);transactions=listed.items;hasMoreTransactions=listed.hasMore;dailyAmounts=api.dailyAmounts(ledgerMonth)
         val today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));weeklyAmounts=api.dailyRange(BooksApi.dayBounds(today.minusDays(6).toString()).first,BooksApi.dayBounds(today.toString()).second)
-        family = api.family(month)
-        val result = api.familyTransactions(month, memberId=familyMemberId); familyItems = result.array("items"); familyCursor = result.optString("nextCursor")
+        // Family reports are loaded lazily by FamilyReportPage. Loading the
+        // legacy overview and its first transaction page here made every
+        // login/cold start scan the household history before the user asked
+        // for the family screen.
         if(accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation){
             transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
         }

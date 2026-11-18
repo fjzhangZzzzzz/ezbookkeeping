@@ -57,6 +57,52 @@ func (a *FamilyApi) TransactionsHandler(c *core.WebContext) (any, *errs.Error) {
 	return result, nil
 }
 
+func (a *FamilyApi) ReportHandler(c *core.WebContext) (any, *errs.Error) {
+	uid, authErr := familySessionUID(c)
+	if authErr != nil {
+		return nil, authErr
+	}
+	yearly := c.Query("yearly") == "true"
+	memberID := int64(0)
+	if rawMemberID := c.Query("member_id"); rawMemberID != "" {
+		var err error
+		memberID, err = utils.StringToInt64(rawMemberID)
+		if err != nil {
+			return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
+		}
+	}
+	result, serviceErr := services.Family.Report(c, uid, c.Query("period"), yearly, memberID)
+	if serviceErr != nil {
+		return nil, errs.Or(serviceErr, errs.ErrOperationFailed)
+	}
+	return result, nil
+}
+
+func (a *FamilyApi) ReportTransactionsHandler(c *core.WebContext) (any, *errs.Error) {
+	uid, authErr := familySessionUID(c)
+	if authErr != nil {
+		return nil, authErr
+	}
+	var request struct {
+		Period     string `form:"period"`
+		Yearly     bool   `form:"yearly"`
+		MemberID   int64  `form:"member_id,string"`
+		CategoryID int64  `form:"category_id,string"`
+		AccountID  int64  `form:"account_id,string"`
+		Date       string `form:"date"`
+		Cursor     string `form:"cursor"`
+		Count      int    `form:"count,default=30" binding:"min=1,max=200"`
+	}
+	if err := c.ShouldBindQuery(&request); err != nil {
+		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
+	}
+	result, serviceErr := services.Family.ReportTransactions(c, uid, request.Period, request.Yearly, request.MemberID, request.CategoryID, request.AccountID, request.Date, request.Cursor, request.Count)
+	if serviceErr != nil {
+		return nil, errs.Or(serviceErr, errs.ErrOperationFailed)
+	}
+	return result, nil
+}
+
 // CSV labels are untrusted dictionary/member names. Quoting alone does not stop spreadsheet formulas.
 func familyCSVText(text string) string {
 	trimmed := strings.TrimLeft(text, " \t\r\n")

@@ -145,7 +145,7 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
             else if (vm.token == null) LoginPage(vm)
             else when (route) {
                 AppRoute.SEARCH -> LedgerSearch(vm,{route=AppRoute.LEDGER}){item,close->LedgerTransactionDetails(vm,item,close)}
-                AppRoute.FAMILY -> FamilyPage(vm)
+                AppRoute.FAMILY -> FamilyPage(vm) { route = AppRoute.LEDGER }
                 AppRoute.SETTINGS -> SettingsPage(vm) { page -> route=when(page){"accounts"->AppRoute.ACCOUNTS;"catalog"->AppRoute.CATALOG;"sessions"->AppRoute.SESSIONS;"about"->AppRoute.ABOUT;else->AppRoute.SETTINGS}; if(page=="sessions")vm.getSessions() }
                 AppRoute.ACCOUNTS -> AccountsPage(vm)
                 AppRoute.CATALOG -> CatalogPage(vm)
@@ -319,57 +319,8 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     }
 }
 
-@Composable private fun FamilyPage(vm: BooksModel) {
-    var month by rememberSaveable(vm.month) { mutableStateOf(vm.month) }
-    var selected by remember { mutableStateOf<JSONObject?>(null) }
-    LazyColumn(Modifier.testTag("family-list"),contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(month, { month = it }, Modifier.weight(1f), label = { Text("月份 YYYY-MM") }, singleLine = true)
-            Button(onClick = { vm.changeMonth(month) }, enabled = !vm.busy) { Text("查看") }
-        } }
-        item { Choice("流水成员", listOf("0" to "全家") + vm.family.array("members").map { it.id() to it.optString("nickname") }, vm.familyMemberId, enabled=!vm.busy) { vm.changeFamilyMember(it) } }
-        item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("全家本月收支 · CNY", style = MaterialTheme.typography.titleMedium)
-                val total = vm.family.optJSONObject("totals") ?: JSONObject()
-                Text("支出 ¥${money(total.optString("expenseMinor", "0"))}", style = MaterialTheme.typography.headlineMedium)
-                Text("收入 ¥${money(total.optString("incomeMinor", "0"))}    结余 ¥${money(total.optString("netMinor", "0"))}")
-                Text("按 Asia/Shanghai 统计", style = MaterialTheme.typography.bodySmall)
-            }
-        } }
-        items(vm.family.array("members"), key = { "member" + it.id() }) { item ->
-            ListItem(headlineContent = { Text(item.optString("nickname")) }, supportingContent = { Text("收入 ¥${money(item.optString("incomeMinor"))} · 支出 ¥${money(item.optString("expenseMinor"))}") })
-        }
-        item { Text("家庭账户余额", style = MaterialTheme.typography.titleMedium) }
-        items(vm.family.array("accounts"), key = { "account" + it.id() }) { item ->
-            ListItem(modifier=Modifier.testTag("family-account-${item.id()}"),headlineContent = { Text(item.optString("name")) }, supportingContent = { Text(item.optString("ownerName")) }, trailingContent = { Text("${item.optString("currency")} ${money(item.optString("balanceMinor"))}") })
-        }
-        item { Text("每日统计", style = MaterialTheme.typography.titleMedium) }
-        if (vm.family.array("daily").isEmpty()) item { Text("本月暂无收支统计", style = MaterialTheme.typography.bodySmall) }
-        items(vm.family.array("daily"), key = { "day" + it.optString("date") }) { item ->
-            ListItem(headlineContent={Text(item.optString("date"))}, supportingContent={Text("收 ¥${money(item.optString("incomeMinor"))} · 支 ¥${money(item.optString("expenseMinor"))}")}, trailingContent={Text("¥${money(item.optString("netMinor"))}")})
-        }
-        item { Text("分类报表", style = MaterialTheme.typography.titleMedium) }
-        items(vm.family.array("categories"), key = { "category" + it.id() }) { item ->
-            ListItem(headlineContent={Text(item.optString("name").ifBlank{"未分类"})}, supportingContent={Text("收 ¥${money(item.optString("incomeMinor"))} · 支 ¥${money(item.optString("expenseMinor"))}")})
-        }
-        item { Text("家庭流水 · 共享查看", style = MaterialTheme.typography.titleMedium) }
-        if (vm.familyItems.isEmpty()) item { EmptyState("本月还没有家庭流水", "活跃成员的流水将在这里汇总。") }
-        items(vm.familyItems, key = { "transaction" + it.id() }) { item ->
-            Card(Modifier.fillMaxWidth().clickable { selected = item }) {
-                ListItem(headlineContent = { Text(item.optString("categoryName")) }, supportingContent = { Text(item.optString("ownerName") + " · " + item.optString("comment").ifBlank { item.optString("accountName") }) }, trailingContent = { Text("${item.optString("currency").ifBlank { "CNY" }} ${money(item.optString("amountMinor"))}") })
-            }
-        }
-        if (vm.familyItems.isNotEmpty()) item { TextButton(onClick = vm::moreFamily, enabled = !vm.busy) { Text("更多家庭流水") } }
-    }
-    selected?.let { item -> AlertDialog(onDismissRequest = { selected = null }, title = { Text(item.optString("categoryName")) }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(item.optString("ownerName") + " · " + displayTime(item.optLong("time")))
-            Text("${item.optString("currency").ifBlank { "CNY" }} ${money(item.optString("amountMinor"))}")
-            Text(item.optString("comment")); Text("家庭共享仅查看；编辑自己的流水请前往「流水」。", style = MaterialTheme.typography.bodySmall)
-            item.array("pictures").forEach { Picture(vm, "/api/v1/family/pictures/${it.id()}.${it.optString("extension")}") }
-        }
-    }, confirmButton = { TextButton(onClick = { selected = null }) { Text("关闭") } }) }
+@Composable private fun FamilyPage(vm: BooksModel, dismiss: () -> Unit) {
+    FamilyReportPage(vm, dismiss)
 }
 
 @Composable internal fun Picture(vm: BooksModel, path: String) {
@@ -436,7 +387,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     }) { Text("确认撤销") } }, dismissButton = { TextButton(onClick = { revoke = null; others = false }) { Text("取消") } })
 }
 
-@Composable private fun Choice(label: String, values: List<Pair<String, String>>, value: String, enabled: Boolean = true, choose: (String) -> Unit) {
+@Composable internal fun Choice(label: String, values: List<Pair<String, String>>, value: String, enabled: Boolean = true, choose: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
         Text(label + "：" + (values.firstOrNull { it.first == value }?.second ?: "请选择"), Modifier.weight(1f)); Icon(Icons.Outlined.ExpandMore, null)

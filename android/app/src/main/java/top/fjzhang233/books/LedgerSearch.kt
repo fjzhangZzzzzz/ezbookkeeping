@@ -112,8 +112,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
     val groups=remember(rows,group){rows.groupBy{when(group){"none"->"";"month"->YearMonth.from(searchRowDay(it)).toString();else->searchRowDay(it).toString()}}}
     Surface(Modifier.fillMaxSize(),color=ledgerColors.background,contentColor=ledgerColors.text){
         BackHandler{if(panel!=null)panel=null else dismiss()}
-        Column(Modifier.fillMaxSize().systemBarsPadding()){
-                Row(Modifier.fillMaxWidth().heightIn(min=56.dp),verticalAlignment=Alignment.CenterVertically){IconButton(onClick=dismiss){Icon(Icons.Outlined.ArrowBack,"返回")};Text("搜索",Modifier.padding(start=8.dp),fontWeight=FontWeight.Bold,fontSize=20.sp)}
+        Column(Modifier.fillMaxSize()){
                 Row(Modifier.fillMaxWidth()){
                     SearchDrop(searchDateLabel(filter),panel=="date",Modifier.weight(1f)){panel=if(panel=="date")null else "date"}
                     SearchDrop(if(filter.accountIds.isEmpty())"全部账户" else "${filter.accountIds.size}个账户",panel=="accounts",Modifier.weight(1f)){panel=if(panel=="accounts")null else "accounts"}

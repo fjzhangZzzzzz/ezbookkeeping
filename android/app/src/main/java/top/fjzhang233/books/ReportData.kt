@@ -62,6 +62,24 @@ internal suspend fun BooksApi.reportCategoryPage(period:ReportPeriod,categoryId:
     require(Regex("[1-9][0-9]*").matches(categoryId))
     return reportTransactionPage(period,accounts,page,filter,setOf(categoryId))
 }
+
+internal fun familyReportSnapshot(payload:JSONObject, period:ReportPeriod):ReportSnapshot {
+    val categories = payload.array("categories").map { row ->
+        JSONObject().put("id", row.id()).put("name", row.optString("name").ifBlank { "未分类" }).put("type", row.optInt("type")).put("icon", row.optString("icon", "1")).put("iconType", row.optInt("iconType")).put("color", row.optString("color"))
+    }
+    val categoryById = categories.associateBy { it.id() }
+    val previous = payload.array("categories").associate { row -> row.id() to row.optString("previousAmountMinor", "0").toBigInteger() }
+    val dayRows = payload.array("days").associateBy { java.time.LocalDate.parse(it.getString("date")) }
+    val days = (0 until period.days).map { offset ->
+        val date = period.first.plusDays(offset.toLong())
+        val row = dayRows[date]
+        ReportDay(date, row?.optString("incomeMinor", "0")?.toBigInteger() ?: BigInteger.ZERO, row?.optString("expenseMinor", "0")?.toBigInteger() ?: BigInteger.ZERO)
+    }
+    return ReportSnapshot(period, days, payload.array("categories").mapNotNull { row ->
+        val category = categoryById[row.id()] ?: return@mapNotNull null
+        ReportCategory(category, row.optString("amountMinor", "0").toBigInteger(), previous[row.id()] ?: BigInteger.ZERO)
+    }, payload.optBoolean("hasExcludedForeignCurrency"))
+}
 /** Same CNY/Shanghai/account/category/tag scope as the clicked daily summary, with full server count. */
 internal suspend fun BooksApi.reportDayPage(date:LocalDate,accounts:List<JSONObject>,categories:List<JSONObject>,page:Int,filter:ReportFilter=ReportFilter()):Pair<List<JSONObject>,Long>{
     val flowCategories=categories.filter{it.optInt("type") in 1..2&&it.id("parentId")!="0"&&filter.acceptsCategory(it.id())}.map{it.id()}.toSet()

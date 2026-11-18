@@ -3,8 +3,10 @@
 package services
 
 import (
+	"encoding/base64"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mayswind/ezbookkeeping/pkg/datastore"
@@ -64,6 +66,24 @@ func TestFamilySQLiteIndependentQA(t *testing.T) {
 	require.Equal(t, "-500", overview.Categories[0].ExpenseMinor)
 	require.Equal(t, 1, overview.ExcludedForeignTransactions)
 	require.True(t, overview.HasExcludedForeignCurrency)
+	report, err := Family.Report(nil, 1, "2026-11", false, 0)
+	require.NoError(t, err)
+	require.Equal(t, "10000", report.IncomeMinor)
+	require.Equal(t, "500", report.ExpenseMinor)
+	require.Equal(t, "9500", report.NetMinor)
+	require.NotEmpty(t, report.Days)
+	require.True(t, report.ReadOnly)
+	memberReport, err := Family.Report(nil, 1, "2026-11", false, 2)
+	require.NoError(t, err)
+	require.Equal(t, "0", memberReport.IncomeMinor)
+	require.Equal(t, "500", memberReport.ExpenseMinor)
+	detail, err := Family.ReportTransactions(nil, 1, "2026-11", false, 2, 0, 0, "", "", 50)
+	require.NoError(t, err)
+	require.Len(t, detail.Items, 1)
+	require.Equal(t, int64(2), detail.Items[0].Id)
+	boundCursor := base64.RawURLEncoding.EncodeToString([]byte(strings.Join([]string{"2026-11", "false", "1", "0", "0", "", "0", "1"}, "\x1f")))
+	_, err = Family.ReportTransactions(nil, 1, "2026-11", false, 2, 0, 0, "", boundCursor, 1)
+	require.Error(t, err, "a report cursor must not be reusable for another member scope")
 	for _, uid := range []int64{0, 3, 4, 999} {
 		_, err := Family.Overview(nil, uid, "2026-11")
 		require.Error(t, err)

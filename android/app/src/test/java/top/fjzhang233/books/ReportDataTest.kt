@@ -74,6 +74,18 @@ class ReportDataTest {
         assertEquals(3,data.activeMonths);assertEquals(listOf("3月","2月","1月"),reportTableDays(data).map{it.first})
         assertEquals("0.38",reportAverage(BigInteger("75"),2));assertEquals("0.62",reportAverage(BigInteger("125"),2));assertEquals("-0.62",reportAverage(BigInteger("-125"),2))
     }
+    @Test fun familyReportPayloadUsesPersonalReportShapeAndExactMoney(){
+        val payload=JSONObject("""
+            {"hasExcludedForeignCurrency":true,"categories":[
+              {"id":"10","name":"餐饮","type":2,"icon":"1","amountMinor":"125","previousAmountMinor":"100"},
+              {"id":"11","name":"工资","type":1,"icon":"1","amountMinor":"900","previousAmountMinor":"800"}],
+             "days":[{"date":"2024-02-01","incomeMinor":"900","expenseMinor":"125"}]}
+        """.trimIndent())
+        val data=familyReportSnapshot(payload,ReportPeriod(YearMonth.of(2024,2)))
+        assertTrue(data.excludedForeign);assertEquals(BigInteger("900"),data.income);assertEquals(BigInteger("125"),data.expense)
+        assertEquals(BigInteger("125"),data.ranking(2).single().amount);assertEquals(BigInteger("100"),data.ranking(2).single().previous);assertEquals(29,data.days.size)
+        val yearly=familyReportSnapshot(payload,ReportPeriod(YearMonth.of(2024,2),true));assertEquals(366,yearly.days.size);assertEquals(BigInteger("900"),yearly.income)
+    }
     @Test fun axisTicksStayExactMonotonicAndCoverHugeAmounts(){
         for(top in listOf(BigInteger.ONE,BigInteger.valueOf(6),BigInteger("9007199254740993"))){
             val ticks=reportAxisTicks(top);assertEquals(BigInteger.ZERO,ticks.first());assertTrue(ticks.last()>=top);assertEquals(ticks.sorted().distinct(),ticks);assertTrue(ticks.size<=7)

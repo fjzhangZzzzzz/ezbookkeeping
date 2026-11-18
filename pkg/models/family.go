@@ -78,3 +78,36 @@ type FamilyTransactionPage struct {
 	Items      []FamilyTransaction `json:"items"`
 	NextCursor string              `json:"nextCursor"`
 }
+
+// FamilyReportCategory is the category projection consumed by the Android
+// report screen. Amounts are normalized to positive minor units for both
+// income and expense, matching the personal report contract.
+type FamilyReportCategory struct {
+	Id                  int64  `json:"id,string"`
+	Name                string `json:"name"`
+	Type                int    `json:"type"`
+	Icon                int64  `json:"icon,string"`
+	IconType            int    `json:"iconType"`
+	Color               string `json:"color"`
+	AmountMinor         string `json:"amountMinor"`
+	PreviousAmountMinor string `json:"previousAmountMinor"`
+}
+
+type FamilyReport struct {
+	Period                      string                 `json:"period"`
+	Yearly                      bool                   `json:"yearly"`
+	MemberId                    int64                  `json:"memberId,string"`
+	Timezone                    string                 `json:"timezone"`
+	Currency                    string                 `json:"currency"`
+	IncomeMinor                 string                 `json:"incomeMinor"`
+	ExpenseMinor                string                 `json:"expenseMinor"`
+	NetMinor                    string                 `json:"netMinor"`
+	AverageExpenseMinor         string                 `json:"averageExpenseMinor"`
+	Days                        []FamilyDaySummary     `json:"days"`
+	Categories                  []FamilyReportCategory `json:"categories"`
+	Members                     []FamilyMemberSummary  `json:"members"`
+	Accounts                    []FamilyAccount        `json:"accounts"`
+	HasExcludedForeignCurrency  bool                   `json:"hasExcludedForeignCurrency"`
+	ExcludedForeignTransactions int                    `json:"excludedForeignTransactions"`
+	ReadOnly                    bool                   `json:"readOnly"`
+}

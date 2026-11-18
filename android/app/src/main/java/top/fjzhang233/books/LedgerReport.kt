@@ -125,7 +125,7 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
     }
         }
 }
-@Composable private fun ReportCard(title:String,actions:(@Composable RowScope.()->Unit)?=null,content:@Composable ColumnScope.()->Unit){
+@Composable internal fun ReportCard(title:String,actions:(@Composable RowScope.()->Unit)?=null,content:@Composable ColumnScope.()->Unit){
     Surface(shape=RoundedCornerShape(8.dp),color=reportSurface){Column(Modifier.fillMaxWidth().padding(12.dp),horizontalAlignment=Alignment.CenterHorizontally){
         if(title.isNotEmpty())Box(Modifier.fillMaxWidth().height(36.dp),contentAlignment=Alignment.TopCenter){
             Text(title,fontSize=16.sp,lineHeight=24.sp,fontWeight=FontWeight.Bold,color=ledgerColors.text)
@@ -134,8 +134,8 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
         content()
     }}
 }
-@Composable private fun ReportMetric(label:String,value:String,modifier:Modifier){Column(modifier.padding(vertical=6.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(label,color=reportMuted,fontSize=14.sp,lineHeight=20.sp);Text(value,fontSize=16.sp,lineHeight=20.sp,fontWeight=FontWeight.Bold,color=ledgerColors.text)}}
-@Composable private fun ReportSegments(labels:List<String>,selected:Int,group:String="generic",choose:(Int)->Unit){
+@Composable internal fun ReportMetric(label:String,value:String,modifier:Modifier){Column(modifier.padding(vertical=6.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(label,color=reportMuted,fontSize=14.sp,lineHeight=20.sp);Text(value,fontSize=16.sp,lineHeight=20.sp,fontWeight=FontWeight.Bold,color=ledgerColors.text)}}
+@Composable internal fun ReportSegments(labels:List<String>,selected:Int,group:String="generic",choose:(Int)->Unit){
     val period=group=="period";val shape=if(period)RoundedCornerShape(8.dp)else CircleShape
     Box(Modifier.height(48.dp),contentAlignment=Alignment.Center){
         Box(Modifier.matchParentSize().padding(vertical=7.dp).background(if(period)ledgerColors.background else ledgerColors.background,shape))
@@ -150,7 +150,7 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
     }
 }
 internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,BigInteger>> = if(data.period.yearly&&!data.period.custom)data.days.groupBy{it.date.monthValue}.filterValues{rows->rows.any{it.active}}.toSortedMap(compareByDescending{it}).map{(month,rows)->Triple("${month}月",rows.fold(BigInteger.ZERO){s,r->s+r.income},rows.fold(BigInteger.ZERO){s,r->s+r.expense})} else data.days.filter{it.active}.asReversed().map{Triple(it.date.toString().substring(5),it.income,it.expense)}
-@Composable private fun ReportTableRow(date:String,income:String,expense:String,net:String,header:Boolean=false,modifier:Modifier=Modifier,onClick:(()->Unit)?=null){
+@Composable internal fun ReportTableRow(date:String,income:String,expense:String,net:String,header:Boolean=false,modifier:Modifier=Modifier,onClick:(()->Unit)?=null){
     Row(modifier.fillMaxWidth().then(if(onClick!=null)Modifier.clickable(role=androidx.compose.ui.semantics.Role.Button,onClick=onClick)else Modifier).padding(vertical=12.dp),verticalAlignment=Alignment.CenterVertically){
         listOf(date,income,expense,net).forEachIndexed{index,value->Text(value,Modifier.weight(1f),fontSize=if(header)14.sp else 13.sp,fontWeight=if(header)FontWeight.Bold else FontWeight.Normal,color=if(!header&&index==3){if(value.startsWith("-"))reportRed else reportGreen}else ledgerColors.text,textAlign=androidx.compose.ui.text.style.TextAlign.Center)}
     }
@@ -175,7 +175,7 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
     }}
     selected?.let{row->LedgerTransactionDetails(vm,row){selected=null;refresh()}}
 }
-@Composable private fun ReportPeriodChooser(period:ReportPeriod,dismiss:()->Unit,choose:(YearMonth)->Unit){
+@Composable internal fun ReportPeriodChooser(period:ReportPeriod,dismiss:()->Unit,choose:(YearMonth)->Unit){
     var year by remember{mutableIntStateOf(period.month.year)}
     AlertDialog(
         onDismissRequest=dismiss,

@@ -337,6 +337,8 @@ func startWebServer(c *core.CliContext) error {
 			// The single-household view is read-only and only available to interactive sessions.
 			apiV1Route.GET("/family/overview.json", bindApi(api.Family.OverviewHandler, config, core.USER_TOKEN_TYPE_NORMAL))
 			apiV1Route.GET("/family/transactions/list.json", bindApi(api.Family.TransactionsHandler, config, core.USER_TOKEN_TYPE_NORMAL))
+			apiV1Route.GET("/family/report.json", bindApi(api.Family.ReportHandler, config, core.USER_TOKEN_TYPE_NORMAL))
+			apiV1Route.GET("/family/report/transactions.json", bindApi(api.Family.ReportTransactionsHandler, config, core.USER_TOKEN_TYPE_NORMAL))
 			apiV1Route.GET("/family/export.csv", bindCsv(api.Family.ExportHandler, config))
 			apiV1Route.GET("/family/pictures/:fileName", bindImage(api.Family.PictureHandler, config))
 

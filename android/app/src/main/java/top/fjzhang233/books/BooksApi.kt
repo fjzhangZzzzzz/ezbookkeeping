@@ -157,6 +157,23 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
     }
     suspend fun family(month: String) = call("/api/v1/family/overview.json?month=$month") as JSONObject
     suspend fun familyTransactions(month: String, cursor: String = "", memberId: String = "0") = call("/api/v1/family/transactions/list.json?month=$month&member_id=$memberId&cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}") as JSONObject
+    internal suspend fun familyReport(period: ReportPeriod, memberId: String = "0"): JSONObject {
+        val value = if (period.yearly && !period.custom) period.month.year.toString() else period.month.toString()
+        return call("/api/v1/family/report.json?period=$value&yearly=${period.yearly && !period.custom}&member_id=${java.net.URLEncoder.encode(memberId, "UTF-8")}") as JSONObject
+    }
+    internal suspend fun familyReportTransactions(period: ReportPeriod, memberId: String = "0", date: String = "", categoryId: String = "", accountId: String = "", cursor: String = ""): JSONObject {
+        val value = if (period.yearly && !period.custom) period.month.year.toString() else period.month.toString()
+        val params = listOf(
+            "period=${java.net.URLEncoder.encode(value, "UTF-8")}",
+            "yearly=${period.yearly && !period.custom}",
+            "member_id=${java.net.URLEncoder.encode(memberId, "UTF-8")}",
+            "date=${java.net.URLEncoder.encode(date, "UTF-8")}",
+            "category_id=${java.net.URLEncoder.encode(categoryId, "UTF-8")}",
+            "account_id=${java.net.URLEncoder.encode(accountId, "UTF-8")}",
+            "cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}",
+        ).joinToString("&")
+        return call("/api/v1/family/report/transactions.json?$params") as JSONObject
+    }
     companion object {
         fun dayBounds(day:String):Pair<Long,Long>{val value=java.time.LocalDate.parse(day);val zone=ZoneId.of("Asia/Shanghai");return value.atStartOfDay(zone).toEpochSecond() to value.plusDays(1).atStartOfDay(zone).toEpochSecond()-1}
         fun monthBounds(month:String):Pair<Long,Long> {
