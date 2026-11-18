@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -264,9 +266,13 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
     LaunchedEffect(period,page,retry){
         loading=true;failure=""
         try{
-            val next=if(page==1)vm.api.report(period,vm.accounts,vm.categories,selectedFilter)else data
-            val(result,count)=vm.api.reportCategoryPage(period,category.category.id(),vm.accounts,page,selectedFilter)
-            data=next;rows=if(page==1)result else(rows+result).distinctBy{it.id()};total=count
+            if(page==1){
+                val(next,pageResult)=coroutineScope{val snapshot=async{vm.api.report(period,vm.accounts,vm.categories,selectedFilter)};val details=async{vm.api.reportCategoryPage(period,category.category.id(),vm.accounts,page,selectedFilter)};snapshot.await() to details.await()}
+                data=next;rows=pageResult.first;total=pageResult.second
+            }else{
+                val(result,count)=vm.api.reportCategoryPage(period,category.category.id(),vm.accounts,page,selectedFilter)
+                rows=(rows+result).distinctBy{it.id()};total=count
+            }
         }catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="分类统计加载失败，请重试"}finally{loading=false}
     }
     Dialog(onDismissRequest=dismiss,properties=DialogProperties(usePlatformDefaultWidth=false)){

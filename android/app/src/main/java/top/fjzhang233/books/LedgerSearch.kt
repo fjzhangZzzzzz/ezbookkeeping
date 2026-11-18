@@ -107,7 +107,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
         }
     }
     LaunchedEffect(Unit){if(cached==null||System.currentTimeMillis()-cached.storedAt>5*60_000)runSearch()}
-    LaunchedEffect(vm.showEditor){if(!vm.showEditor&&items.isNotEmpty())runSearch()}
+    LaunchedEffect(vm.searchInvalidation){if(vm.searchInvalidation>0&&!vm.showEditor&&items.isNotEmpty())runSearch()}
     val rows=remember(items,ascending){items.sortedWith(if(ascending)compareBy<JSONObject>{it.optLong("time")}.thenBy{it.id()}else compareByDescending<JSONObject>{it.optLong("time")}.thenByDescending{it.id()})}
     val groups=remember(rows,group){rows.groupBy{when(group){"none"->"";"month"->YearMonth.from(searchRowDay(it)).toString();else->searchRowDay(it).toString()}}}
     Surface(Modifier.fillMaxSize(),color=ledgerColors.background,contentColor=ledgerColors.text){

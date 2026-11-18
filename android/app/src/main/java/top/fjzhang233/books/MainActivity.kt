@@ -345,6 +345,8 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
 
 @Composable private fun SettingsPage(vm: BooksModel, navigate: (String) -> Unit) {
     var logoutConfirm by remember { mutableStateOf(false) }
+    var showPerformance by remember { mutableStateOf(false) }
+    val context=LocalContext.current
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ThemeSettings()
         Text("你好，${vm.nickname}", style = MaterialTheme.typography.headlineSmall)
@@ -367,10 +369,12 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
             trailingContent = { Switch(checked=vm.instantEntry,onCheckedChange=vm::updateInstantEntry,enabled=!vm.busy) },
         ) }
         OutlinedCard(onClick = { navigate("about") }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text("关于") }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
+        OutlinedCard(onClick = { showPerformance = true }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text("性能诊断") }, supportingContent = { Text("仅保存在本机，用于排查启动和保存耗时") }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
         OutlinedButton(onClick = { logoutConfirm = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("退出登录") }
     }
     if (logoutConfirm) AlertDialog(onDismissRequest = { logoutConfirm = false }, title = { Text("退出此设备？") }, text = { Text("退出会撤销此设备当前会话。其他设备可在登录设备页管理。") },
         confirmButton = { TextButton(onClick = { logoutConfirm = false; vm.logout() }, enabled = !vm.busy) { Text("退出") } }, dismissButton = { TextButton(onClick = { logoutConfirm = false }) { Text("取消") } })
+    if(showPerformance)AlertDialog(onDismissRequest={showPerformance=false},title={Text("性能诊断")},text={Column(Modifier.verticalScroll(rememberScrollState())){Text(vm.performanceDiagnosticsText(),fontSize=11.sp,fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)}},confirmButton={Row{TextButton(onClick={showPerformance=false}){Text("关闭")};TextButton(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT,vm.performanceDiagnosticsText()),"导出性能诊断"))}){Text("导出")}}},dismissButton={TextButton(onClick={vm.clearPerformanceDiagnostics();showPerformance=false}){Text("清理")}})
 }
 
 @Composable private fun SessionsPage(vm: BooksModel) {
@@ -437,7 +441,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     var showHidden by rememberSaveable { mutableStateOf(false) }
     val currentItems=when(section){0->vm.categories;1->vm.tags;else->vm.tagGroups}
     val editing=currentItems.firstOrNull{it.id()==editingId} ?: editingSnapshot.takeIf{editingId.isNotEmpty() && it.isNotEmpty()}?.let{JSONObject(it)}
-    LaunchedEffect(Unit) { vm.refreshCategories() }
+    LaunchedEffect(Unit) { vm.refreshCategoriesIfStale() }
     Column {
         EntityWriteWarning(vm)
         TabRow(selectedTabIndex = section) { listOf("分类", "标签", "标签组").forEachIndexed { index, text -> Tab(section == index, { section = index }, enabled=!vm.busy, text = { Text(text) }) } }

@@ -8,6 +8,13 @@ import java.io.IOException
 
 class TransactionSubmissionTest {
     private class Memory:TransactionRequestStorage {var value:String?=null;override fun read()=value;override fun write(value:String){this.value=value};override fun clear(){value=null}}
+    private class PendingIndex:PendingTransactionIndex {
+        val values=linkedSetOf<String>()
+        override fun hasAny()=values.isNotEmpty()
+        override fun contains(uid:String)=uid in values
+        override fun add(uid:String){values+=uid}
+        override fun remove(uid:String){values-=uid}
+    }
     private val origin="https://books.fjzhang233.top"
     private fun body()=JSONObject("""{"type":3,"sourceAccountId":"10","sourceAmount":1,"clientSessionId":"synthetic-original","pictureIds":["50"],"comment":"synthetic-original"}""")
     @Test fun durableOriginalSurvivesReconstructionAndCannotBeEditedOrCleanedBeforeAck()=runBlocking {
@@ -128,6 +135,34 @@ class TransactionSubmissionTest {
         identity=SubmissionIdentity("2",setOf("20"),mapOf("20" to SubmissionAccount("另一账户","CNY")));selected.clear()
         assertNull(submission.restore());assertEquals(listOf("2"),selected);assertNull(submission.confirmationView());assertFalse(submission.needsConfirmation)
         submission.requireEditable();assertEquals(value,original.value)
+    }
+
+    @Test fun emptyPendingIndexAvoidsIdentityNetworkCallOnNormalStartup()=runBlocking {
+        val index=PendingIndex();var identified=0
+        val submission=TransactionSubmission(origin,{identified++;SubmissionIdentity("1",setOf("10"))},{Memory()},{_,_->JSONObject() },index)
+        assertNull(submission.restore());assertEquals(0,identified);assertFalse(submission.hasPendingCandidate())
+    }
+
+    @Test fun pendingForAnotherUserDoesNotReadOrDisplayOriginalBody()=runBlocking {
+        val index=PendingIndex();val original=Memory();var identity=SubmissionIdentity("1",setOf("10"));var reads=0
+        val submission=TransactionSubmission(origin,{identity},{uid->if(uid=="1")reads++;original},{_,_->throw IOException("synthetic disconnect")},index)
+        try{submission.submit("/api/v1/transactions/add.json",body(),false)}catch(_:IOException){}
+        assertTrue(index.contains("1"));identity=SubmissionIdentity("2",setOf("20"));reads=0
+        assertNull(submission.restore());assertEquals(0,reads);assertTrue(index.contains("1"));assertFalse(submission.needsConfirmation)
+        assertEquals("synthetic-original",JSONObject(JSONObject(checkNotNull(original.value)).getString("body")).getString("comment"))
+    }
+
+    @Test fun stalePendingIndexIsRemovedWhenEncryptedBodyIsMissing()=runBlocking {
+        val index=PendingIndex();index.add("1");var identified=0
+        val submission=TransactionSubmission(origin,{identified++;SubmissionIdentity("1",setOf("10"))},{Memory()},{_,_->JSONObject() },index)
+        assertNull(submission.restore());assertEquals(1,identified);assertFalse(index.hasAny());assertFalse(submission.needsConfirmation)
+    }
+
+    @Test fun preparedIdentityIsReusedForTheSameSaveAndClearedOnDetach()=runBlocking {
+        val index=PendingIndex();val store=Memory();var identified=0
+        val submission=TransactionSubmission(origin,{identified++;SubmissionIdentity("1",setOf("10"))},{store},{_,_->JSONObject("{\"id\":\"100\"}")},index)
+        submission.prepare(body());assertEquals(1,identified);submission.submit("/api/v1/transactions/add.json",body(),false);assertEquals(1,identified)
+        submission.detachForLogout();submission.prepare(body());assertEquals(2,identified)
     }
 
 }

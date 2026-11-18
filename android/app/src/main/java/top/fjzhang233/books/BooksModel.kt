@@ -1,13 +1,18 @@
 package top.fjzhang233.books
 
 import android.app.Application
+import android.content.SharedPreferences
 import android.net.Uri
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,6 +24,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicLong
 import android.util.Base64
 
 /** A committed write must never look like a failed write merely because the follow-up read failed. */
@@ -27,11 +33,25 @@ internal suspend fun commitThenRefresh(commit: suspend () -> Unit, afterCommit: 
     return try { refresh(); true } catch(e:CancellationException) { throw e } catch(e:Exception) { if(e is ApiFailure && e.sessionExpired) throw e; false }
 }
 
+/** Origin-scoped durable index; request bodies remain encrypted in their per-user stores. */
+internal class SharedPreferencesPendingTransactionIndex(private val preferences:SharedPreferences):PendingTransactionIndex {
+    private val key="uids"
+    private fun values():MutableSet<String> = preferences.getStringSet(key,emptySet()).orEmpty().toMutableSet()
+    @Synchronized override fun hasAny()=values().isNotEmpty()
+    @Synchronized override fun contains(uid:String)=uid in values()
+    @Synchronized override fun add(uid:String){preferences.edit().putStringSet(key,values().apply{add(uid)}).commit()}
+    @Synchronized override fun remove(uid:String){preferences.edit().putStringSet(key,values().apply{remove(uid)}).commit()}
+}
+
 class BooksModel(app: Application) : AndroidViewModel(app) {
     private val store = TokenStore(app)
+    private val diagnostics=PerformanceDiagnostics(app)
     private val preferences = app.getSharedPreferences("family-books-preferences-v1", 0)
+    private val originScope = MessageDigest.getInstance("SHA-256").digest(BuildConfig.API_BASE_URL.trimEnd('/').toByteArray()).joinToString(""){ "%02x".format(it) }
+    private val pendingTransactionIndex = SharedPreferencesPendingTransactionIndex(app.getSharedPreferences("pending-transaction-index-$originScope",0))
+    private val criticalDataCache=CriticalDataCache(app,originScope)
     var token by mutableStateOf(store.read()); private set
-    val api = BooksApi(BuildConfig.API_BASE_URL) { token }
+    val api = BooksApi(BuildConfig.API_BASE_URL, onTiming={ name,duration -> diagnostics.record("api.$name",duration) }) { token }
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf(""); private set
     var notice by mutableStateOf(""); private set
@@ -52,10 +72,14 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         }
         throw error
     }
-    private suspend fun loadCategories() {
+    private var categoriesRefreshedAt=0L
+    private suspend fun loadCategories(force:Boolean=true) {
+        if(!force && categories.isNotEmpty() && System.currentTimeMillis()-categoriesRefreshedAt<60_000)return
         val (rows,revision)=api.categorySnapshot(); categories=rows; categoryRevision=revision
+        categoriesRefreshedAt=System.currentTimeMillis()
     }
     fun refreshCategories() { if(token!=null && !busy) act { loadCategories() } }
+    internal fun refreshCategoriesIfStale() { if(token!=null && !busy) act { loadCategories(false) } }
     internal suspend fun refreshCategoriesNow() { loadCategories() }
     var tags by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var tagGroups by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -73,6 +97,8 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     internal var searchCache by mutableStateOf<LedgerSearchCache?>(null)
     var instantEntry by mutableStateOf(preferences.getBoolean("instant_entry", false)); private set
     private var initialLoadHandled = false
+    private var cachedEditorShown=false
+    private val cacheGeneration=AtomicLong(0)
     var editTransaction by mutableStateOf<JSONObject?>(null)
     var showEditor by mutableStateOf(false)
     var newTransactionDay by mutableStateOf<String?>(null); private set
@@ -86,13 +112,15 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private var newlyUploadedPictures=emptySet<String>()
     private val transactionSubmission=TransactionSubmission(
         BuildConfig.API_BASE_URL.trimEnd('/'),
-        identify={submissionIdentity(api.accounts(),api.family(BooksApi.month()).array("accounts"))},
+        identify={coroutineScope{val own=async(Dispatchers.IO){api.accounts()};val family=async(Dispatchers.IO){api.family(BooksApi.month()).array("accounts")};submissionIdentity(own.await(),family.await())}},
         storage={uid->
             val scope=MessageDigest.getInstance("SHA-256").digest((BuildConfig.API_BASE_URL.trimEnd('/')+"\n"+uid).toByteArray()).joinToString(""){"%02x".format(it)}
             val encrypted=TokenStore(app,"pending-transaction-$scope","pending-transaction-$scope")
             object:TransactionRequestStorage{override fun read()=encrypted.readChecked();override fun write(value:String)=encrypted.write(value);override fun clear()=encrypted.clearChecked()}
         },
-        send={path,body->api.call(path,body)}
+        send={path,body->api.call(path,body)},
+        pendingIndex=pendingTransactionIndex,
+        onTiming={name,duration->diagnostics.record("transaction.$name",duration)}
     )
     private val entityWrites=run {
         val scope=MessageDigest.getInstance("SHA-256").digest(BuildConfig.API_BASE_URL.trimEnd('/').toByteArray()).joinToString(""){"%02x".format(it)}
@@ -176,9 +204,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if(localCopyPictures.isEmpty()){copyCacheDirectory?.delete();copyCacheDirectory=null}
     }
     fun deleteTransaction(id:String,done:()->Unit={})=act {
-        var alreadyAbsent=false
-        val refreshed=commitThenRefresh({alreadyAbsent=deleteTransactionOrAlreadyAbsent(api,id)},{done();notice=if(alreadyAbsent)"这笔记录已不存在" else "已删除"},{loadAll()})
-        if(!refreshed)notice=if(alreadyAbsent)"这笔记录已不存在，数据刷新失败，可重试刷新" else "已删除，数据刷新失败，可重试刷新"
+        val alreadyAbsent=deleteTransactionOrAlreadyAbsent(api,id);done();notice=if(alreadyAbsent)"这笔记录已不存在" else "已删除";invalidateSearchCache();scheduleBackgroundRefresh()
     }
     var browserUrl by mutableStateOf<String?>(null)
     var oidcCallbackToken by mutableStateOf<String?>(null); private set
@@ -187,12 +213,29 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var externalLinked by mutableStateOf(false); private set
     var browserPending by mutableStateOf(false); private set
     private val operations = Mutex()
+    private var backgroundRefreshJob:Job?=null
     private var oidcLink = false
     private var page = 1
     private var familyCursor = ""
     private var refreshAt = 0L
     private val protectedFlow = TokenStore(app, "native-pkce", "native-flow")
-    init { browserPending=protectedFlow.read()!=null; if (token != null) reload() }
+    init { browserPending=protectedFlow.read()!=null; if (token != null) { restoreCriticalCache();startInitialLoad() } }
+
+    private fun restoreCriticalCache(){
+        val value=criticalDataCache.read();diagnostics.record("startup.cache",0,if(value==null)"miss" else "hit");value?:return
+        accounts=value.accounts;categories=value.categories;categoryRevision=value.revision;categoriesRefreshedAt=System.currentTimeMillis();pendingCheckReady=accounts.isNotEmpty()&&!transactionSubmission.hasPendingCandidate()
+        if(instantEntry&&pendingCheckReady){showEditor=true;initialLoadHandled=true;cachedEditorShown=true}
+    }
+    private fun startInitialLoad(){
+        if(cachedEditorShown){
+            viewModelScope.launch {
+                try{operations.withLock { loadCriticalData() };scheduleBackgroundRefresh()}catch(error:CancellationException){throw error}catch(error:ApiFailure){if(error.sessionExpired)localLogout(false);else this@BooksModel.error=error.message?:"请求未完成"}catch(_:Exception){this@BooksModel.error="网络暂不可用，请检查连接后重试"}
+            }
+        }else act {
+            loadCriticalData()
+            scheduleBackgroundRefresh()
+        }
+    }
 
     fun act(done: (() -> Unit)? = null, block: suspend () -> Unit) {
         busy = true; error = ""; notice = ""
@@ -215,7 +258,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if (result.optBoolean("need2FA")) { twoFactorToken = result.getString("token"); return }
         val value = result.optString("token"); require(value.isNotBlank()) { "未取得有效会话" }
         try { store.write(value) } catch(_:Exception) { runCatching { api.call("/api/logout.json",null,true,value) }; throw IllegalArgumentException("无法安全保存会话，请检查设备安全设置后重试") }
-        pendingCheckReady=false;token = value
+        cacheGeneration.incrementAndGet();criticalDataCache.clear();pendingCheckReady=false;token = value;refreshAt=System.currentTimeMillis();preferences.edit().putLong("last_session_refresh",refreshAt).apply()
         result.optJSONObject("user")?.let { user ->
             nickname = user.optString("nickname").ifBlank { "家人" }
             defaultAccountId = user.optString("defaultAccountId")
@@ -228,7 +271,8 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if (token != null) loadAll()
     }
     private suspend fun refreshSession() {
-        if (token == null || System.currentTimeMillis() - refreshAt < 30 * 60_000) return
+        val now=System.currentTimeMillis();val persisted=preferences.getLong("last_session_refresh",0L);if(refreshAt==0L)refreshAt=persisted
+        if (token == null || now - refreshAt < 30 * 60_000) return
         val data = api.refresh()
         data.optString("newToken").takeIf { it.isNotBlank() }?.let {
             store.write(it); token = it
@@ -238,47 +282,73 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
             nickname = user.optString("nickname", "家人")
             defaultAccountId = user.optString("defaultAccountId", defaultAccountId)
         }
-        refreshAt = System.currentTimeMillis()
+        refreshAt = System.currentTimeMillis();preferences.edit().putLong("last_session_refresh",refreshAt).apply()
     }
-    private suspend fun loadAll() {
-        searchCache = null
+    private suspend fun loadCriticalData() {
+        val criticalStarted=SystemClock.elapsedRealtime()
         if(entityWrites.blocked)entityWrites.invalidateIdentity()
         refreshSession()
-        accounts = api.accounts()
-        try {
-            api.userProfile().let { profile ->
-                defaultAccountId = profile.optString("defaultAccountId", defaultAccountId)
-                nickname = profile.optString("nickname", nickname)
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            // The account list remains usable when an optional profile refresh fails.
-        }
-        loadCategories(); tags = api.tags(); tagGroups = api.tagGroups()
-        externalLinked = api.externalAuthLinked()
-        page = 1; val listed=api.ledgerPage(page,ledgerMonth,ledgerDay);transactions=listed.items;hasMoreTransactions=listed.hasMore;dailyAmounts=api.dailyAmounts(ledgerMonth)
-        val today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));weeklyAmounts=api.dailyRange(BooksApi.dayBounds(today.minusDays(6).toString()).first,BooksApi.dayBounds(today.toString()).second)
-        // Family reports are loaded lazily by FamilyReportPage. Loading the
-        // legacy overview and its first transaction page here made every
-        // login/cold start scan the household history before the user asked
-        // for the family screen.
-        if(accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation){
+        val(loadedAccounts,loadedCategories)=coroutineScope{val accountRequest=async(Dispatchers.IO){api.accounts()};val categoryRequest=async(Dispatchers.IO){api.categorySnapshot()};accountRequest.await() to categoryRequest.await()}
+        accounts=loadedAccounts;categories=loadedCategories.first;categoryRevision=loadedCategories.second;categoriesRefreshedAt=System.currentTimeMillis()
+        diagnostics.record("startup.critical_data",SystemClock.elapsedRealtime()-criticalStarted)
+        if(accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation && transactionSubmission.hasPendingCandidate()){
             transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
         }
+        cachedEditorShown=false
         if(!initialLoadHandled && instantEntry && accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation) showEditor=true
+        diagnostics.record("startup.editor_gate",SystemClock.elapsedRealtime()-criticalStarted)
         initialLoadHandled=true
         pendingCheckReady=accounts.isNotEmpty()
-        if(entityWrites.blocked)entityWrites.refresh()
+        val generation=cacheGeneration.get();viewModelScope.launch(Dispatchers.IO){if(generation==cacheGeneration.get()&&token!=null)runCatching{criticalDataCache.write(accounts,categories,categoryRevision)}}
+        diagnostics.record("startup.critical",SystemClock.elapsedRealtime()-criticalStarted)
     }
+    private suspend fun loadBackgroundData()=coroutineScope {
+        val backgroundStarted=SystemClock.elapsedRealtime()
+        val profile=async(Dispatchers.IO){runOptional{api.userProfile()}}
+        val loadedTags=async(Dispatchers.IO){api.tags()}
+        val loadedTagGroups=async(Dispatchers.IO){api.tagGroups()}
+        val linked=async(Dispatchers.IO){api.externalAuthLinked()}
+        page=1
+        val listed=async(Dispatchers.IO){api.ledgerPage(page,ledgerMonth,ledgerDay)}
+        val daily=async(Dispatchers.IO){api.dailyAmounts(ledgerMonth)}
+        val today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
+        val weekly=async(Dispatchers.IO){api.dailyRange(BooksApi.dayBounds(today.minusDays(6).toString()).first,BooksApi.dayBounds(today.toString()).second)}
+        profile.await()?.let { value ->
+            defaultAccountId=value.optString("defaultAccountId",defaultAccountId)
+            nickname=value.optString("nickname",nickname)
+        }
+        tags=loadedTags.await();tagGroups=loadedTagGroups.await();externalLinked=linked.await()
+        listed.await().let{value->transactions=value.items;hasMoreTransactions=value.hasMore}
+        dailyAmounts=daily.await();weeklyAmounts=weekly.await()
+        if(entityWrites.blocked)entityWrites.refresh()
+        diagnostics.record("refresh.background",SystemClock.elapsedRealtime()-backgroundStarted)
+    }
+    private suspend fun <T> runOptional(block:suspend()->T):T?=try{block()}catch(error:CancellationException){throw error}catch(_:Exception){null}
+    private suspend fun loadAll() {
+        loadCriticalData()
+        loadBackgroundData()
+    }
+    private fun scheduleBackgroundRefresh(){
+        backgroundRefreshJob?.cancel()
+        backgroundRefreshJob=viewModelScope.launch {
+            operations.withLock {
+                if(token==null)return@withLock
+                try{loadBackgroundData()}catch(error:CancellationException){throw error}catch(error:ApiFailure){if(error.sessionExpired)localLogout(false);else this@BooksModel.error="已保存，数据刷新失败，可重试刷新"}catch(_:Exception){this@BooksModel.error="已保存，数据刷新失败，可重试刷新"}
+            }
+        }
+    }
+    private fun invalidateSearchCache(){searchCache=null;searchInvalidation++}
+    internal var searchInvalidation by mutableStateOf(0);private set
+    internal fun performanceDiagnosticsText():String=diagnostics.readRecent()
+    internal fun clearPerformanceDiagnostics(){diagnostics.clear()}
     fun dismissFeedback(value:String){if(error==value)error="";if(notice==value)notice=""}
     fun reload() = act { loadAll() }
     fun updateInstantEntry(enabled:Boolean){instantEntry=enabled;preferences.edit().putBoolean("instant_entry",enabled).apply()}
-    fun resume() { if (token != null && !busy) act { refreshSession(); loadCategories() } }
+    fun resume() { if (token != null && !busy) act { refreshSession(); loadCategories(false) } }
     fun loadMore() = act {if(!hasMoreTransactions)return@act;val result=api.ledgerPage(page+1,ledgerMonth,ledgerDay);hasMoreTransactions=result.hasMore;if(result.items.isNotEmpty()){page++;transactions=(transactions+result.items).distinctBy{it.id()}}}
     fun changeLedgerMonth(value:String)=act {
         java.time.YearMonth.parse(value)
-        val listed=api.ledgerPage(1,value);val rows=listed.items;val totals=api.dailyAmounts(value)
+        val(listed,totals)=coroutineScope{val rows=async{api.ledgerPage(1,value)};val amounts=async{api.dailyAmounts(value)};rows.await() to amounts.await()};val rows=listed.items
         ledgerMonth=value;ledgerDay=null;page=1;transactions=rows;hasMoreTransactions=listed.hasMore;dailyAmounts=totals
     }
     fun changeLedgerDay(value:String?)=act {
@@ -287,8 +357,8 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     }
     fun changeMonth(value: String) = act {
         require(runCatching { java.time.YearMonth.parse(value) }.isSuccess) { "请输入 YYYY-MM 格式月份" }
-        month = value; family = api.family(value)
-        val result = api.familyTransactions(value, memberId=familyMemberId); familyItems = result.array("items"); familyCursor = result.optString("nextCursor")
+        month = value;val(familyResult,transactionResult)=coroutineScope{val overview=async{api.family(value)};val rows=async{api.familyTransactions(value, memberId=familyMemberId)};overview.await() to rows.await()};family=familyResult
+        familyItems = transactionResult.array("items"); familyCursor = transactionResult.optString("nextCursor")
     }
     fun changeFamilyMember(value:String) = act {
         require(value == "0" || Regex("[1-9][0-9]*").matches(value)) { "成员筛选无效" }
@@ -315,18 +385,23 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         newlyUploadedPictures=newlyUploadedPictures-id;draftPictures=draftPictures-id;draftPreviews=draftPreviews-id
         discardNewPictures(unused)
     }
-    private suspend fun finishTransactionSave(keepOpen:Boolean,onSaved:()->Unit){
+    private suspend fun finishTransactionSave(keepOpen:Boolean,acknowledged:JSONObject?,onSaved:()->Unit){
+        val uiStarted=System.nanoTime()
         showEditor=keepOpen;editTransaction=null;val copied=copiedTransaction;clearTransactionDraft();if(keepOpen)copiedTransaction=copied
-        notice="已保存";onSaved()
-        try{loadAll()}catch(error:CancellationException){throw error}catch(error:Exception){if(error is ApiFailure && error.sessionExpired)throw error;notice="已保存，数据刷新失败，可重试刷新"}
+        if(!keepOpen&&acknowledged!=null)transactions=mergeAcknowledgedLedgerRow(transactions,acknowledged,ledgerMonth,ledgerDay)
+        onSaved();invalidateSearchCache();scheduleBackgroundRefresh()
+        diagnostics.record("transaction.ui_commit",(System.nanoTime()-uiStarted)/1_000_000)
     }
     fun saveTransaction(payload: JSONObject, existing: Boolean, keepOpen:Boolean=false, onSaved:()->Unit={}) = act {
-        transactionSubmission.requireEditable()
-        transactionSubmission.prepare(payload)
-        uploadLocalCopyPictures()
-        payload.put("pictureIds",JSONArray(draftPictures))
-        val acknowledged=try { transactionSubmission.submit("/api/v1/transactions/${if(existing)"modify" else "add"}.json",payload,keepOpen) } catch(error:ApiFailure) { categoryConflict(error) }
-        finishTransactionSave(acknowledged,onSaved)
+        val started=SystemClock.elapsedRealtime()
+        try{
+            transactionSubmission.requireEditable()
+            transactionSubmission.prepare(payload)
+            uploadLocalCopyPictures()
+            payload.put("pictureIds",JSONArray(draftPictures))
+            val keepOpen=try { transactionSubmission.submit("/api/v1/transactions/${if(existing)"modify" else "add"}.json",payload,keepOpen) } catch(error:ApiFailure) { categoryConflict(error) }
+            finishTransactionSave(keepOpen,transactionSubmission.takeAcknowledgedTransaction()?.row,onSaved)
+        }finally{diagnostics.record("transaction.save",SystemClock.elapsedRealtime()-started,if(transactionNeedsConfirmation)"confirmation" else "acknowledged")}
     }
 
     fun preferredAccountId(): String = choosePreferredAccountId(accounts, defaultAccountId)
@@ -369,15 +444,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun refreshAfterAccountWrite(successNotice: String) {
-        try {
-            loadAll()
-            notice = successNotice
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            if (error is ApiFailure && error.sessionExpired) throw error
-            notice = "$successNotice，数据刷新失败，可重试刷新"
-        }
+        invalidateSearchCache();notice=successNotice;scheduleBackgroundRefresh()
     }
 
     fun deleteOrArchiveAccount(accountId: String, onResult: (String) -> Unit = {}) = act {
@@ -390,20 +457,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         val path = if (subAccount) "/api/v1/accounts/sub_account/delete.json" else "/api/v1/accounts/delete.json"
         val result = entityWrites.submit(path, JSONObject().put("id", accountId))
         val action = accountDeleteAction(result)
-        var refreshFailed = false
-        try {
-            loadAll()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            if (error is ApiFailure && error.sessionExpired) throw error
-            refreshFailed = true
-        }
-        notice = if (action == "archived") {
-            if (refreshFailed) "账户已归档，数据刷新失败，可重试刷新" else "账户已归档"
-        } else {
-            if (refreshFailed) "账户已删除，数据刷新失败，可重试刷新" else "账户已删除"
-        }
+        invalidateSearchCache();notice=if(action=="archived")"账户已归档" else "账户已删除";scheduleBackgroundRefresh()
         onResult(action)
     }
     fun refreshTransactionConfirmation()=act {
@@ -411,7 +465,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     }
     fun confirmTransactionSave(onSaved:()->Unit={})=act {
         val keepOpen=try { transactionSubmission.retry() } catch(error:ApiFailure) { categoryConflict(error) }
-        finishTransactionSave(keepOpen,onSaved)
+        finishTransactionSave(keepOpen,transactionSubmission.takeAcknowledgedTransaction()?.row,onSaved)
     }
     fun saveEntity(path: String, payload: JSONObject, done: () -> Unit) {
         // Reject synchronously before queueing behind an ACK that could otherwise unlock a second write.
@@ -423,8 +477,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
                 if(path.contains("/categories/"))details.put("parentName",if(payload.id("parentId")=="0")"作为大类" else categories.firstOrNull{it.id()==payload.id("parentId")}?.optString("name")?:"原大类当前不可见")
                 if(path.contains("/tags/")&&!path.contains("/tags/groups/"))details.put("groupName",if(payload.id("groupId")=="0")"不分组" else tagGroups.firstOrNull{it.id()==payload.id("groupId")}?.optString("name")?:"原标签组当前不可见")
                 entityWrites.submit(path,payload,details)
-                done();notice="已保存"
-                try{loadAll()}catch(error:CancellationException){throw error}catch(error:Exception){if(error is ApiFailure&&error.sessionExpired)throw error;notice="已保存，数据刷新失败，可重试刷新"}
+                done();notice="已保存";invalidateSearchCache();scheduleBackgroundRefresh()
             }catch(error:CancellationException){throw error}catch(error:Exception){
                 if(error is ApiFailure&&error.sessionExpired)throw error
                 if(entityWrites.blocked)throw IllegalArgumentException("资料保存结果待核实；客户端不会重发，请先核对实际列表")
@@ -441,11 +494,12 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun logout() = act { api.call("/api/logout.json"); localLogout() }
     fun forgetLocal() { localLogout(); notice = "已清除此设备会话；离线退出不会撤销服务器会话" }
     private fun localLogout(clearFlow: Boolean = true) {
+        cacheGeneration.incrementAndGet()
         pendingCheckReady=false;categoryReviewRequired=false;categoryReviewReady=false
         entityWrites.detachForLogout();entityReviewOpen=false
         transactionSubmission.detachForLogout()
         clearTransactionDraft()
-        store.clear(); token = null; refreshAt = 0; defaultAccountId = ""; accounts = emptyList(); categories = emptyList(); categoryRevision = null; tags = emptyList()
+        criticalDataCache.clear();store.clear(); token = null; refreshAt = 0; categoriesRefreshedAt=0; defaultAccountId = ""; accounts = emptyList(); categories = emptyList(); categoryRevision = null; tags = emptyList()
         tagGroups = emptyList(); transactions = emptyList(); familyItems = emptyList(); family = JSONObject(); sessions = emptyList(); familyMemberId = "0"
         searchCache = null
         hasMoreTransactions=false;dailyAmounts=emptyList();weeklyAmounts=emptyList();ledgerDay=null;newTransactionDay=null;editTransaction = null; showEditor = false; oidcCallbackToken = null; twoFactorToken = null;draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false

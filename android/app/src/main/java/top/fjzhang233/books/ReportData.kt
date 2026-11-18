@@ -1,6 +1,8 @@
 package top.fjzhang233.books
 
 import org.json.JSONObject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import java.math.BigInteger
 import java.time.LocalDate
 import java.time.YearMonth
@@ -53,9 +55,12 @@ internal suspend fun BooksApi.report(period:ReportPeriod,accounts:List<JSONObjec
     val excludedAccounts=accounts.filterNot{filter.acceptsAccount(it.id())}.joinToString(","){it.id()}
     val excludedCategories=categories.filterNot{filter.acceptsCategory(it.id())}.joinToString(","){it.id()}
     val (start,end)=period.bounds
-    val daily=(call("/api/v1/transactions/amounts/daily.json?start_time=$start&end_time=$end&use_transaction_timezone=false&exclude_account_ids=$excludedAccounts&exclude_category_ids=$excludedCategories$tag") as org.json.JSONArray).objects()
-    val current=stats(period)
-    val previous=stats(period.shift(-1))
+    val(daily,current,previous)=coroutineScope {
+        val dailyRequest=async { (call("/api/v1/transactions/amounts/daily.json?start_time=$start&end_time=$end&use_transaction_timezone=false&exclude_account_ids=$excludedAccounts&exclude_category_ids=$excludedCategories$tag") as org.json.JSONArray).objects() }
+        val currentRequest=async { stats(period) }
+        val previousRequest=async { stats(period.shift(-1)) }
+        Triple(dailyRequest.await(),currentRequest.await(),previousRequest.await())
+    }
     return reportSnapshot(period,daily,current,previous,accounts,categories,filter)
 }
 internal suspend fun BooksApi.reportCategoryPage(period:ReportPeriod,categoryId:String,accounts:List<JSONObject>,page:Int,filter:ReportFilter=ReportFilter()):Pair<List<JSONObject>,Long>{

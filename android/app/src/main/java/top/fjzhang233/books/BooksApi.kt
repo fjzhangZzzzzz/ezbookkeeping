@@ -1,7 +1,9 @@
 package top.fjzhang233.books
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import android.os.SystemClock
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -17,6 +19,8 @@ import java.math.RoundingMode
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 data class LedgerPage(val items:List<JSONObject>,val hasMore:Boolean)
 class ApiFailure(val code: Int, message: String, val sessionExpired: Boolean = false, val httpStatus:Int?=null) : IOException(message)
@@ -29,7 +33,7 @@ fun parseMinor(input: String): Long {
     return BigDecimal(input.trim()).movePointRight(2).setScale(0, RoundingMode.UNNECESSARY).longValueExact().also { require(it > 0) { "金额必须大于零" } }
 }
 
-class BooksApi(private val base: String, private val tokenProvider: () -> String?) {
+class BooksApi(private val base: String, private val onTiming:(String,Long)->Unit={_,_->}, private val tokenProvider: () -> String?) {
     val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
     private val entityClient=client.newBuilder().retryOnConnectionFailure(false).build()
@@ -38,20 +42,20 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
         require(origin.username.isEmpty() && origin.password.isEmpty() && origin.encodedPath=="/" && origin.query==null && origin.fragment==null)
         require((origin.isHttps && origin.host=="books.fjzhang233.top" && origin.port==443) || (BuildConfig.DEBUG && origin.scheme=="http" && origin.host in setOf("10.0.2.2","127.0.0.1")))
     }
-    suspend fun call(path: String, payload: JSONObject? = null, auth: Boolean = true, overrideToken: String? = null): Any = withContext(Dispatchers.IO) {
-        request(path, payload?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()), auth, overrideToken)
-    }
-    internal suspend fun writeEntityOnce(path:String,payload:JSONObject):Any=withContext(Dispatchers.IO){
+    suspend fun call(path: String, payload: JSONObject? = null, auth: Boolean = true, overrideToken: String? = null): Any = requestCancellable(path, payload?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()), auth, overrideToken)
+    internal suspend fun writeEntityOnce(path:String,payload:JSONObject):Any {
         require(isEntityWritePath(path)){"不支持的资料保存路径"}
-        request(path,payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()),true,null,entityClient)
+        return requestCancellable(path,payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()),true,null,entityClient)
     }
-    private fun request(path: String, body: RequestBody?, auth: Boolean, overrideToken: String? = null, callClient:OkHttpClient=client): Any {
+    private fun buildRequest(path:String,body:RequestBody?,auth:Boolean,overrideToken:String?):Request {
         require(path.startsWith("/api/"))
         val req = Request.Builder().url(base.trimEnd('/') + path).header("X-Timezone-Name", "Asia/Shanghai")
             .header("X-Timezone-Offset", "480").header("User-Agent", "FamilyBooks/${BuildConfig.VERSION_NAME} (Android ${android.os.Build.VERSION.RELEASE.orEmpty().filter { it in ' '..'~' && it != '(' && it != ')' }.take(40).ifEmpty { '?'.toString() }})")
         if (auth) (overrideToken ?: tokenProvider())?.let { req.header("Authorization", "Bearer $it") }
         if (body != null) req.post(body)
-        callClient.newCall(req.build()).execute().use { response ->
+        return req.build()
+    }
+    private fun parseResponse(path:String,response:okhttp3.Response,auth:Boolean,overrideToken:String?):Any {
             if (response.code == 404 && path.contains("native")) throw ApiFailure(404, "服务端尚未支持原生 Pocket ID 登录，请先使用本地密码或升级服务端")
             val obj = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrElse { throw ApiFailure(response.code, "服务响应异常，请稍后重试",httpStatus=response.code) }
             if (!response.isSuccessful || !obj.optBoolean("success")) {
@@ -71,14 +75,29 @@ class BooksApi(private val base: String, private val tokenProvider: () -> String
                 throw ApiFailure(code, message, expired,response.code)
             }
             return obj.opt("result") ?: JSONObject.NULL
+    }
+    private suspend fun requestCancellable(path:String,body:RequestBody?,auth:Boolean,overrideToken:String?=null,callClient:OkHttpClient=client):Any=suspendCancellableCoroutine{continuation->
+        val started=SystemClock.elapsedRealtime();val label=path.substringBefore('?').removePrefix("/").replace('/','.')
+        val call=callClient.newCall(buildRequest(path,body,auth,overrideToken))
+        continuation.invokeOnCancellation{call.cancel()}
+        call.enqueue(object:okhttp3.Callback{
+            override fun onFailure(call:okhttp3.Call,error:IOException){onTiming(label,SystemClock.elapsedRealtime()-started);if(continuation.isActive)continuation.resumeWithException(error)}
+            override fun onResponse(call:okhttp3.Call,response:okhttp3.Response){
+                try{response.use{result->val parsed=parseResponse(path,result,auth,overrideToken);if(continuation.isActive)continuation.resume(parsed)}}catch(error:Exception){if(continuation.isActive)continuation.resumeWithException(error)}finally{onTiming(label,SystemClock.elapsedRealtime()-started)}
+            }
+        })
+    }
+    private fun request(path: String, body: RequestBody?, auth: Boolean, overrideToken: String? = null, callClient:OkHttpClient=client): Any {
+        callClient.newCall(buildRequest(path,body,auth,overrideToken)).execute().use { response ->
+            return parseResponse(path,response,auth,overrideToken)
         }
     }
-    suspend fun upload(bytes: ByteArray, mime: String): JSONObject = withContext(Dispatchers.IO) {
+    suspend fun upload(bytes: ByteArray, mime: String): JSONObject {
         require(bytes.size <= 10 * 1024 * 1024) { "图片不能超过 10 MB" }
         require(mime in setOf("image/jpeg", "image/png", "image/webp")) { "请选择 JPG、PNG 或 WebP 图片" }
         val ext = when(mime) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
         val multipart = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("picture", "attachment.$ext", bytes.toRequestBody(mime.toMediaType())).build()
-        request("/api/v1/transaction/pictures/upload.json", multipart, true) as JSONObject
+        return requestCancellable("/api/v1/transaction/pictures/upload.json", multipart, true) as JSONObject
     }
     suspend fun picture(path: String): ByteArray = withContext(Dispatchers.IO) {
         require(path.startsWith("/api/v1/family/pictures/"))

@@ -1,8 +1,10 @@
 package top.fjzhang233.books
 
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -31,14 +33,18 @@ class ReportDataTest {
     @Test fun serverStatisticsAreCompleteAndDetailsAreServerPaged()=runBlocking{
         val server=MockWebServer();server.start()
         try{
-            server.enqueue(MockResponse().setBody("{\"success\":true,\"result\":[]}"))
-            repeat(2){server.enqueue(MockResponse().setBody("{\"success\":true,\"result\":{\"items\":[]}}"))}
+            server.dispatcher=object:Dispatcher(){override fun dispatch(request:RecordedRequest):MockResponse{
+                return when(request.requestUrl!!.encodedPath){
+                    "/api/v1/transactions/amounts/daily.json"->MockResponse().setBody("{\"success\":true,\"result\":[]}")
+                    "/api/v1/transactions/statistics.json"->MockResponse().setBody("{\"success\":true,\"result\":{\"items\":[]}}")
+                    "/api/v1/transactions/list.json"->MockResponse().setBody("{\"success\":true,\"result\":{\"items\":[{\"id\":\"100\"}],\"totalCount\":61}}")
+                    else->MockResponse().setResponseCode(404)
+                }
+            }}
             val api=BooksApi("http://127.0.0.1:${server.port}"){"synthetic"}
             val p=ReportPeriod(YearMonth.of(2024,2));api.report(p,accounts,categories)
-            val daily=server.takeRequest();assertEquals("/api/v1/transactions/amounts/daily.json",daily.requestUrl!!.encodedPath)
-            val stats=server.takeRequest();assertEquals("false",stats.requestUrl!!.queryParameter("use_transaction_timezone"));assertEquals(p.bounds.first.toString(),stats.requestUrl!!.queryParameter("start_time"))
-            val before=server.takeRequest();assertEquals(p.shift(-1).bounds.first.toString(),before.requestUrl!!.queryParameter("start_time"))
-            server.enqueue(MockResponse().setBody("{\"success\":true,\"result\":{\"items\":[{\"id\":\"100\"}],\"totalCount\":61}}"))
+            val reportRequests=List(3){server.takeRequest().requestUrl!!};val daily=reportRequests.single{it.encodedPath.endsWith("amounts/daily.json")};assertEquals("false",daily.queryParameter("use_transaction_timezone"));val stats=reportRequests.single{it.encodedPath.endsWith("statistics.json")&&it.queryParameter("start_time")==p.bounds.first.toString()};assertEquals("false",stats.queryParameter("use_transaction_timezone"));assertEquals(p.bounds.first.toString(),stats.queryParameter("start_time"))
+            val before=reportRequests.single{it.encodedPath.endsWith("statistics.json")&&it.queryParameter("start_time")==p.shift(-1).bounds.first.toString()};assertEquals(p.shift(-1).bounds.first.toString(),before.queryParameter("start_time"))
             val(rows,total)=api.reportCategoryPage(p,"10",accounts,2);assertEquals(1,rows.size);assertEquals(61L,total)
             val detail=server.takeRequest().requestUrl!!;assertEquals("true",detail.queryParameter("with_pictures"));assertEquals("2",detail.queryParameter("page"));assertEquals("1",detail.queryParameter("account_ids"));assertEquals("10",detail.queryParameter("category_ids"));assertEquals((p.bounds.first*1000).toString(),detail.queryParameter("min_time"));assertEquals((p.bounds.second*1000+999).toString(),detail.queryParameter("max_time"))
         }finally{server.shutdown()}
@@ -46,12 +52,19 @@ class ReportDataTest {
     @Test fun filtersStayConsistentAcrossDailyStatisticsAndDetails()=runBlocking{
         val server=MockWebServer();server.start()
         try{
-            server.enqueue(MockResponse().setBody("{\"success\":true,\"result\":[]}"));repeat(2){server.enqueue(MockResponse().setBody("{\"success\":true,\"result\":{\"items\":[{\"accountId\":\"1\",\"categoryId\":\"10\",\"amount\":\"6\"},{\"accountId\":\"1\",\"categoryId\":\"11\",\"amount\":\"10\"}]}}"))}
+            server.dispatcher=object:Dispatcher(){override fun dispatch(request:RecordedRequest):MockResponse{
+                return when(request.requestUrl!!.encodedPath){
+                    "/api/v1/transactions/amounts/daily.json"->MockResponse().setBody("{\"success\":true,\"result\":[]}")
+                    "/api/v1/transactions/statistics.json"->MockResponse().setBody("{\"success\":true,\"result\":{\"items\":[{\"accountId\":\"1\",\"categoryId\":\"10\",\"amount\":\"6\"},{\"accountId\":\"1\",\"categoryId\":\"11\",\"amount\":\"10\"}]}}")
+                    "/api/v1/transactions/list.json"->MockResponse().setBody("{\"success\":true,\"result\":{\"items\":[],\"totalCount\":0}}")
+                    else->MockResponse().setResponseCode(404)
+                }
+            }}
             val api=BooksApi("http://127.0.0.1:${server.port}"){"synthetic"};val period=ReportPeriod(YearMonth.of(2024,2));val filter=ReportFilter(setOf("1"),setOf("10"),setOf("21","20"),true)
             val result=api.report(period,accounts,categories,filter);assertEquals(listOf("10"),result.categories.map{it.category.id()})
-            val daily=server.takeRequest().requestUrl!!;assertEquals("2",daily.queryParameter("exclude_account_ids"));assertEquals(setOf("11","12"),daily.queryParameter("exclude_category_ids")!!.split(",").toSet());assertEquals("1:20,21",daily.queryParameter("tag_filter"))
-            repeat(2){assertEquals("1:20,21",server.takeRequest().requestUrl!!.queryParameter("tag_filter"))}
-            server.enqueue(MockResponse().setBody("{\"success\":true,\"result\":{\"items\":[],\"totalCount\":0}}"));api.reportCategoryPage(period,"10",accounts,1,filter)
+            val reportRequests=List(3){server.takeRequest().requestUrl!!};val daily=reportRequests.single{it.encodedPath.endsWith("amounts/daily.json")};assertEquals("2",daily.queryParameter("exclude_account_ids"));assertEquals(setOf("11","12"),daily.queryParameter("exclude_category_ids")!!.split(",").toSet());assertEquals("1:20,21",daily.queryParameter("tag_filter"))
+            reportRequests.filterNot{it==daily}.forEach{assertEquals("1:20,21",it.queryParameter("tag_filter"))}
+            api.reportCategoryPage(period,"10",accounts,1,filter)
             val detail=server.takeRequest().requestUrl!!;assertEquals("true",detail.queryParameter("with_pictures"));assertEquals("1:20,21",detail.queryParameter("tag_filter"));assertEquals("1",detail.queryParameter("account_ids"));assertEquals("10",detail.queryParameter("category_ids"))
         }finally{server.shutdown()}
     }
