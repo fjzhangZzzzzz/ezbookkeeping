@@ -186,6 +186,18 @@ jobs:
           set -euo pipefail
           SDK_MANAGER="${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager"
           AVD_MANAGER="${ANDROID_HOME:?}/cmdline-tools/latest/bin/avdmanager"
+          "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" --licenses <<'EOF'
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          EOF
           timeout 12m "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" platform-tools emulator 'build-tools;36.0.0' 'system-images;android-35;google_apis;arm64-v8a'
           export ANDROID_AVD_HOME="$RUNNER_TEMP/family-avd"
           mkdir -p "$ANDROID_AVD_HOME"
