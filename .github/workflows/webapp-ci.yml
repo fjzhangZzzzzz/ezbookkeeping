@@ -75,6 +75,9 @@ jobs:
           cache: npm
 
       - name: Verify backend
+        env:
+          BUILD_PIPELINE: '1'
+          CHECK_3RD_API: '0'
         run: |
           go mod download
           go vet ./...
