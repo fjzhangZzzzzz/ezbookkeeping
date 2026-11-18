@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() { super.onResume(); model.resume(); updates.resume() }
 }
 
-private enum class AppRoute { LEDGER, SEARCH, FAMILY, SETTINGS, ACCOUNTS, CATALOG, SESSIONS, ABOUT }
+private enum class AppRoute { LEDGER, SEARCH, FAMILY, SETTINGS, ACCOUNTS, CATALOG, SESSIONS, EXTERNAL_AUTH, ABOUT }
 
 private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, String>(
     save = { it.name },
@@ -109,7 +109,7 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
     } }
     BackHandler(enabled = route != AppRoute.LEDGER) {
         route = if (vm.token == null) AppRoute.LEDGER else when (route) {
-            AppRoute.ACCOUNTS, AppRoute.CATALOG, AppRoute.SESSIONS, AppRoute.ABOUT -> AppRoute.SETTINGS
+            AppRoute.ACCOUNTS, AppRoute.CATALOG, AppRoute.SESSIONS, AppRoute.EXTERNAL_AUTH, AppRoute.ABOUT -> AppRoute.SETTINGS
             else -> AppRoute.LEDGER
         }
     }
@@ -131,8 +131,8 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
     Box(Modifier.fillMaxSize().background(ledgerColors.background)){
     if(home){Image(androidx.compose.ui.res.painterResource(R.drawable.ledger_landscape),null,Modifier.fillMaxWidth().height(240.dp),contentScale=androidx.compose.ui.layout.ContentScale.Crop);Box(Modifier.fillMaxWidth().height(240.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(ledgerColors.background.copy(alpha=if(ledgerColors.dark).35f else .78f),ledgerColors.background.copy(alpha=if(ledgerColors.dark).72f else .94f)))))}
     Scaffold(containerColor=if(home)Color.Transparent else ledgerColors.background,contentColor=MaterialTheme.colorScheme.onSurface,snackbarHost={SnackbarHost(feedback)},
-        topBar = { CenterAlignedTopAppBar(colors=TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor=Color.Transparent),expandedHeight=56.dp,title={if(vm.token!=null&&route==AppRoute.LEDGER) Row(Modifier.clickable{monthPicker=true},verticalAlignment=Alignment.CenterVertically){Text(vm.ledgerMonth,fontSize=18.sp);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))} else Text(when(route){AppRoute.SEARCH->"搜索";AppRoute.FAMILY->"家庭";AppRoute.SETTINGS->"设置";AppRoute.ACCOUNTS->"账户";AppRoute.CATALOG->"分类与标签";AppRoute.SESSIONS->"登录设备";AppRoute.ABOUT->"关于";else->"家庭账本"})},
-            navigationIcon={if(route!=AppRoute.LEDGER)IconButton(onClick={route=when(route){AppRoute.ACCOUNTS,AppRoute.CATALOG,AppRoute.SESSIONS,AppRoute.ABOUT->AppRoute.SETTINGS;else->AppRoute.LEDGER}}){Icon(Icons.Outlined.ArrowBack,"返回")}else if(vm.token!=null) IconButton(onClick={scope.launch{drawer.open()}}){Icon(Icons.Outlined.Menu,"打开菜单")}},
+        topBar = { CenterAlignedTopAppBar(colors=TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor=Color.Transparent),expandedHeight=56.dp,title={if(vm.token!=null&&route==AppRoute.LEDGER) Row(Modifier.clickable{monthPicker=true},verticalAlignment=Alignment.CenterVertically){Text(vm.ledgerMonth,fontSize=18.sp);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))} else Text(when(route){AppRoute.SEARCH->"搜索";AppRoute.FAMILY->"家庭";AppRoute.SETTINGS->"设置";AppRoute.ACCOUNTS->"账户";AppRoute.CATALOG->"分类与标签";AppRoute.SESSIONS->"登录设备";AppRoute.EXTERNAL_AUTH->"第三方登录";AppRoute.ABOUT->"关于与更新";else->"家庭账本"})},
+            navigationIcon={if(route!=AppRoute.LEDGER)IconButton(onClick={route=when(route){AppRoute.ACCOUNTS,AppRoute.CATALOG,AppRoute.SESSIONS,AppRoute.EXTERNAL_AUTH,AppRoute.ABOUT->AppRoute.SETTINGS;else->AppRoute.LEDGER}}){Icon(Icons.Outlined.ArrowBack,"返回")}else if(vm.token!=null) IconButton(onClick={scope.launch{drawer.open()}}){Icon(Icons.Outlined.Menu,"打开菜单")}},
             actions={if(vm.token!=null&&route==AppRoute.LEDGER){IconButton(onClick={calendar=true}){Icon(Icons.Outlined.CalendarMonth,"日历视图")};IconButton(onClick={report=true}){Icon(Icons.Outlined.BarChart,"月报表")}}else if(vm.token==null&&route!=AppRoute.ABOUT)IconButton(onClick={route=AppRoute.ABOUT}){Icon(Icons.Outlined.Info,"关于")}}) },
         floatingActionButtonPosition=FabPosition.Center,
         floatingActionButton = { if (vm.token != null && route == AppRoute.LEDGER) FloatingActionButton(onClick={vm.newTransaction()},modifier=Modifier.size(56.dp).testTag("add-transaction"),shape=androidx.compose.foundation.shape.CircleShape,containerColor=MaterialTheme.colorScheme.primary,contentColor=MaterialTheme.colorScheme.onPrimary) { Icon(Icons.Outlined.Add,"记一笔",Modifier.size(28.dp)) } }
@@ -146,10 +146,11 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
             else when (route) {
                 AppRoute.SEARCH -> LedgerSearch(vm,{route=AppRoute.LEDGER}){item,close->LedgerTransactionDetails(vm,item,close)}
                 AppRoute.FAMILY -> FamilyPage(vm) { route = AppRoute.LEDGER }
-                AppRoute.SETTINGS -> SettingsPage(vm) { page -> route=when(page){"accounts"->AppRoute.ACCOUNTS;"catalog"->AppRoute.CATALOG;"sessions"->AppRoute.SESSIONS;"about"->AppRoute.ABOUT;else->AppRoute.SETTINGS}; if(page=="sessions")vm.getSessions() }
+                AppRoute.SETTINGS -> SettingsPage(vm) { page -> route=when(page){"accounts"->AppRoute.ACCOUNTS;"catalog"->AppRoute.CATALOG;"sessions"->AppRoute.SESSIONS;"external-auth"->AppRoute.EXTERNAL_AUTH;"about"->AppRoute.ABOUT;else->AppRoute.SETTINGS}; if(page=="sessions")vm.getSessions() }
                 AppRoute.ACCOUNTS -> AccountsPage(vm)
                 AppRoute.CATALOG -> CatalogPage(vm)
                 AppRoute.SESSIONS -> SessionsPage(vm)
+                AppRoute.EXTERNAL_AUTH -> ExternalAuthPage(vm)
                 else -> TransactionsPage(vm)
             }
         }
@@ -341,40 +342,6 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         if (bitmap != null) Image(bitmap!!.asImageBitmap(), "交易图片附件", Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 280.dp))
         else Text(if (failed) "图片加载失败，请重新打开重试" else "正在加载图片…", style = MaterialTheme.typography.bodySmall)
     }
-}
-
-@Composable private fun SettingsPage(vm: BooksModel, navigate: (String) -> Unit) {
-    var logoutConfirm by remember { mutableStateOf(false) }
-    var showPerformance by remember { mutableStateOf(false) }
-    val context=LocalContext.current
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ThemeSettings()
-        Text("你好，${vm.nickname}", style = MaterialTheme.typography.headlineSmall)
-        Text("每人独立记账，全家共同看见。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("记账", style = MaterialTheme.typography.titleMedium)
-        listOf("accounts" to "账户", "catalog" to "分类与标签").forEach { (key, title) ->
-            OutlinedCard(onClick = { navigate(key) }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text(title) }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
-        }
-        Text("安全", style = MaterialTheme.typography.titleMedium)
-        OutlinedCard(onClick = { navigate("sessions") }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text("登录设备") }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
-        Card(Modifier.fillMaxWidth()) { ListItem(
-            headlineContent = { Text("第三方登录") },
-            supportingContent = { Text(if(vm.externalLinked) "Pocket ID 已关联，可在网页安全设置中管理" else "可选：关联 Pocket ID 以便登录") },
-            trailingContent = { TextButton(onClick = { vm.beginOidc(true) }, enabled = !vm.busy) { Text(if(vm.externalLinked) "已关联" else "关联") } },
-        ) }
-        Text("应用", style = MaterialTheme.typography.titleMedium)
-        Card(Modifier.fillMaxWidth()) { ListItem(
-            headlineContent = { Text("秒开模式") },
-            supportingContent = { Text("冷启动时直接打开记账页面；从后台回来不会重复打开") },
-            trailingContent = { Switch(checked=vm.instantEntry,onCheckedChange=vm::updateInstantEntry,enabled=!vm.busy) },
-        ) }
-        OutlinedCard(onClick = { navigate("about") }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text("关于") }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
-        OutlinedCard(onClick = { showPerformance = true }, modifier = Modifier.fillMaxWidth()) { ListItem(headlineContent = { Text("性能诊断") }, supportingContent = { Text("仅保存在本机，用于排查启动和保存耗时") }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) }) }
-        OutlinedButton(onClick = { logoutConfirm = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("退出登录") }
-    }
-    if (logoutConfirm) AlertDialog(onDismissRequest = { logoutConfirm = false }, title = { Text("退出此设备？") }, text = { Text("退出会撤销此设备当前会话。其他设备可在登录设备页管理。") },
-        confirmButton = { TextButton(onClick = { logoutConfirm = false; vm.logout() }, enabled = !vm.busy) { Text("退出") } }, dismissButton = { TextButton(onClick = { logoutConfirm = false }) { Text("取消") } })
-    if(showPerformance)AlertDialog(onDismissRequest={showPerformance=false},title={Text("性能诊断")},text={Column(Modifier.verticalScroll(rememberScrollState())){Text(vm.performanceDiagnosticsText(),fontSize=11.sp,fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)}},confirmButton={Row{TextButton(onClick={showPerformance=false}){Text("关闭")};TextButton(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT,vm.performanceDiagnosticsText()),"导出性能诊断"))}){Text("导出")}}},dismissButton={TextButton(onClick={vm.clearPerformanceDiagnostics();showPerformance=false}){Text("清理")}})
 }
 
 @Composable private fun SessionsPage(vm: BooksModel) {

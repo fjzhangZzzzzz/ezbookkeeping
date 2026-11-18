@@ -508,7 +508,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private fun random(): String = Base64.encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) }, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     fun beginOidc(link: Boolean = false) = act {
         protectedFlow.read()?.let(::JSONObject)?.let { old -> try { api.call("/api/native/oauth2/cancel.json", JSONObject().put("flowId",old.getString("flowId")).put("codeVerifier",old.getString("verifier")),false) } catch(e:ApiFailure) { if(e.code != 217017) throw e } finally { protectedFlow.clear(); browserPending=false } }
-        require(!link || !externalLinked) { "Pocket ID 已关联。如需取消关联，请在网页账户安全设置操作。" }
+        require(!link || !externalLinked) { "Pocket ID 已关联，请先解除关联。" }
         val verifier = random(); val state = random()
         val challenge = Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         val body = JSONObject().put("codeChallenge", challenge).put("codeChallengeMethod", "S256").put("redirectUri", "top.fjzhang233.books://oauth2/callback").put("state", state)
@@ -547,6 +547,12 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if (token != null) loadAll()
     }
     fun finishOidc(password: String, passcode: String) = act { finishOidcInternal(password, passcode) }
+    fun unlinkExternalAuth(password: String) = act {
+        require(password.isNotBlank()) { "请输入当前本地密码" }
+        api.call("/api/v1/users/external_auth/unlink.json", JSONObject().put("externalAuthType", "oidc").put("password", password))
+        externalLinked = false
+        notice = "第三方登录已解除关联"
+    }
     fun dismissOidc() = act {
         try { oidcCallbackToken?.let { api.call("/api/oauth2/cancel.json", JSONObject(), true, it) } } finally { oidcCallbackToken = null; oidcNeedsPassword = false }
     }

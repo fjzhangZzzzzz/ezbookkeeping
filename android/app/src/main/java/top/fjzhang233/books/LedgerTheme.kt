@@ -5,22 +5,15 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.content.edit
 import androidx.core.view.WindowCompat
-import androidx.compose.ui.unit.dp
 
 internal enum class ThemeMode(val key:String,val label:String){SYSTEM("system","跟随系统"),LIGHT("light","浅色"),DARK("dark","深色")}
 internal fun decodeThemeMode(value:String?):ThemeMode=ThemeMode.entries.firstOrNull{it.key==value}?:ThemeMode.SYSTEM
@@ -29,6 +22,7 @@ internal fun ledgerPalette(dark:Boolean)=if(dark)LedgerPalette(true,Color.Black,
 private val LocalLedgerPalette=staticCompositionLocalOf{ledgerPalette(true)}
 internal val ledgerColors:LedgerPalette @Composable get()=LocalLedgerPalette.current
 private fun Context.themePreferences()=applicationContext.getSharedPreferences("appearance",Context.MODE_PRIVATE)
+internal fun saveThemeMode(context:Context,mode:ThemeMode):Boolean=runCatching{context.themePreferences().edit{putString("theme",mode.key)}}.isSuccess
 @Composable internal fun rememberThemeMode():ThemeMode{
     val prefs=LocalContext.current.themePreferences();var mode by remember(prefs){mutableStateOf(decodeThemeMode(prefs.getString("theme",null)))}
     DisposableEffect(prefs){val listener=SharedPreferences.OnSharedPreferenceChangeListener{_,key->if(key=="theme")mode=decodeThemeMode(prefs.getString("theme",null))};prefs.registerOnSharedPreferenceChangeListener(listener);onDispose{prefs.unregisterOnSharedPreferenceChangeListener(listener)}}
@@ -45,12 +39,4 @@ private fun Context.themePreferences()=applicationContext.getSharedPreferences("
         window?.let{WindowCompat.getInsetsController(it,view).apply{isAppearanceLightStatusBars=!dark;isAppearanceLightNavigationBars=!dark};if(view.parent !is DialogWindowProvider)it.setBackgroundDrawable(ColorDrawable(p.background.toArgb()))}
     }
     CompositionLocalProvider(LocalLedgerPalette provides p){MaterialTheme(colorScheme=scheme,content=content)}
-}
-@Composable internal fun ThemeSettings(){
-    val context=LocalContext.current;val selected=rememberThemeMode();var error by remember{mutableStateOf(false)}
-    Column(Modifier.fillMaxWidth().testTag("theme-settings")){
-        Text("外观主题",style=MaterialTheme.typography.titleMedium)
-        ThemeMode.entries.forEach{mode->Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("theme-${mode.key}").semantics{this.selected=selected==mode}.clickable{error=!context.themePreferences().edit().putString("theme",mode.key).commit()},verticalAlignment=Alignment.CenterVertically){RadioButton(selected==mode,onClick=null);Text(mode.label,Modifier.padding(start=8.dp))}}
-        if(error)Text("主题设置未能保存，请重试",color=MaterialTheme.colorScheme.error)
-    }
 }
