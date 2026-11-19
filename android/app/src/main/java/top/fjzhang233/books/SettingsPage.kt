@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.CurrencyYuan
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Info
@@ -104,6 +105,13 @@ internal fun SettingsPage(vm: BooksModel, navigate: (String) -> Unit) {
         }
         item {
             SettingsSection("记账") {
+                SettingsRow(
+                    icon = Icons.Outlined.CurrencyYuan,
+                    title = "默认货币",
+                    trailing = { Text("人民币（$DEFAULT_LEDGER_CURRENCY）", color = ledgerColors.muted) },
+                    testTag = "settings-default-currency",
+                )
+                SettingsDivider()
                 SettingsRow(Icons.Outlined.AccountBalanceWallet, "账户", onClick = { navigate("accounts") }, trailing = { SettingsChevron("账户") }, testTag = "settings-accounts")
                 SettingsDivider()
                 SettingsRow(Icons.Outlined.Category, "分类与标签", onClick = { navigate("catalog") }, trailing = { SettingsChevron("分类与标签") }, testTag = "settings-catalog")

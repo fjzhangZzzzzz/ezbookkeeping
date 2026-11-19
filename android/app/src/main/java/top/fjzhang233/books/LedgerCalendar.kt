@@ -11,7 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -104,10 +104,11 @@ internal fun calendarLunarLabel(date:LocalDate):String {
                 LazyColumn(Modifier.fillMaxSize().testTag("calendar-ledger"),contentPadding=PaddingValues(top=12.dp,bottom=100.dp),verticalArrangement=Arrangement.spacedBy(0.dp)){
                     if(vm.busy)item{LinearProgressIndicator(Modifier.fillMaxWidth())}
                     if(vm.error.isNotBlank())item{Text(vm.error,Modifier.padding(horizontal=16.dp),color=ledgerColors.expense,fontSize=13.sp)}
+                    if(vm.backgroundRefreshFailed)item{LedgerRefreshRetry(vm)}
                     item{CalendarMonthCard(month,snapshot,selected,firstDay,mode,!vm.busy,{mode=it},::choose,::shift)}
                     if(vm.ledgerDay==selected.toString()&&!vm.busy&&vm.transactions.isNotEmpty()){
                         item{Spacer(Modifier.height(12.dp));CalendarDayHeader(selected,snapshot.days[selected]?:CalendarAmounts(),today)}
-                        items(vm.transactions,key={it.id()}){row->CalendarTransactionRow(row){detail=row}}
+                        itemsIndexed(vm.transactions,key={_,row->row.id()}){index,row->CalendarTransactionRow(row,index==0){detail=row}}
                         if(vm.hasMoreTransactions)item{TextButton(onClick=vm::loadMore,modifier=Modifier.fillMaxWidth()){Text("加载更多")}}
                     }
                 }
@@ -181,12 +182,21 @@ private fun calendarCellBackground(mode:CalendarAmountMode,amount:CalendarAmount
     }
 }
 @Composable private fun CalendarDayHeader(date:LocalDate,amount:CalendarAmounts,today:LocalDate){
-    Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp),color=ledgerColors.surface,shape=RoundedCornerShape(topStart=8.dp,topEnd=8.dp)){Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=10.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.toString().substring(5).replace('-','.')+when(date){today->" 今天";today.minusDays(1)->" 昨天";else->""},fontSize=14.sp,fontWeight=FontWeight.Bold);Text("收:¥${money(amount.income.toString())} 支:¥${money(amount.expense.toString())}",fontSize=12.sp,fontWeight=FontWeight.Bold)}}
+    Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp),color=ledgerColors.surface,shape=RoundedCornerShape(topStart=8.dp,topEnd=8.dp)){Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=10.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.toString().substring(5).replace('-','.')+when(date){today->" 今天";today.minusDays(1)->" 昨天";else->""},fontSize=14.sp,fontWeight=FontWeight.Bold);Text(ledgerDaySummary(amount.income,amount.expense),fontSize=12.sp,fontWeight=FontWeight.Bold)}}
 }
-@Composable private fun CalendarTransactionRow(row:JSONObject,open:()->Unit){
+@Composable private fun CalendarTransactionRow(row:JSONObject,first:Boolean,open:()->Unit){
     val type=row.optInt("type");val color=when(type){2->ledgerColors.income;3->ledgerColors.expense;else->ledgerColors.muted}
-    Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp).testTag("calendar-transaction-${row.id()}").clickable(onClick=open),color=ledgerColors.surface){
-        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).padding(12.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(4.dp).background(color,CircleShape));Column(Modifier.weight(1f).padding(horizontal=12.dp)){Text(calendarTransactionLabel(row),fontSize=14.sp);if(row.optString("comment").isNotBlank())Text(row.optString("comment"),fontSize=11.sp,color=ledgerColors.muted,maxLines=1,overflow=TextOverflow.Ellipsis)};Text(transactionSignedAmount(type,row.optString("sourceAmount")),fontSize=16.sp,color=color);Text(row.optJSONObject("sourceAccount")?.optString("currency").orEmpty(),Modifier.padding(start=4.dp),fontSize=10.sp,color=ledgerColors.muted)}
+    Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp),color=ledgerColors.surface){
+        Column {
+            if(!first) LedgerTransactionDivider()
+            Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("calendar-transaction-${row.id()}").clickable(onClick=open).padding(12.dp),verticalAlignment=Alignment.CenterVertically){
+                Box(Modifier.size(4.dp).background(color,CircleShape))
+                Column(Modifier.weight(1f).padding(horizontal=12.dp)){
+                    Text(transactionLabel(row),fontSize=14.sp)
+                    if(row.optString("comment").isNotBlank()) Text(row.optString("comment"),fontSize=11.sp,color=ledgerColors.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
+                }
+                Text(ledgerTransactionAmount(row),fontSize=16.sp,color=color)
+            }
+        }
     }
 }
-private fun calendarTransactionLabel(row:JSONObject):String=when(row.optInt("type")){1->"余额调整";4->"账户转账";else->row.optJSONObject("category")?.optString("name")?.takeIf{it.isNotBlank()}?:row.optString("categoryName").ifBlank{"未分类"}}

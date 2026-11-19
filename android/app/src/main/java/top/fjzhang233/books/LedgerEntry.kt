@@ -267,7 +267,7 @@ import androidx.compose.ui.focus.onFocusChanged
         }
         if(vm.categoryReviewRequired) AlertDialog(onDismissRequest={},title={Text("分类已更新")},text={Text(if(vm.categoryReviewReady) "分类已刷新，请核对所选分类后继续。" else "分类刷新失败，请联网重试；草稿已保留。")},confirmButton={TextButton(onClick={if(vm.categoryReviewReady)vm.acknowledgeCategoryReview() else vm.retryCategoryReview()},enabled=!vm.busy){Text(if(vm.categoryReviewReady)"确认" else "重试刷新")}})
         if(!vm.categoryReviewRequired && changedCategoryDescription.isNotBlank()) AlertDialog(onDismissRequest={},title={Text("分类已更新")},text={Text("所选分类现在为：${changedCategoryDescription.substringAfter("|")}。请确认后继续记账。")},confirmButton={TextButton(onClick={observedCategoryDescription=changedCategoryDescription;changedCategoryDescription=""}){Text("确认")}})
-        if(vm.transactionNeedsConfirmation) PendingTransactionDialog(
+        if(vm.showTransactionConfirmation) PendingTransactionDialog(
             vm.transactionConfirmation,vm.busy,vm.error,
             refresh={vm.refreshTransactionConfirmation()},confirm={vm.confirmTransactionSave(::saved)}
         )

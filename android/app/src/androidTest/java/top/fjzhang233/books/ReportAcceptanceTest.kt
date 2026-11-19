@@ -101,7 +101,7 @@ class ReportAcceptanceTest {
             compose.onNodeWithTag("report-interactive-donut").assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription,"统计零食-$suffix，0.05"));capture("10-selected-sector")
             stage="daily-drilldown"
             scroll("report-day-row-2026-11-14");compose.onNodeWithTag("report-day-row-2026-11-14").performClick()
-            compose.waitUntil(30_000){exists("report-day-transactions")};awaitText(transactionSignedAmount(3,"5")+" CNY")
+            compose.waitUntil(30_000){exists("report-day-transactions")};awaitText(transactionSignedAmount(3,"5"))
             val expectedDay=runBlocking{vm.api.reportDayPage(LocalDate.of(2026,11,14),vm.accounts,vm.categories,1,ReportFilter(setOf(account)))}
             check(expectedDay.second==3L&&expectedDay.first.size==3&&expectedDay.first.all{it.id("sourceAccountId")==account})
             val selected=expectedDay.first.first{it.optString("sourceAmount")=="5"};compose.onNodeWithTag("report-day-transaction-${selected.id()}").performClick()

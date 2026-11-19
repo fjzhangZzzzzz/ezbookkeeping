@@ -142,7 +142,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
                             groups.forEach{(date,dayRows)->
                                 if(date.isNotBlank())item(key="heading-$date"){
                                     val amount=remember(dayRows){LedgerSearchSnapshot(dayRows).amounts}
-                                    Row(Modifier.fillMaxWidth().padding(top=20.dp,bottom=8.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.replace('-','.'),fontSize=14.sp,fontWeight=FontWeight.Bold);Text("收:${money(amount.income.toString())} 支:${money(amount.expense.toString())}",fontSize=11.sp,color=searchMuted)}
+                                    Row(Modifier.fillMaxWidth().padding(top=20.dp,bottom=8.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.replace('-','.'),fontSize=14.sp,fontWeight=FontWeight.Bold);Text(ledgerDaySummary(amount.income,amount.expense),fontSize=11.sp,color=searchMuted)}
                                 }
                                 itemsIndexed(dayRows,key={_,row->row.id()}){index,row->SearchTransactionRow(row,index==0,index==dayRows.lastIndex){selected=row}}
                             }
@@ -161,9 +161,31 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
 @Composable private fun SearchAmount(label:String,amount:String,color:Color,modifier:Modifier){Column(modifier){Text(label,fontSize=12.sp,color=searchMuted);Text(money(amount),Modifier.padding(top=6.dp),fontSize=20.sp,color=color,maxLines=1,overflow=TextOverflow.Ellipsis)}}
 @Composable private fun SearchDrop(label:String,active:Boolean,modifier:Modifier,onClick:()->Unit){Row(modifier.heightIn(min=48.dp).clickable(role=Role.Button,onClick=onClick).padding(horizontal=8.dp),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){Text(label,fontSize=14.sp,color=if(active)searchBlue else ledgerColors.text,maxLines=1,overflow=TextOverflow.Ellipsis);Icon(if(active)Icons.Outlined.ArrowDropUp else Icons.Outlined.ArrowDropDown,null,Modifier.size(18.dp),tint=searchMuted)}}
 @Composable private fun SearchTransactionRow(row:JSONObject,first:Boolean,last:Boolean,open:()->Unit){
-    val type=row.optInt("type");val color=when(type){2->searchGreen;3->searchRed;else->searchMuted}
-    val label=when(type){1->"余额调整";4->"账户转账";else->row.optJSONObject("category")?.optString("name")?.takeIf{it.isNotBlank()}?:row.optString("categoryName").ifBlank{"未分类"}}
-    Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart=if(first)8.dp else 0.dp,topEnd=if(first)8.dp else 0.dp,bottomStart=if(last)8.dp else 0.dp,bottomEnd=if(last)8.dp else 0.dp)).clickable(onClick=open).testTag("search-transaction-${row.id()}"),color=searchSurface){Row(Modifier.heightIn(min=60.dp).padding(12.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(4.dp).background(color,CircleShape));Column(Modifier.weight(1f).padding(horizontal=12.dp)){Text(label,fontSize=14.sp);if(row.optString("comment").isNotBlank())Text(row.optString("comment"),fontSize=11.sp,color=searchMuted,maxLines=1,overflow=TextOverflow.Ellipsis);if(row.array("pictures").isNotEmpty())Icon(Icons.Outlined.Image,"含图片",Modifier.size(14.dp),tint=searchMuted)};Column(horizontalAlignment=Alignment.End){Text(transactionSignedAmount(type,row.optString("sourceAmount")),fontSize=16.sp,color=color);Text(row.optJSONObject("sourceAccount")?.optString("currency").orEmpty(),fontSize=10.sp,color=searchMuted)}}}
+    val color=when(row.optInt("type")){2->searchGreen;3->searchRed;else->searchMuted}
+    val topRadius=if(first) 8.dp else 0.dp
+    val bottomRadius=if(last) 8.dp else 0.dp
+    val shape=RoundedCornerShape(topStart=topRadius,topEnd=topRadius,bottomStart=bottomRadius,bottomEnd=bottomRadius)
+    Surface(Modifier.fillMaxWidth(),shape=shape,color=searchSurface){
+        Column {
+            if(!first) LedgerTransactionDivider()
+            Row(
+                Modifier.fillMaxWidth().heightIn(min=48.dp).clickable(onClick=open)
+                    .testTag("search-transaction-${row.id()}").padding(horizontal=12.dp,vertical=8.dp),
+                verticalAlignment=Alignment.CenterVertically,
+            ){
+                Box(Modifier.size(4.dp).background(color,CircleShape))
+                Column(Modifier.weight(1f).padding(start=12.dp,end=8.dp)){
+                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                        Text(transactionLabel(row),Modifier.weight(1f,fill=false),fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        if(row.array("pictures").isNotEmpty()) Icon(Icons.Outlined.Image,"含图片",Modifier.size(14.dp),tint=searchMuted)
+                    }
+                    val comment=row.optString("comment")
+                    if(comment.isNotBlank()) Text(comment,fontSize=11.sp,color=searchMuted,maxLines=1,overflow=TextOverflow.Ellipsis)
+                }
+                Text(ledgerTransactionAmount(row),fontSize=16.sp,color=color)
+            }
+        }
+    }
 }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun SearchFilterPanel(vm:BooksModel,initial:LedgerSearchFilter,panel:String,group:String,changeGroup:(String)->Unit,dismiss:()->Unit,apply:(LedgerSearchFilter)->Unit){

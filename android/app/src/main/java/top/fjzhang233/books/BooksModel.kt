@@ -55,6 +55,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf(""); private set
     var notice by mutableStateOf(""); private set
+    var backgroundRefreshFailed by mutableStateOf(false); private set
     var nickname by mutableStateOf("家人"); private set
     /** Server-synchronised account preference; never inferred from account list order alone. */
     var defaultAccountId by mutableStateOf(""); private set
@@ -146,6 +147,9 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private var pendingCheckReady=false
     val transactionConfirmation:JSONObject? get()=transactionSubmission.confirmationView()
     val transactionNeedsConfirmation:Boolean get()=transactionSubmission.needsConfirmation
+    private var savingTransaction by mutableStateOf(false)
+    // The persisted request locks the draft before sending. Review is only needed after that attempt ends.
+    internal val showTransactionConfirmation:Boolean get()=transactionNeedsConfirmation && !savingTransaction
 
     private fun clearCopyCache(){
         val directory=copyCacheDirectory
@@ -321,6 +325,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         listed.await().let{value->transactions=value.items;hasMoreTransactions=value.hasMore}
         dailyAmounts=daily.await();weeklyAmounts=weekly.await()
         if(entityWrites.blocked)entityWrites.refresh()
+        backgroundRefreshFailed=false
         diagnostics.record("refresh.background",SystemClock.elapsedRealtime()-backgroundStarted)
     }
     private suspend fun <T> runOptional(block:suspend()->T):T?=try{block()}catch(error:CancellationException){throw error}catch(_:Exception){null}
@@ -331,12 +336,21 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private fun scheduleBackgroundRefresh(){
         backgroundRefreshJob?.cancel()
         backgroundRefreshJob=viewModelScope.launch {
-            operations.withLock {
-                if(token==null)return@withLock
-                try{loadBackgroundData()}catch(error:CancellationException){throw error}catch(error:ApiFailure){if(error.sessionExpired)localLogout(false);else this@BooksModel.error="已保存，数据刷新失败，可重试刷新"}catch(_:Exception){this@BooksModel.error="已保存，数据刷新失败，可重试刷新"}
-            }
+            operations.withLock { refreshBackgroundData() }
         }
     }
+    private suspend fun refreshBackgroundData() {
+        if(token==null)return
+        try {
+            loadBackgroundData()
+        } catch(error:CancellationException) {
+            throw error
+        } catch(error:Exception) {
+            if(error is ApiFailure && error.sessionExpired) localLogout(false)
+            else backgroundRefreshFailed=true
+        }
+    }
+    fun retryBackgroundRefresh() = act { refreshBackgroundData() }
     private fun invalidateSearchCache(){searchCache=null;searchInvalidation++}
     internal var searchInvalidation by mutableStateOf(0);private set
     internal fun performanceDiagnosticsText():String=diagnostics.readRecent()
@@ -388,12 +402,13 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private suspend fun finishTransactionSave(keepOpen:Boolean,acknowledged:JSONObject?,onSaved:()->Unit){
         val uiStarted=System.nanoTime()
         showEditor=keepOpen;editTransaction=null;val copied=copiedTransaction;clearTransactionDraft();if(keepOpen)copiedTransaction=copied
-        if(!keepOpen&&acknowledged!=null)transactions=mergeAcknowledgedLedgerRow(transactions,acknowledged,ledgerMonth,ledgerDay)
+        if(acknowledged!=null)transactions=mergeAcknowledgedLedgerRow(transactions,acknowledged,ledgerMonth,ledgerDay)
         onSaved();invalidateSearchCache();scheduleBackgroundRefresh()
         diagnostics.record("transaction.ui_commit",(System.nanoTime()-uiStarted)/1_000_000)
     }
     fun saveTransaction(payload: JSONObject, existing: Boolean, keepOpen:Boolean=false, onSaved:()->Unit={}) = act {
         val started=SystemClock.elapsedRealtime()
+        savingTransaction=true
         try{
             transactionSubmission.requireEditable()
             transactionSubmission.prepare(payload)
@@ -401,7 +416,10 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
             payload.put("pictureIds",JSONArray(draftPictures))
             val keepOpen=try { transactionSubmission.submit("/api/v1/transactions/${if(existing)"modify" else "add"}.json",payload,keepOpen) } catch(error:ApiFailure) { categoryConflict(error) }
             finishTransactionSave(keepOpen,transactionSubmission.takeAcknowledgedTransaction()?.row,onSaved)
-        }finally{diagnostics.record("transaction.save",SystemClock.elapsedRealtime()-started,if(transactionNeedsConfirmation)"confirmation" else "acknowledged")}
+        }finally{
+            savingTransaction=false
+            diagnostics.record("transaction.save",SystemClock.elapsedRealtime()-started,if(transactionNeedsConfirmation)"confirmation" else "acknowledged")
+        }
     }
 
     fun preferredAccountId(): String = choosePreferredAccountId(accounts, defaultAccountId)
@@ -494,6 +512,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun logout() = act { api.call("/api/logout.json"); localLogout() }
     fun forgetLocal() { localLogout(); notice = "已清除此设备会话；离线退出不会撤销服务器会话" }
     private fun localLogout(clearFlow: Boolean = true) {
+        backgroundRefreshFailed=false
         cacheGeneration.incrementAndGet()
         pendingCheckReady=false;categoryReviewRequired=false;categoryReviewReady=false
         entityWrites.detachForLogout();entityReviewOpen=false

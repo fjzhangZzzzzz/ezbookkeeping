@@ -5,12 +5,15 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.edit
 import androidx.core.view.WindowCompat
@@ -21,6 +24,14 @@ internal data class LedgerPalette(val dark:Boolean,val background:Color,val surf
 internal fun ledgerPalette(dark:Boolean)=if(dark)LedgerPalette(true,Color.Black,Color(0xFF1A1A1A),Color(0xFF242424),Color(0xFFBDBDBD),Color(0xFF999999),Color(0xFF666666),Color(0xFF303030),Color(0xFF1F3044),Color(0xFF55A1FF),Color(0xFFF06B73),Color(0xFF25B87A),Color(0xFF291E1F),Color(0xFF382324),Color(0xFF1B2521),Color(0xFF1B3128)) else LedgerPalette(false,Color(0xFFF4F5F7),Color.White,Color(0xFFE9EDF1),Color(0xFF1D232B),Color(0xFF59636F),Color(0xFF77818D),Color(0xFFDCE1E7),Color(0xFFDFEDFD),Color(0xFF0866C8),Color(0xFFB82431),Color(0xFF14734C),Color(0xFFFFF0F1),Color(0xFFFFE0E3),Color(0xFFEDF7F1),Color(0xFFD9EFDF))
 private val LocalLedgerPalette=staticCompositionLocalOf{ledgerPalette(true)}
 internal val ledgerColors:LedgerPalette @Composable get()=LocalLedgerPalette.current
+
+@Composable
+internal fun LedgerTransactionDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 28.dp, end = 12.dp),
+        color = ledgerColors.divider.copy(alpha = 0.45f),
+    )
+}
 private fun Context.themePreferences()=applicationContext.getSharedPreferences("appearance",Context.MODE_PRIVATE)
 internal fun saveThemeMode(context:Context,mode:ThemeMode):Boolean=runCatching{context.themePreferences().edit{putString("theme",mode.key)}}.isSuccess
 @Composable internal fun rememberThemeMode():ThemeMode{

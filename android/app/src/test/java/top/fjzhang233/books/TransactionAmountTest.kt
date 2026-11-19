@@ -1,5 +1,6 @@
 package top.fjzhang233.books
 
+import java.math.BigInteger
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -27,5 +28,10 @@ class TransactionAmountTest {
         assertEquals("+0.1",transactionSignedAmount(2,"10",compact=true));assertEquals("-0.1",transactionSignedAmount(3,"10",compact=true))
         assertEquals("-0.01",transactionSignedAmount(2,"-1",compact=true));assertEquals("+0.01",transactionSignedAmount(3,"-1",compact=true))
         assertEquals("0",transactionSignedAmount(1,"0",compact=true))
+    }
+
+    @Test fun daySummaryOmitsZeroIncomeAndKeepsNegativeIncome(){
+        assertEquals("支:¥1.23",ledgerDaySummary(BigInteger.ZERO,BigInteger.valueOf(123)))
+        assertEquals("收:¥-0.01 支:¥0.00",ledgerDaySummary(BigInteger.valueOf(-1),BigInteger.ZERO))
     }
 }

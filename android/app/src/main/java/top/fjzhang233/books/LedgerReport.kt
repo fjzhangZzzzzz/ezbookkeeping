@@ -170,7 +170,7 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
         if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
         if(failure.isNotEmpty())Row{Text(failure,color=reportRed);TextButton(onClick={retry++}){Text("重试")}}
         LazyColumn(Modifier.fillMaxWidth().heightIn(max=420.dp)){
-            items(rows,key={it.id()}){row->ListItem(headlineContent={Text(transactionLabel(row))},supportingContent={if(row.optString("comment").isNotBlank())Text(row.optString("comment"))},trailingContent={Text(transactionSignedAmount(row.optInt("type"),row.optString("sourceAmount"))+" CNY",color=if(row.optInt("type")==2)reportGreen else reportRed)},modifier=Modifier.testTag("report-day-transaction-${row.id()}").clickable{selected=row})}
+            items(rows,key={it.id()}){row->ListItem(headlineContent={Text(transactionLabel(row))},supportingContent={if(row.optString("comment").isNotBlank())Text(row.optString("comment"))},trailingContent={Text(ledgerTransactionAmount(row),color=if(row.optInt("type")==2)reportGreen else reportRed)},modifier=Modifier.testTag("report-day-transaction-${row.id()}").clickable{selected=row})}
             if(!loading&&failure.isEmpty()&&rows.size<total)item{TextButton(onClick={page++}){Text("加载更多")}}
             if(!loading&&failure.isEmpty()&&rows.isEmpty())item{Text("暂无匹配的当日流水",Modifier.padding(24.dp),color=reportMuted)}
         }

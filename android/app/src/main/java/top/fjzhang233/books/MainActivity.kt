@@ -11,6 +11,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.viewModels
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -34,7 +36,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -49,6 +54,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -90,6 +96,8 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
     restore = { value -> runCatching { AppRoute.valueOf(value) }.getOrDefault(AppRoute.LEDGER) },
 )
 
+private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BooksApp(vm: BooksModel, updates: UpdateModel) {
     var route by rememberSaveable(stateSaver = appRouteSaver) { mutableStateOf(AppRoute.LEDGER) }
@@ -100,9 +108,17 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
     var report by rememberSaveable{mutableStateOf(false)}
     LaunchedEffect(vm.error,vm.notice,vm.showEditor){if(!vm.showEditor){val message=vm.error.ifBlank{vm.notice};if(message.isNotBlank()){if(vm.error.isBlank())android.widget.Toast.makeText(context,message,android.widget.Toast.LENGTH_SHORT).show() else feedback.showSnackbar(message,duration=SnackbarDuration.Long);vm.dismissFeedback(message)}}}
     val drawer=rememberDrawerState(DrawerValue.Closed)
+    val moveDirection = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1 else -1
     val scope=rememberCoroutineScope()
+    @Suppress("DEPRECATION") // DrawerState.open/close do not accept an animation spec.
+    fun moveDrawer(target: DrawerValue, onSettled: () -> Unit = {}) {
+        scope.launch {
+            drawer.animateTo(target, drawerSlide)
+            onSettled()
+        }
+    }
     var wasAuthenticated by remember{mutableStateOf(vm.token!=null)}
-    LaunchedEffect(vm.token!=null){val authenticated=vm.token!=null;if(wasAuthenticated&&!authenticated){route=AppRoute.LEDGER;drawer.close()};wasAuthenticated=authenticated}
+    LaunchedEffect(vm.token!=null){val authenticated=vm.token!=null;if(wasAuthenticated&&!authenticated){route=AppRoute.LEDGER;drawer.snapTo(DrawerValue.Closed)};wasAuthenticated=authenticated}
     LaunchedEffect(vm.browserUrl) { vm.browserUrl?.let { url ->
         runCatching { CustomTabsIntent.Builder().build().launchUrl(context, android.net.Uri.parse(url)) }.onFailure { vm.browserFailed() }
         vm.browserUrl = null
@@ -113,9 +129,18 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
             else -> AppRoute.LEDGER
         }
     }
-    BackHandler(enabled=drawer.currentValue!=DrawerValue.Closed||drawer.targetValue!=DrawerValue.Closed){scope.launch{drawer.close()}}
-    ModalNavigationDrawer(drawerState=drawer,gesturesEnabled=vm.token!=null,drawerContent={
-        if(vm.token!=null) ModalDrawerSheet(modifier=Modifier.width(288.dp),drawerContainerColor=ledgerColors.surface,drawerShape=androidx.compose.ui.graphics.RectangleShape) {
+    BackHandler(enabled=!drawer.isOpen&&drawer.targetValue==DrawerValue.Open){moveDrawer(DrawerValue.Closed)}
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val drawerWidth = (maxWidth * 0.70f).coerceAtMost(360.dp)
+    val drawerWidthPx = with(LocalDensity.current) { drawerWidth.roundToPx() }
+    ModalNavigationDrawer(
+        drawerState=drawer,
+        gesturesEnabled=vm.token!=null&&route==AppRoute.LEDGER,
+        scrimColor=Color.Black.copy(alpha=if(ledgerColors.dark) 0.48f else 0.32f),
+        drawerContent={
+        // Keep both drag anchors distinct while the user signs in or out.
+        ModalDrawerSheet(drawerState=drawer,modifier=Modifier.width(drawerWidth),drawerContainerColor=ledgerColors.surface,drawerShape=androidx.compose.ui.graphics.RectangleShape) {
+          if(vm.token!=null) {
             Text("家庭账本",Modifier.padding(start=24.dp,top=28.dp,bottom=8.dp),style=MaterialTheme.typography.headlineSmall)
             Text(vm.nickname,Modifier.padding(start=24.dp,bottom=20.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
             data class Destination(val title:String,val icon:androidx.compose.ui.graphics.vector.ImageVector,val target:AppRoute)
@@ -124,22 +149,30 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
                 Destination("家庭",Icons.Outlined.People,AppRoute.FAMILY),
                 Destination("设置",Icons.Outlined.Settings,AppRoute.SETTINGS),
             )
-            destinations.forEach { item -> NavigationDrawerItem(label={Text(item.title)},icon={Icon(item.icon,null)},selected=route==item.target,onClick={route=item.target;scope.launch{drawer.close()}},modifier=Modifier.padding(horizontal=12.dp).testTag("nav-${item.title}")) }
+            destinations.forEach { item -> NavigationDrawerItem(label={Text(item.title)},icon={Icon(item.icon,null)},selected=route==item.target,onClick={moveDrawer(DrawerValue.Closed){if(vm.token!=null)route=item.target}},modifier=Modifier.padding(horizontal=12.dp).testTag("nav-${item.title}")) }
+          }
         }
     }) {
     val home=vm.token!=null&&route==AppRoute.LEDGER
-    Box(Modifier.fillMaxSize().background(ledgerColors.background)){
+    Box(Modifier.fillMaxSize().graphicsLayer {
+        val offset = drawer.currentOffset
+        if (home && !offset.isNaN()) {
+            translationX = (drawerWidthPx + offset).coerceIn(0f, drawerWidthPx.toFloat()) * moveDirection
+        } else {
+            translationX = 0f
+        }
+    }.background(ledgerColors.background)){
     if(home){Image(androidx.compose.ui.res.painterResource(R.drawable.ledger_landscape),null,Modifier.fillMaxWidth().height(240.dp),contentScale=androidx.compose.ui.layout.ContentScale.Crop);Box(Modifier.fillMaxWidth().height(240.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(ledgerColors.background.copy(alpha=if(ledgerColors.dark).35f else .78f),ledgerColors.background.copy(alpha=if(ledgerColors.dark).72f else .94f)))))}
     Scaffold(containerColor=if(home)Color.Transparent else ledgerColors.background,contentColor=MaterialTheme.colorScheme.onSurface,snackbarHost={SnackbarHost(feedback)},
         topBar = { CenterAlignedTopAppBar(colors=TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor=Color.Transparent),expandedHeight=56.dp,title={if(vm.token!=null&&route==AppRoute.LEDGER) Row(Modifier.clickable{monthPicker=true},verticalAlignment=Alignment.CenterVertically){Text(vm.ledgerMonth,fontSize=18.sp);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))} else Text(when(route){AppRoute.SEARCH->"搜索";AppRoute.FAMILY->"家庭";AppRoute.SETTINGS->"设置";AppRoute.ACCOUNTS->"账户";AppRoute.CATALOG->"分类与标签";AppRoute.SESSIONS->"登录设备";AppRoute.EXTERNAL_AUTH->"第三方登录";AppRoute.ABOUT->"关于与更新";else->"家庭账本"})},
-            navigationIcon={if(route!=AppRoute.LEDGER)IconButton(onClick={route=when(route){AppRoute.ACCOUNTS,AppRoute.CATALOG,AppRoute.SESSIONS,AppRoute.EXTERNAL_AUTH,AppRoute.ABOUT->AppRoute.SETTINGS;else->AppRoute.LEDGER}}){Icon(Icons.Outlined.ArrowBack,"返回")}else if(vm.token!=null) IconButton(onClick={scope.launch{drawer.open()}}){Icon(Icons.Outlined.Menu,"打开菜单")}},
+            navigationIcon={if(route!=AppRoute.LEDGER)IconButton(onClick={route=when(route){AppRoute.ACCOUNTS,AppRoute.CATALOG,AppRoute.SESSIONS,AppRoute.EXTERNAL_AUTH,AppRoute.ABOUT->AppRoute.SETTINGS;else->AppRoute.LEDGER}}){Icon(Icons.Outlined.ArrowBack,"返回")}else if(vm.token!=null) IconButton(onClick={moveDrawer(DrawerValue.Open)}){Icon(Icons.Outlined.Menu,"打开菜单")}},
             actions={if(vm.token!=null&&route==AppRoute.LEDGER){IconButton(onClick={calendar=true}){Icon(Icons.Outlined.CalendarMonth,"日历视图")};IconButton(onClick={report=true}){Icon(Icons.Outlined.BarChart,"月报表")}}else if(vm.token==null&&route!=AppRoute.ABOUT)IconButton(onClick={route=AppRoute.ABOUT}){Icon(Icons.Outlined.Info,"关于")}}) },
         floatingActionButtonPosition=FabPosition.Center,
         floatingActionButton = { if (vm.token != null && route == AppRoute.LEDGER) FloatingActionButton(onClick={vm.newTransaction()},modifier=Modifier.size(56.dp).testTag("add-transaction"),shape=androidx.compose.foundation.shape.CircleShape,containerColor=MaterialTheme.colorScheme.primary,contentColor=MaterialTheme.colorScheme.onPrimary) { Icon(Icons.Outlined.Add,"记一笔",Modifier.size(28.dp)) } }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-
+            if (vm.token!=null && vm.backgroundRefreshFailed) LedgerRefreshRetry(vm)
 
             if (route == AppRoute.ABOUT) UpdatePage(updates)
             else if (vm.token == null) LoginPage(vm)
@@ -154,6 +187,7 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
                 else -> TransactionsPage(vm)
             }
         }
+    }
     }
     }
     }
@@ -174,6 +208,17 @@ private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, St
             OutlinedTextField(passcode, { passcode = it }, label = { Text("二步验证码（如已启用）") }, singleLine = true)
             if (vm.error.isNotBlank()) Text(vm.error, color = MaterialTheme.colorScheme.error)
         } }, confirmButton = { TextButton(onClick = { vm.finishOidc(password, passcode); password = "" }, enabled = !vm.busy && password.isNotEmpty()) { Text("确认关联") } }, dismissButton = { TextButton(onClick = vm::dismissOidc) { Text("取消") } })
+    }
+}
+
+@Composable
+internal fun LedgerRefreshRetry(vm: BooksModel) {
+    Row(
+        Modifier.fillMaxWidth().padding(start=16.dp,end=8.dp),
+        verticalAlignment=Alignment.CenterVertically,
+    ) {
+        Text("账本数据刷新失败", Modifier.weight(1f), color=ledgerColors.muted, style=MaterialTheme.typography.bodySmall)
+        TextButton(onClick=vm::retryBackgroundRefresh, enabled=!vm.busy) { Text("重试刷新") }
     }
 }
 
@@ -230,21 +275,22 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
             item(key="day-$date") {
                 Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp),shape=androidx.compose.foundation.shape.RoundedCornerShape(8.dp),color=ledgerColors.surface) {
                     Column {
-                        val cny=daily[date]?.array("amounts")?.firstOrNull{it.optString("currency")=="CNY"}
+                        val cny=daily[date]?.array("amounts")?.firstOrNull{it.optString("currency")==DEFAULT_LEDGER_CURRENCY}
+                        val dayIncome=cny?.optString("incomeAmount")?.toBigIntegerOrNull() ?: java.math.BigInteger.ZERO
+                        val dayExpense=cny?.optString("expenseAmount")?.toBigIntegerOrNull() ?: java.math.BigInteger.ZERO
                         Row(Modifier.fillMaxWidth().heightIn(min=40.dp).padding(horizontal=12.dp,vertical=8.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
                             Text(date.substring(5).replace('-','.')+if(date==java.time.LocalDate.now(ZoneId.of("Asia/Shanghai")).toString())" 今天" else "",fontSize=14.sp,fontWeight=FontWeight.Bold)
-                            Text("收:¥${money(cny?.optString("incomeAmount")?:"0")} 支:¥${money(cny?.optString("expenseAmount")?:"0")}",fontSize=12.sp,fontWeight=FontWeight.Bold)
+                            Text(ledgerDaySummary(dayIncome,dayExpense),fontSize=12.sp,fontWeight=FontWeight.Bold)
                         }
                         rows.forEachIndexed{index,item->
-                            if(index>0) HorizontalDivider(Modifier.padding(horizontal=12.dp),color=ledgerColors.divider)
+                            if(index>0) LedgerTransactionDivider()
                             Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("transaction-${item.id()}").clickable(enabled=!vm.busy){selected=item}.padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
                                 Box(Modifier.size(4.dp).background(when(item.optInt("type")){2->ledgerColors.income;3->ledgerColors.expense;else->ledgerColors.muted},androidx.compose.foundation.shape.CircleShape))
                                 Column(Modifier.weight(1f).padding(start=12.dp,end=8.dp)) {
                                     Row(verticalAlignment=Alignment.CenterVertically){Text(transactionLabel(item),fontSize=14.sp);Text(" · "+(item.optJSONObject("sourceAccount")?.optString("name")?:""),Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=10.sp,color=ledgerColors.muted)}
                                     if(item.optString("comment").isNotBlank()||item.array("pictures").isNotEmpty())Text(item.optString("comment")+if(item.array("pictures").isNotEmpty())" · 图片" else "",maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=11.sp,color=ledgerColors.muted)
                                 }
-                                val value=item.optString("sourceAmount")
-                                Row(verticalAlignment=Alignment.CenterVertically){Text(transactionSignedAmount(item.optInt("type"),value),fontSize=16.sp,color=when(item.optInt("type")){2->ledgerColors.income;3->ledgerColors.expense;else->MaterialTheme.colorScheme.onSurface});Text(item.optJSONObject("sourceAccount")?.optString("currency")?:"",Modifier.padding(start=4.dp),fontSize=10.sp,color=ledgerColors.muted)}
+                                Text(ledgerTransactionAmount(item),fontSize=16.sp,color=when(item.optInt("type")){2->ledgerColors.income;3->ledgerColors.expense;else->MaterialTheme.colorScheme.onSurface})
                             }
                         }
                     }
@@ -390,7 +436,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         runCatching {
             require(name.isNotBlank()) { "请填写名称" }
             val body = JSONObject().put("name", name.trim()).put("category", category.toInt()).put("icon", original?.optString("icon") ?: preset?.icon ?: "1").put("iconType", 0).put("color", original?.optString("color") ?: preset?.color ?: "006B5C").put("comment", comment)
-            if (original == null) { val minor = initialAccountBalanceMinor(balance,category.toInt()); body.put("type", 1).put("currency", "CNY").put("balance", minor.toString()).put("balanceTime", balanceTime).put("clientSessionId", requestId) }
+            if (original == null) { val minor = initialAccountBalanceMinor(balance,category.toInt()); body.put("type", 1).put("currency", DEFAULT_LEDGER_CURRENCY).put("balance", minor.toString()).put("balanceTime", balanceTime).put("clientSessionId", requestId) }
             else { body.put("id", original.id()).put("hidden", original.optBoolean("hidden")); if(category=="3"){ if(original.has("creditCardStatementDate")) body.put("creditCardStatementDate",original.get("creditCardStatementDate")); original.optString("creditCardLimit").toLongOrNull()?.takeIf{limit->limit>0}?.let{limit->body.put("creditCardLimit",limit.toString())} } }
             body
         }.onSuccess { submit("/api/v1/accounts/${if (original == null) "add" else "modify"}.json", it, close) }.onFailure { localError = if(it is ArithmeticException) "余额超出可用范围" else it.message?:"请检查名称、币种和余额格式" }
