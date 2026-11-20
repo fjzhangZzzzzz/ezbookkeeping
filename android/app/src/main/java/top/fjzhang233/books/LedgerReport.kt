@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,7 +30,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -314,14 +315,27 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=when {
 }
 @Composable internal fun ReportMetric(label:String,value:String,modifier:Modifier){Column(modifier.padding(vertical=6.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(label,color=reportMuted,fontSize=14.sp,lineHeight=20.sp);Text(value,fontSize=16.sp,lineHeight=20.sp,fontWeight=FontWeight.Bold,color=ledgerColors.text)}}
 @Composable internal fun ReportSegments(labels:List<String>,selected:Int,group:String="generic",segmentWidth:Dp=52.dp,choose:(Int)->Unit){
-    val period=group=="period";val shape=if(period)RoundedCornerShape(8.dp)else CircleShape
-    Box(Modifier.height(48.dp),contentAlignment=Alignment.Center){
-        Box(Modifier.matchParentSize().padding(vertical=7.dp).background(if(period)ledgerColors.background else ledgerColors.background,shape))
-        Row(Modifier.padding(horizontal=4.dp)){
-            labels.forEachIndexed{index,label->
-                Box(Modifier.width(if(period)48.dp else segmentWidth).height(48.dp).testTag("report-segment-$group-$index").clickable{choose(index)},contentAlignment=Alignment.Center){
-                    if(index==selected)Box(Modifier.fillMaxWidth().height(28.dp).background(if(period)reportSurface else reportSurface,if(period)RoundedCornerShape(5.dp)else CircleShape))
-                    Text(label,fontSize=if(period)18.sp else 14.sp,lineHeight=20.sp,color=if(index==selected)ledgerColors.text else reportMuted)
+    val period = group == "period"
+    val trackShape = if (period) RoundedCornerShape(8.dp) else CircleShape
+    val segmentShape = if (period) RoundedCornerShape(5.dp) else CircleShape
+    Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.matchParentSize().padding(vertical = 7.dp).background(ledgerColors.background, trackShape))
+        Row(Modifier.padding(horizontal = 4.dp).selectableGroup()) {
+            labels.forEachIndexed { index, label ->
+                val active = index == selected
+                LedgerControl(
+                    Modifier.width(if (period) 48.dp else segmentWidth).testTag("report-segment-$group-$index"),
+                    selected = active, onClick = { choose(index) },
+                ) { interactions ->
+                    Box(
+                        Modifier.fillMaxWidth().heightIn(min = 28.dp)
+                            .ledgerControlFeedback(interactions, segmentShape)
+                            .background(if (active) reportSurface else Color.Transparent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, fontSize = if (period) 18.sp else 14.sp, lineHeight = 20.sp,
+                            color = if (active) ledgerColors.text else reportMuted, textAlign = TextAlign.Center)
+                    }
                 }
             }
         }
@@ -433,12 +447,11 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
         horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically,
     ){
         Text(title,Modifier.weight(1f),fontSize=18.sp,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
-        Box(
-            Modifier.heightIn(min=48.dp).widthIn(min=48.dp).testTag(tag).clickable(role=Role.Button,onClick=openStatistics),
-            contentAlignment=Alignment.Center,
-        ){
+        LedgerControl(Modifier.testTag(tag), onClick = openStatistics) { interactions ->
+            val shape = RoundedCornerShape(8.dp)
             Row(
-                Modifier.border(1.dp,ledgerColors.divider,RoundedCornerShape(8.dp)).padding(horizontal=9.dp,vertical=5.dp),
+                Modifier.ledgerControlFeedback(interactions, shape).border(1.dp,ledgerColors.divider,shape)
+                    .padding(horizontal=9.dp,vertical=5.dp),
                 horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.CenterVertically,
             ){
                 Text("统计",fontSize=14.sp,lineHeight=18.sp,color=reportMuted)
@@ -539,7 +552,16 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
         }
     }
 }
-@Composable private fun ReportFilterChoice(label:String,checked:Boolean,click:()->Unit){Row(Modifier.fillMaxWidth().clickable(onClick=click).heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically){Checkbox(checked,onCheckedChange={click()});Text(label,fontSize=14.sp)}}
+@Composable private fun ReportFilterChoice(label: String, checked: Boolean, click: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .toggleable(checked, role = Role.Checkbox, onValueChange = { click() }),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked, onCheckedChange = null, modifier = Modifier.size(48.dp))
+        Text(label, fontSize = 14.sp)
+    }
+}
 @Composable internal fun ReportCategoryStatistics(vm: BooksModel, route: CategoryStatisticsPage, dismiss: () -> Unit) {
     var query by rememberSaveable(stateSaver = ReportQuery.saver) { mutableStateOf(route.query) }
     val period = query.period()
@@ -616,7 +638,7 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
                     Icon(Icons.Outlined.FilterAlt, "筛选分类统计")
                 }
             }
-            Row(Modifier.fillMaxWidth().background(reportSurface), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().background(reportSurface).selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { yearPicker = true }) { Text("${period.month.year}年", color = ledgerColors.text) }
                 CategoryPeriodButton("全年", period.yearly && !period.custom, "category-report-year") {
                     change(ReportPeriod(period.month, yearly = true), filter)
@@ -735,12 +757,9 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
 }
 
 @Composable private fun CategoryPeriodButton(label: String, selected: Boolean, tag: String, click: () -> Unit) {
-    Box(
-        Modifier.testTag(tag).semantics { this.selected = selected }.heightIn(min = 48.dp)
-            .clickable(onClick = click).padding(horizontal = 3.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, Modifier.background(if (selected) ledgerColors.selection else Color.Transparent, CircleShape)
+    LedgerControl(Modifier.testTag(tag), selected = selected, onClick = click) { interactions ->
+        Text(label, Modifier.padding(horizontal = 3.dp).ledgerControlFeedback(interactions)
+            .background(if (selected) ledgerColors.selection else Color.Transparent)
             .padding(horizontal = 10.dp, vertical = 5.dp), color = if (selected) MaterialTheme.colorScheme.primary else reportMuted,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }

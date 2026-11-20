@@ -1,7 +1,7 @@
 package top.fjzhang233.books
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -62,9 +62,13 @@ internal fun LedgerTagPicker(
                                 val id = tag.id()
                                 val checked = id in pending
                                 val available = checked || pending.size < 10
+                                val interactions = remember { MutableInteractionSource() }
+                                val shape = RoundedCornerShape(16.dp)
                                 Box(
                                     modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).toggleable(
                                         value = checked,
+                                        interactionSource = interactions,
+                                        indication = null,
                                         enabled = available,
                                         role = Role.Checkbox,
                                         onValueChange = { next -> pending = if (next) (pending + id).distinct().take(10) else pending - id },
@@ -72,7 +76,8 @@ internal fun LedgerTagPicker(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Surface(
-                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.ledgerControlFeedback(interactions, shape),
+                                        shape = shape,
                                         color = if (checked) ledgerColors.selection else ledgerColors.field,
                                         contentColor = if (checked) ledgerColors.accent else if (available) ledgerColors.text else ledgerColors.muted,
                                         border = BorderStroke(1.dp, if (checked) ledgerColors.accent else ledgerColors.divider),
@@ -92,11 +97,10 @@ internal fun LedgerTagPicker(
 
 @Composable
 private fun TagPickerAction(label: String, tag: String, action: () -> Unit) {
-    androidx.compose.foundation.layout.Box(
-        modifier = Modifier.width(58.dp).height(48.dp).testTag(tag).clickable(role = Role.Button, onClick = action),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(shape = RoundedCornerShape(4.dp), color = Color.Transparent, border = BorderStroke(1.dp, ledgerColors.divider)) {
+    LedgerControl(Modifier.width(58.dp).testTag(tag), onClick = action) { interactions ->
+        val shape = RoundedCornerShape(4.dp)
+        Surface(modifier = Modifier.ledgerControlFeedback(interactions, shape), shape = shape,
+            color = Color.Transparent, border = BorderStroke(1.dp, ledgerColors.divider)) {
             Box(Modifier.width(58.dp).height(26.dp), contentAlignment = Alignment.Center) { Text(label, fontSize = 14.sp) }
         }
     }

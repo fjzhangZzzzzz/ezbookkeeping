@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -155,10 +156,13 @@ internal fun calendarLunarLabel(date:LocalDate):String {
         Box(contentAlignment=Alignment.Center){
             // Keep 48dp hit regions while matching the reference's compact 35dp visual track.
             Box(Modifier.matchParentSize().padding(vertical=6.5.dp).clip(CircleShape).background(ledgerColors.background))
-            Row(Modifier.padding(horizontal=4.dp),verticalAlignment=Alignment.CenterVertically){
-                CalendarAmountMode.entries.forEach{value->
-                    Box(Modifier.height(48.dp).testTag("calendar-mode-${value.name}").semantics{selected=mode==value}.clickable(role=Role.Tab){onMode(value)},contentAlignment=Alignment.Center){
-                        Text(value.label,Modifier.clip(CircleShape).background(if(mode==value)ledgerColors.surface else Color.Transparent).padding(horizontal=10.dp,vertical=3.dp),fontSize=14.sp,lineHeight=20.sp,color=if(mode==value)ledgerColors.text else ledgerColors.muted)
+            Row(Modifier.padding(horizontal = 4.dp).selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
+                CalendarAmountMode.entries.forEach { value ->
+                    val active = mode == value
+                    LedgerControl(Modifier.testTag("calendar-mode-${value.name}"), selected = active, onClick = { onMode(value) }) { interactions ->
+                        Text(value.label, Modifier.ledgerControlFeedback(interactions)
+                            .background(if (active) ledgerColors.surface else Color.Transparent).padding(horizontal = 10.dp, vertical = 3.dp),
+                            fontSize = 14.sp, lineHeight = 20.sp, color = if (active) ledgerColors.text else ledgerColors.muted)
                     }
                 }
             }

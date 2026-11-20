@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -178,11 +180,13 @@ internal fun FamilyReportPage(
 @Composable
 private fun FamilyMemberScopeBar(value: String, enabled: Boolean, onClick: () -> Unit) {
     Surface(
+        onClick = onClick,
+        enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics {
+                role = Role.Button
                 contentDescription = "选择成员范围，当前$value"
                 stateDescription = if (enabled) "可展开" else "正在加载"
             }
@@ -209,7 +213,7 @@ private fun FamilyMemberScopeSheet(members: List<JSONObject>, selected: String, 
         containerColor = ledgerColors.surface,
         contentColor = ledgerColors.text,
     ) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp).selectableGroup()) {
             Text("选择成员范围", Modifier.padding(horizontal = 24.dp, vertical = 12.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold)
             FamilyMemberScopeOption("0", "全家", "统计所有活跃成员", selected, true, choose)
             members.forEach { member ->

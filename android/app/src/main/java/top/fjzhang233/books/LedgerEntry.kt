@@ -13,6 +13,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -175,12 +176,31 @@ import androidx.compose.ui.focus.onFocusChanged
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
                 Row(Modifier.fillMaxWidth().heightIn(min=56.dp),verticalAlignment=Alignment.CenterVertically) {
                     IconButton(onClick=::close,enabled=!editLocked) { Icon(Icons.Outlined.Close,"取消记账") }
-                    Row(Modifier.weight(1f),horizontalArrangement=Arrangement.Center) { listOf(3 to "支出",2 to "收入",4 to "转账").forEach { (value,label) ->
-                        Column(Modifier.width(64.dp).clickable(enabled=!editLocked) { if (type != value) { type=value; requireExplicitCategory=original == null && vm.copiedTransaction?.optInt("type") == value && copiedTypeNeedsChoice; category=if (original != null && original.optInt("type") == value) originalTypeSelection else if (original == null && vm.copiedTransaction?.optInt("type") == value) copiedTypeSelection else ""; hasEstablishedCategory=category.isNotBlank() && category != "0" } }.padding(top=16.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-                            Text(label,color=if(type==value) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,fontWeight=if(type==value) FontWeight.SemiBold else FontWeight.Normal)
-                            Spacer(Modifier.height(12.dp));HorizontalDivider(Modifier.width(28.dp),thickness=2.dp,color=if(type==value) MaterialTheme.colorScheme.onSurface else Color.Transparent)
+                    Row(Modifier.weight(1f).selectableGroup(), horizontalArrangement = Arrangement.Center) {
+                        listOf(3 to "支出", 2 to "收入", 4 to "转账").forEach { (value, label) ->
+                            val active = type == value
+                            LedgerControl(Modifier.width(64.dp), selected = active, enabled = !editLocked, onClick = {
+                                if (type != value) {
+                                    type = value
+                                    requireExplicitCategory = original == null && vm.copiedTransaction?.optInt("type") == value && copiedTypeNeedsChoice
+                                    category = when {
+                                        original != null && original.optInt("type") == value -> originalTypeSelection
+                                        original == null && vm.copiedTransaction?.optInt("type") == value -> copiedTypeSelection
+                                        else -> ""
+                                    }
+                                    hasEstablishedCategory = category.isNotBlank() && category != "0"
+                                }
+                            }) { interactions ->
+                                Column(Modifier.padding(top = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(label, Modifier.ledgerControlFeedback(interactions).padding(horizontal = 8.dp),
+                                        color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                                    Spacer(Modifier.height(12.dp))
+                                    HorizontalDivider(Modifier.width(28.dp), thickness = 2.dp,
+                                        color = if (active) MaterialTheme.colorScheme.onSurface else Color.Transparent)
+                                }
+                            }
                         }
-                    }
                     }
                     IconButton(onClick={manageCatalog(0)},enabled=!editLocked){Box(Modifier.size(24.dp).clip(RoundedCornerShape(7.dp)).background(ledgerColors.text),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Add,"分类管理",Modifier.size(22.dp),tint=ledgerColors.background)}}
                 }
@@ -231,7 +251,11 @@ import androidx.compose.ui.focus.onFocusChanged
                 }
                 val accent=if(type==3) ledgerColors.expense else if(type==2) ledgerColors.income else MaterialTheme.colorScheme.primary
                 Row(Modifier.fillMaxWidth().height(56.dp).padding(start=8.dp,end=12.dp),verticalAlignment=Alignment.CenterVertically) {
-                    Box(Modifier.width(40.dp).height(48.dp).clickable(enabled=!editLocked){sheet="tags"},contentAlignment=Alignment.Center){Box(Modifier.size(32.dp).clip(CircleShape).background(ledgerColors.controlSurface),contentAlignment=Alignment.Center){Text("#",fontSize=20.sp,color=ledgerColors.text)}}
+                    LedgerControl(Modifier.testTag("entry-tags-open"), enabled = !editLocked, onClick = { sheet = "tags" }) { interactions ->
+                        Box(Modifier.size(32.dp).ledgerControlFeedback(interactions).background(ledgerColors.controlSurface), contentAlignment = Alignment.Center) {
+                            Text("#", fontSize = 20.sp, color = ledgerColors.text)
+                        }
+                    }
                     BasicTextField(comment,{if(it.length<=255) comment=it},Modifier.weight(1f).testTag("entry-comment").onFocusChanged{memoFocused=it.isFocused},singleLine=true,enabled=!editLocked,textStyle=androidx.compose.ui.text.TextStyle(fontSize=14.sp,color=MaterialTheme.colorScheme.onSurface),keyboardOptions=KeyboardOptions(imeAction=ImeAction.Done),keyboardActions=KeyboardActions(onDone={keyboard?.hide();focus.clearFocus()}),decorationBox={inner->Box{if(comment.isBlank()) Text("点此输入备注...",color=ledgerColors.muted,fontSize=14.sp);inner()}})
                     Text(amount.ifBlank{"0.0"},Modifier.offset(y=6.dp).testTag("transaction-amount").clickable{keyboard?.hide();focus.clearFocus()}.padding(start=8.dp),fontSize=24.sp,fontFamily=androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-condensed",android.graphics.Typeface.NORMAL)),color=accent,maxLines=1)
                     if(currency!="CNY") Text(currency,Modifier.padding(start=5.dp),fontSize=10.sp)
@@ -316,7 +340,12 @@ internal fun draftThumbnail(bytes:ByteArray):ByteArray {
 }
 @Composable private fun EntryAccountRow(label:String,item:JSONObject?,enabled:Boolean=true,onClick:()->Unit) { ListItem(headlineContent={Text(item?.optString("name")?:"请选择")},supportingContent={Text(label)},leadingContent={Icon(Icons.Outlined.AccountBalanceWallet,null)},trailingContent={Text(item?.optString("currency")?:"")},modifier=Modifier.clickable(enabled=enabled,onClick=onClick)) }
 @Composable private fun EntryPill(label:String,tag:String,enabled:Boolean=true,description:String=label,action:()->Unit) {
-    Box(Modifier.height(48.dp).testTag(tag).semantics{contentDescription=description}.clickable(enabled=enabled,onClick=action),contentAlignment=Alignment.Center){Box(Modifier.height(32.dp).clip(RoundedCornerShape(20.dp)).background(ledgerColors.controlSurface).padding(horizontal=12.dp),contentAlignment=Alignment.Center){Text(label,fontSize=14.sp,color=ledgerColors.text)}}
+    LedgerControl(Modifier.testTag(tag).semantics { contentDescription = description }, enabled = enabled, onClick = action) { interactions ->
+        Box(Modifier.heightIn(min = 32.dp).ledgerControlFeedback(interactions).background(ledgerColors.controlSurface)
+            .padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 14.sp, color = ledgerColors.text)
+        }
+    }
 }
 @Composable internal fun EntryDatePicker(value:String,dismiss:()->Unit,select:(String)->Unit) {
     val context=LocalContext.current;val density=androidx.compose.ui.platform.LocalDensity.current
@@ -356,10 +385,25 @@ internal fun draftThumbnail(bytes:ByteArray):ByteArray {
         }}
         }
         Row(Modifier.width(258.dp).height(48.dp).align(Alignment.CenterHorizontally),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
-            listOf("今","昨","前").forEachIndexed{offset,label->val date=java.time.LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(offset.toLong());val selected=year==date.year&&month==date.monthValue&&day==date.dayOfMonth
-                Box(Modifier.width(48.dp).height(48.dp).testTag("entry-date-quick-$offset").clickable{quick(offset.toLong())},contentAlignment=Alignment.Center){Box(Modifier.width(48.dp).height(32.dp).clip(CircleShape).background(if(selected)ledgerColors.selection else ledgerColors.field),contentAlignment=Alignment.Center){Text(label,fontSize=14.sp,color=if(selected)ledgerColors.accent else ledgerColors.text)}}
+            Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("今", "昨", "前").forEachIndexed { offset, label ->
+                    val date = java.time.LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(offset.toLong())
+                    val selected = year == date.year && month == date.monthValue && day == date.dayOfMonth
+                    LedgerControl(Modifier.width(48.dp).testTag("entry-date-quick-$offset"), selected = selected,
+                        onClick = { quick(offset.toLong()) }) { interactions ->
+                        Box(Modifier.width(48.dp).heightIn(min = 32.dp).ledgerControlFeedback(interactions)
+                            .background(if (selected) ledgerColors.selection else ledgerColors.field), contentAlignment = Alignment.Center) {
+                            Text(label, fontSize = 14.sp, color = if (selected) ledgerColors.accent else ledgerColors.text)
+                        }
+                    }
+                }
             }
-            Box(Modifier.width(90.dp).height(48.dp).testTag("entry-date-switch-time").clickable{timeMode=!timeMode},contentAlignment=Alignment.Center){Box(Modifier.fillMaxWidth().height(32.dp).clip(RoundedCornerShape(20.dp)).background(ledgerColors.field),contentAlignment=Alignment.Center){Text(if(timeMode) "日期 %02d-%02d".format(month,day) else "时间 %02d:%02d".format(hour,minute),fontSize=14.sp)}}
+            LedgerControl(Modifier.width(90.dp).testTag("entry-date-switch-time"), onClick = { timeMode = !timeMode }) { interactions ->
+                Box(Modifier.fillMaxWidth().heightIn(min = 32.dp).ledgerControlFeedback(interactions).background(ledgerColors.field),
+                    contentAlignment = Alignment.Center) {
+                    Text(if (timeMode) "日期 %02d-%02d".format(month, day) else "时间 %02d:%02d".format(hour, minute), fontSize = 14.sp)
+                }
+            }
         }
         Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal=8.dp),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically){TextButton(onClick=dismiss,modifier=Modifier.width(64.dp).heightIn(min=48.dp).testTag("entry-date-cancel"),colors=ButtonDefaults.textButtonColors(contentColor=ledgerColors.muted)){Text("取消",fontSize=14.sp)};Spacer(Modifier.width(8.dp));TextButton(onClick={pickerToCommit?.clearFocus();select(LocalDateTime.of(year,month,day,hour,minute).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")))},modifier=Modifier.width(64.dp).heightIn(min=48.dp).testTag("entry-date-confirm")){Text("确定",fontSize=14.sp,fontWeight=FontWeight.Bold)}}
        }

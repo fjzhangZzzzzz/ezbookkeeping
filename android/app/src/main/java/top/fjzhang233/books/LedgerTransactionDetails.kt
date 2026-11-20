@@ -9,7 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -131,8 +130,10 @@ internal fun transactionCategoryStatistics(
         dismissButton={TextButton(onClick={confirmDelete=false},enabled=!busy){Text("取消")}})
 }
 @Composable private fun DetailAction(label:String,enabled:Boolean,tag:String,action:()->Unit,color:Color=ledgerColors.text){
-    Box(Modifier.padding(start=4.dp).heightIn(min=48.dp).clickable(enabled=enabled,onClick=action).testTag(tag),contentAlignment=Alignment.Center){
-        Box(Modifier.background(ledgerColors.surface,CircleShape).padding(horizontal=12.dp,vertical=7.dp)){Text(label,fontSize=14.sp,color=if(enabled)color else ledgerColors.outline)}
+    LedgerControl(Modifier.padding(start = 4.dp).testTag(tag), enabled = enabled, onClick = action) { interactions ->
+        Box(Modifier.ledgerControlFeedback(interactions).background(ledgerColors.surface).padding(horizontal = 12.dp, vertical = 7.dp)) {
+            Text(label, fontSize = 14.sp, color = if (enabled) color else ledgerColors.outline)
+        }
     }
 }
 @Composable private fun TransactionDetailLine(

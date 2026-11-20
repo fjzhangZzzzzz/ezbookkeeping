@@ -1,7 +1,6 @@
 package top.fjzhang233.books
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,8 +28,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -224,26 +222,29 @@ internal fun CategoryTile(
     modifier: Modifier = Modifier,
     showMoreBadge: Boolean = false
 ) {
-    Column(
-        modifier.fillMaxWidth().padding(vertical = categoryTileVerticalPadding).testTag("entry-category-${item.id()}")
-            .semantics { this.selected = selected }
-            .clickable(enabled = enabled, onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        CategoryIconSlot(item, selected, showMoreBadge)
-        Text(
-            item.optString("name"),
-            modifier = Modifier.padding(top = categoryLabelSpacing),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            fontSize = 12.sp,
-            lineHeight = 16.sp,
-            color = when {
-                selected -> MaterialTheme.colorScheme.primary
-                item.optBoolean("hidden") -> MaterialTheme.colorScheme.onSurfaceVariant
-                else -> MaterialTheme.colorScheme.onSurface
+    LedgerControl(
+        modifier.fillMaxWidth().padding(vertical = categoryTileVerticalPadding).testTag("entry-category-${item.id()}"),
+        selected = selected, enabled = enabled, role = Role.Button, onClick = onClick,
+    ) { interactions ->
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box {
+                CategoryIconSlot(item, selected, showMoreBadge)
+                Spacer(Modifier.matchParentSize().ledgerControlFeedback(interactions))
             }
-        )
+            Text(
+                item.optString("name"),
+                modifier = Modifier.padding(top = categoryLabelSpacing),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                color = when {
+                    selected -> MaterialTheme.colorScheme.primary
+                    item.optBoolean("hidden") -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+            )
+        }
     }
 }
 

@@ -1,13 +1,12 @@
 package top.fjzhang233.books
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
@@ -20,8 +19,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,7 +107,7 @@ internal fun accountPreset(key:String)=accountPresetGroups.asSequence().flatMap{
                     Box(Modifier.size(32.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.onSurface),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Add,"新建账户",Modifier.size(26.dp),tint=MaterialTheme.colorScheme.surface)}
                 }
             }
-            LazyVerticalGrid(columns=GridCells.Fixed(5),modifier=Modifier.fillMaxWidth().weight(1f).testTag("entry-account-grid"),contentPadding=PaddingValues(horizontal=4.dp,vertical=8.dp)){
+            LazyVerticalGrid(columns=GridCells.Fixed(5),modifier=Modifier.fillMaxWidth().weight(1f).testTag("entry-account-grid").selectableGroup(),contentPadding=PaddingValues(horizontal=4.dp,vertical=8.dp)){
                 item(key="none"){AccountChoiceTile("不选择账户",selectedId.isEmpty(),"entry-account-none",null,enabled){choose("")}}
                 items(visible,key={it.id()}){item->AccountChoiceTile(item.optString("name")+(if(item.id()==defaultId)" · 默认" else ""),selectedId==item.id(),"entry-account-${item.id()}",item,enabled){choose(item.id())}}
             }
@@ -118,12 +117,20 @@ internal fun accountPreset(key:String)=accountPresetGroups.asSequence().flatMap{
 
 @Composable private fun AccountChoiceTile(label:String,selected:Boolean,tag:String,item:JSONObject?,enabled:Boolean,click:()->Unit){
     val color=if(item==null)MaterialTheme.colorScheme.secondary else presetColor(item.optString("color"),MaterialTheme.colorScheme.primary)
-    Column(Modifier.fillMaxWidth().heightIn(min=88.dp).testTag(tag).semantics{this.selected=selected;contentDescription=if(item==null)label else "$label，${item.optString("currency")}"}.clickable(enabled=enabled,onClick=click).padding(horizontal=3.dp,vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally){
-        Box(Modifier.size(32.dp).clip(CircleShape).background(if(selected&&item!=null)MaterialTheme.colorScheme.primaryContainer else color),contentAlignment=Alignment.Center){
-            if(item==null)Icon(Icons.Outlined.AccountBalanceWallet,null,Modifier.size(22.dp),tint=MaterialTheme.colorScheme.onSecondary)
-            else BuiltinIcon(item,Modifier.size(26.dp),if(selected)MaterialTheme.colorScheme.onPrimaryContainer else contrastInk(color),account=true)
+    LedgerControl(
+        Modifier.fillMaxWidth().testTag(tag).semantics { contentDescription = if (item == null) label else "$label，${item.optString("currency")}" },
+        selected = selected, role = Role.RadioButton, enabled = enabled, onClick = click,
+    ) { interactions ->
+        Column(Modifier.fillMaxWidth().heightIn(min = 88.dp).padding(horizontal = 3.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(32.dp).ledgerControlFeedback(interactions)
+                .background(if (selected && item != null) MaterialTheme.colorScheme.primaryContainer else color), contentAlignment = Alignment.Center) {
+                if (item == null) Icon(Icons.Outlined.AccountBalanceWallet, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondary)
+                else BuiltinIcon(item, Modifier.size(26.dp), if (selected) MaterialTheme.colorScheme.onPrimaryContainer else contrastInk(color), account = true)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(label, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                color = if (selected && item != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
         }
-        Spacer(Modifier.height(4.dp));Text(label,fontSize=13.sp,lineHeight=17.sp,maxLines=2,overflow=TextOverflow.Ellipsis,color=if(selected&&item!=null)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -141,10 +148,17 @@ internal fun accountPreset(key:String)=accountPresetGroups.asSequence().flatMap{
                     group.presets.chunked(4).forEachIndexed{index,row->item(key="${group.title}-$index"){
                         Row(Modifier.fillMaxWidth().padding(horizontal=4.dp)){
                             row.forEach{preset->
-                                Column(Modifier.weight(1f).heightIn(min=80.dp).testTag("entry-asset-${preset.key}").clickable(enabled=enabled){choose(preset)}.padding(horizontal=3.dp,vertical=7.dp),horizontalAlignment=Alignment.CenterHorizontally){
-                                    val iconColor=presetColor(preset.color,MaterialTheme.colorScheme.primary)
-                                    Box(Modifier.size(30.dp).clip(CircleShape).background(iconColor),contentAlignment=Alignment.Center){BuiltinIcon(JSONObject().put("icon",preset.icon),Modifier.size(25.dp),contrastInk(iconColor),account=true)}
-                                    Spacer(Modifier.height(5.dp));Text(preset.label,fontSize=13.sp,lineHeight=17.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                LedgerControl(Modifier.weight(1f).testTag("entry-asset-${preset.key}"), enabled = enabled,
+                                    onClick = { choose(preset) }) { interactions ->
+                                    Column(Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(horizontal = 3.dp, vertical = 7.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally) {
+                                        val iconColor = presetColor(preset.color, MaterialTheme.colorScheme.primary)
+                                        Box(Modifier.size(30.dp).ledgerControlFeedback(interactions).background(iconColor), contentAlignment = Alignment.Center) {
+                                            BuiltinIcon(JSONObject().put("icon", preset.icon), Modifier.size(25.dp), contrastInk(iconColor), account = true)
+                                        }
+                                        Spacer(Modifier.height(5.dp))
+                                        Text(preset.label, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    }
                                 }
                             }
                             repeat(4-row.size){Spacer(Modifier.weight(1f))}

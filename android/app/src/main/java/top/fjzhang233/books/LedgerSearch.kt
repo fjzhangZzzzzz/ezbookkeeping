@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -159,7 +160,16 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
     selected?.let{item->detail(item){selected=null;runSearch()}}
 }
 @Composable private fun SearchAmount(label:String,amount:String,color:Color,modifier:Modifier){Column(modifier){Text(label,fontSize=12.sp,color=searchMuted);Text(money(amount),Modifier.padding(top=6.dp),fontSize=20.sp,color=color,maxLines=1,overflow=TextOverflow.Ellipsis)}}
-@Composable private fun SearchDrop(label:String,active:Boolean,modifier:Modifier,onClick:()->Unit){Row(modifier.heightIn(min=48.dp).clickable(role=Role.Button,onClick=onClick).padding(horizontal=8.dp),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){Text(label,fontSize=14.sp,color=if(active)searchBlue else ledgerColors.text,maxLines=1,overflow=TextOverflow.Ellipsis);Icon(if(active)Icons.Outlined.ArrowDropUp else Icons.Outlined.ArrowDropDown,null,Modifier.size(18.dp),tint=searchMuted)}}
+@Composable private fun SearchDrop(label: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    LedgerControl(modifier, onClick = onClick) { interactions ->
+        Row(Modifier.heightIn(min = 32.dp).ledgerControlFeedback(interactions).padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.weight(1f, fill = false), fontSize = 14.sp, color = if (active) searchBlue else ledgerColors.text,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(if (active) Icons.Outlined.ArrowDropUp else Icons.Outlined.ArrowDropDown, null, Modifier.size(18.dp), tint = searchMuted)
+        }
+    }
+}
 @Composable private fun SearchTransactionRow(row:JSONObject,first:Boolean,last:Boolean,open:()->Unit){
     val color=when(row.optInt("type")){2->searchGreen;3->searchRed;else->searchMuted}
     val topRadius=if(first) 8.dp else 0.dp
@@ -197,11 +207,13 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
             if(panel=="date"){
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
                     Text("分组",fontSize=16.sp,fontWeight=FontWeight.Bold,color=searchMuted,modifier=Modifier.padding(end=8.dp).offset(y=(-4).dp))
-                    listOf("none" to "不分组","day" to "按天","month" to "按月").forEach{(key,label)->SearchPill(label,draftGroup==key,raiseVisual=true){draftGroup=key;changeGroup(key);apply(state)}}
+                    Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("none" to "不分组","day" to "按天","month" to "按月").forEach{(key,label)->SearchPill(label,draftGroup==key,raiseVisual=true){draftGroup=key;changeGroup(key);apply(state)}}
+                    }
                 }
                 HorizontalDivider(color=ledgerColors.field)
                 Text("账单日期",fontSize=16.sp,fontWeight=FontWeight.Bold,color=searchMuted,modifier=Modifier.padding(top=3.dp))
-                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                FlowRow(Modifier.selectableGroup(), horizontalArrangement=Arrangement.spacedBy(8.dp)){
                     searchDatePresets(LocalDate.now(ZoneId.of("Asia/Shanghai"))).forEach{preset->
                         SearchPill(preset.label,first==preset.firstDate.orEmpty()&&last==preset.lastDate.orEmpty()){first=preset.firstDate.orEmpty();last=preset.lastDate.orEmpty();apply(state.copy(firstDate=preset.firstDate,lastDate=preset.lastDate))}
                     }
@@ -209,9 +221,9 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
                 HorizontalDivider(color=ledgerColors.field)
                 Text("自定义",fontSize=16.sp,fontWeight=FontWeight.Bold,color=searchMuted,modifier=Modifier.padding(top=3.dp))
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    SearchPill(first.ifBlank{"开始日期"},first.isNotBlank()){datePicker="first"}
+                    SearchPill(first.ifBlank{"开始日期"},first.isNotBlank(), isChoice = false){datePicker="first"}
                     Text("－",color=searchMuted)
-                    SearchPill(last.ifBlank{"截止日期"},last.isNotBlank()){datePicker="last"}
+                    SearchPill(last.ifBlank{"截止日期"},last.isNotBlank(), isChoice = false){datePicker="last"}
                 }
             }else if(panel=="accounts"){
                 Text("资金账户 · 不选表示全部",fontSize=14.sp,color=searchMuted)
@@ -257,9 +269,15 @@ private fun Set<String>.toggle(id:String)=if(id in this)this-id else this+id
 
 
 
-@Composable private fun SearchPill(label:String,selected:Boolean,raiseVisual:Boolean=false,onClick:()->Unit){
-    Box(Modifier.heightIn(min=48.dp).clickable(role=Role.Button,onClick=onClick).padding(vertical=4.dp),contentAlignment=Alignment.Center){
-        Box(Modifier.offset(y=if(raiseVisual)(-4).dp else 0.dp).heightIn(min=32.dp).clip(RoundedCornerShape(24.dp)).background(if(selected)ledgerColors.selection else ledgerColors.field).padding(horizontal=14.dp,vertical=4.dp),contentAlignment=Alignment.Center){Text(label,fontSize=14.sp,color=if(selected)searchBlue else searchMuted)}
+@Composable private fun SearchPill(label: String, selected: Boolean, raiseVisual: Boolean = false,
+    isChoice: Boolean = true, onClick: () -> Unit,
+) {
+    LedgerControl(selected = if (isChoice) selected else null, onClick = onClick) { interactions ->
+        Box(Modifier.offset(y = if (raiseVisual) (-4).dp else 0.dp).heightIn(min = 32.dp)
+            .ledgerControlFeedback(interactions).background(if (selected) ledgerColors.selection else ledgerColors.field)
+            .padding(horizontal = 14.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 14.sp, color = if (selected) searchBlue else searchMuted)
+        }
     }
 }
 
@@ -287,7 +305,17 @@ private fun Set<String>.toggle(id:String)=if(id in this)this-id else this+id
                     }
                     IconButton(onClick={calendar=!calendar},modifier=Modifier.align(Alignment.TopEnd).padding(8.dp)){Icon(Icons.Outlined.ViewDay,"切换日期显示模式",tint=searchMuted)}
                 }
-                Row(Modifier.fillMaxWidth().height(48.dp),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){listOf("今","昨","前").forEachIndexed{offset,label->val day=LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(offset.toLong());Box(Modifier.width(56.dp).height(48.dp).clickable{date=day.toString();reset++},contentAlignment=Alignment.Center){Box(Modifier.size(40.dp,32.dp).clip(CircleShape).background(if(day==selected)ledgerColors.selection else ledgerColors.field),contentAlignment=Alignment.Center){Text(label,fontSize=14.sp,color=if(day==selected)searchBlue else searchMuted)}}}}
+                Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.Center) {
+                    listOf("今", "昨", "前").forEachIndexed { offset, label ->
+                        val day = LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(offset.toLong())
+                        LedgerControl(Modifier.width(56.dp), selected = day == selected, onClick = { date = day.toString(); reset++ }) { interactions ->
+                            Box(Modifier.width(40.dp).heightIn(min = 32.dp).ledgerControlFeedback(interactions)
+                                .background(if (day == selected) ledgerColors.selection else ledgerColors.field), contentAlignment = Alignment.Center) {
+                                Text(label, fontSize = 14.sp, color = if (day == selected) searchBlue else searchMuted)
+                            }
+                        }
+                    }
+                }
                 Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal=8.dp),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically){TextButton(onClick=dismiss){Text("取消",color=searchMuted)};TextButton(onClick={select(date)}){Text("确定",color=searchBlue,fontWeight=FontWeight.Bold)}}
             }
         }

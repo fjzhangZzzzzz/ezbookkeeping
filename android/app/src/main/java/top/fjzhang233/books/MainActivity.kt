@@ -590,7 +590,16 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     LaunchedEffect(Unit) { vm.refreshCategoriesIfStale() }
     Column {
         EntityWriteWarning(vm)
-        TabRow(selectedTabIndex = section) { listOf("分类", "标签", "标签组").forEachIndexed { index, text -> Tab(section == index, { section = index }, enabled=!vm.busy, text = { Text(text) }) } }
+        TabRow(selectedTabIndex = section) {
+            listOf("分类", "标签", "标签组").forEachIndexed { index, text ->
+                LedgerControl(Modifier.fillMaxWidth(), selected = section == index, enabled = !vm.busy,
+                    onClick = { section = index }) { interactions ->
+                    Text(text, Modifier.ledgerControlFeedback(interactions).padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (section == index) LocalContentColor.current else ledgerColors.muted)
+                }
+            }
+        }
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Text("全家共享分类、标签及标签组。仅使用内置图标。", style = MaterialTheme.typography.bodySmall) }
             if(section==0) item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { TextButton(onClick={vm.refreshCategories()},enabled=!vm.busy) { Text("刷新分类") }; TextButton(onClick={ showHidden = !showHidden }) { Text(if(showHidden) "隐藏已停用" else "显示已停用") } }; if(vm.categoryRevision==null) Text("分类管理需要升级服务端；浏览和记账仍可使用",style=MaterialTheme.typography.bodySmall) }
