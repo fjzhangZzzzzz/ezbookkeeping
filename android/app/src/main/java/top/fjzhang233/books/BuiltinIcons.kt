@@ -10,6 +10,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 
@@ -339,7 +340,9 @@ private val accountGlyphs=mapOf(
 )
 private val solidIcons=FontFamily(Font(R.font.line_awesome_solid))
 private val brandIcons=FontFamily(Font(R.font.line_awesome_brands))
-@Composable internal fun BuiltinIcon(item:JSONObject,modifier:Modifier=Modifier,tint:Color,account:Boolean=false){
+@Composable internal fun BuiltinIcon(
+    item:JSONObject,modifier:Modifier=Modifier,tint:Color,account:Boolean=false,glyphSize:TextUnit=24.sp,
+){
     val table=if(account)accountGlyphs else categoryGlyphs
     val iconId = if (account) item.optString("icon", "1") else effectiveCategoryIconId(item)
     val glyph=table[iconId]?:table.getValue("1")
@@ -349,8 +352,8 @@ private val brandIcons=FontFamily(Font(R.font.line_awesome_brands))
         color=tint,
         textAlign=TextAlign.Center,
         style=TextStyle(
-            fontSize=24.sp,
-            lineHeight=24.sp,
+            fontSize=glyphSize,
+            lineHeight=glyphSize,
             platformStyle=PlatformTextStyle(includeFontPadding=false),
             fontFamily=if(glyph.brand) brandIcons else solidIcons
         )

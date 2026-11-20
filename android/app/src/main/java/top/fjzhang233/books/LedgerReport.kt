@@ -32,6 +32,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -189,18 +191,17 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=when {
         Text("较$comparison",Modifier.fillMaxWidth(),fontSize=12.sp,lineHeight=16.sp,color=reportMuted,textAlign=TextAlign.End)
     }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val useSingleLine=maxWidth>=300.dp && LocalDensity.current.fontScale<=1.25f
+        val rowWidth=maxWidth
         Column {
             ranked.forEachIndexed { index,row ->
-                if(index>0) LedgerTransactionDivider(Modifier.padding(start=44.dp))
-                ReportRankingRow(row,total,colors[index],comparison,useSingleLine,tagPrefix) { open(row) }
+                ReportRankingRow(row,total,colors[index],comparison,rowWidth,tagPrefix) { open(row) }
             }
         }
     }
 }
 
 @Composable private fun ReportRankingRow(
-    row:ReportCategory,total:BigInteger,color:ReportCategoryColor,comparison:String,useSingleLine:Boolean,tagPrefix:String,open:()->Unit,
+    row:ReportCategory,total:BigInteger,color:ReportCategoryColor,comparison:String,rowWidth:Dp,tagPrefix:String,open:()->Unit,
 ){
     val difference=row.amount-row.previous
     val name=row.category.optString("name")
@@ -208,34 +209,52 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=when {
     val amount=money(row.amount.toString())
     val change=if(difference.signum()==0) "" else money(difference.abs().toString())
     val changeModifier=Modifier.testTag("$tagPrefix-change-${row.category.id()}")
-    val compact=useSingleLine && amount.length+change.length+share.length<=28
+    val textStyle=LocalTextStyle.current
+    val shareStyle=textStyle.copy(fontSize=12.sp,lineHeight=16.sp,fontFeatureSettings="tnum")
+    val amountStyle=textStyle.copy(fontSize=15.sp,lineHeight=20.sp,fontWeight=FontWeight.Medium,fontFeatureSettings="tnum")
+    val changeStyle=shareStyle.copy(fontWeight=FontWeight.Medium)
+    val measurer=rememberTextMeasurer()
+    val compact=with(LocalDensity.current) {
+        fun width(value:String,style:TextStyle)=measurer.measure(value,style,softWrap=false,maxLines=1).size.width
+        val iconAndSpacing=52.dp.roundToPx()
+        val classificationNameAndGap=36.dp.roundToPx()
+        val badgeWidth=if(change.isEmpty()) 0 else width(change,changeStyle)+29.dp.roundToPx()
+        val required=iconAndSpacing+classificationNameAndGap+width(share,shareStyle)+width(amount,amountStyle)+badgeWidth
+        fontScale<=1.25f && required<=rowWidth.roundToPx()
+    }
+    val values:@Composable ()->Unit={
+        if(change.isNotEmpty()) {
+            ReportChangeBadge(change,difference.signum()>0,row.category.optInt("type"),comparison,changeModifier,changeStyle)
+        }
+        Text(amount,style=amountStyle,softWrap=false)
+    }
     Row(
         Modifier.fillMaxWidth().testTag("$tagPrefix-${row.category.id()}").clickable(onClick=open)
-            .heightIn(min=48.dp).padding(vertical=8.dp),
-        verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp),
+            .heightIn(min=52.dp).padding(vertical=8.dp),
+        verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp),
     ){
         Box(Modifier.size(32.dp).background(color.fill,CircleShape),contentAlignment=Alignment.Center){
-            BuiltinIcon(row.category,tint=color.onFill)
+            BuiltinIcon(row.category,tint=color.onFill,glyphSize=with(LocalDensity.current){20.dp.toSp()})
         }
-        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
+        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){
             if(compact){
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
-                    Text(name,Modifier.weight(1f),fontSize=15.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Text(share,fontSize=12.sp,color=reportMuted)
-                    if(change.isNotEmpty()) ReportChangeBadge(change,difference.signum()>0,row.category.optInt("type"),comparison,changeModifier)
-                    Text(amount,fontSize=16.sp,fontWeight=FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+                    ReportRankingIdentity(name,share,shareStyle,Modifier.weight(1f))
+                    values()
                 }
             }else{
-                Text(name,fontSize=15.sp,fontWeight=FontWeight.SemiBold)
-                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.Center){
-                    Text(share,fontSize=12.sp,color=reportMuted,modifier=Modifier.align(Alignment.CenterVertically))
-                    if(change.isNotEmpty()) ReportChangeBadge(change,difference.signum()>0,row.category.optInt("type"),comparison,changeModifier.align(Alignment.CenterVertically))
-                    Text(amount,Modifier.align(Alignment.CenterVertically),fontSize=16.sp,fontWeight=FontWeight.SemiBold)
+                ReportRankingIdentity(name,share,shareStyle,Modifier.fillMaxWidth())
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(8.dp,Alignment.End),
+                    verticalArrangement=Arrangement.spacedBy(2.dp),
+                ){
+                    values()
                 }
             }
             if(total.signum()>0){
                 val fraction=reportRatio(row.amount.max(BigInteger.ZERO),total).coerceIn(0f,1f)
-                Box(Modifier.fillMaxWidth().height(2.dp).background(ledgerColors.field,CircleShape)){
+                Box(Modifier.fillMaxWidth().height(4.dp).background(ledgerColors.field,CircleShape)){
                     Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(color.fill,CircleShape))
                 }
             }
@@ -243,8 +262,16 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=when {
     }
 }
 
+@Composable private fun ReportRankingIdentity(name:String,share:String,shareStyle:TextStyle,modifier:Modifier){
+    Row(modifier,horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.CenterVertically){
+        Text(name,Modifier.weight(1f,fill=false),fontSize=15.sp,lineHeight=20.sp,fontWeight=FontWeight.Medium,
+            maxLines=1,overflow=TextOverflow.Ellipsis)
+        Text(share,style=shareStyle,color=reportMuted,softWrap=false)
+    }
+}
+
 @Composable private fun ReportChangeBadge(
-    amount:String,increase:Boolean,categoryType:Int,comparison:String,modifier:Modifier,
+    amount:String,increase:Boolean,categoryType:Int,comparison:String,modifier:Modifier,style:TextStyle,
 ){
     val palette=ledgerColors
     val favorable=if(categoryType==1) increase else !increase
@@ -273,7 +300,7 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=when {
                 drawPath(triangle,color)
             }
         }
-        Text(amount,fontSize=12.sp,lineHeight=16.sp,fontWeight=FontWeight.Medium,color=color,softWrap=false)
+        Text(amount,style=style,color=color,softWrap=false)
     }
 }
 @Composable internal fun ReportCard(title:String,actions:(@Composable RowScope.()->Unit)?=null,content:@Composable ColumnScope.()->Unit){
