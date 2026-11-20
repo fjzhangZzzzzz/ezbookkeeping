@@ -96,6 +96,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var weeklyAmounts by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var ledgerDay by mutableStateOf<String?>(null); private set
     internal var searchCache by mutableStateOf<LedgerSearchCache?>(null)
+    internal var fullscreenChart: Pair<FullscreenChartPage, ReportSnapshot>? = null
     var instantEntry by mutableStateOf(preferences.getBoolean("instant_entry", false)); private set
     private var initialLoadHandled = false
     private var cachedEditorShown=false
@@ -521,6 +522,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         criticalDataCache.clear();store.clear(); token = null; refreshAt = 0; categoriesRefreshedAt=0; defaultAccountId = ""; accounts = emptyList(); categories = emptyList(); categoryRevision = null; tags = emptyList()
         tagGroups = emptyList(); transactions = emptyList(); familyItems = emptyList(); family = JSONObject(); sessions = emptyList(); familyMemberId = "0"
         searchCache = null
+        fullscreenChart = null
         hasMoreTransactions=false;dailyAmounts=emptyList();weeklyAmounts=emptyList();ledgerDay=null;newTransactionDay=null;editTransaction = null; showEditor = false; oidcCallbackToken = null; twoFactorToken = null;draftPictures=emptyList();draftPreviews=emptyMap();draftAttachmentProblem=false
         if (clearFlow) protectedFlow.clear()
     }

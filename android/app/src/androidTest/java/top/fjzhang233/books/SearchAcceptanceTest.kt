@@ -1,5 +1,7 @@
 package top.fjzhang233.books
 
+import androidx.activity.compose.BackHandler
+
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
 import androidx.activity.compose.setContent
@@ -56,7 +58,18 @@ class SearchAcceptanceTest {
             stage="launch";activity=ActivityScenario.launch(MainActivity::class.java)
             var logged=false;model{logged=it.token!=null;if(!logged)it.login(input.getString("username"),input.getString("password"),"")}
             waitFor("native-ready"){var ready=false;model{ready=it.token!=null&&!it.busy};ready}
-            stage="independent-search-host";activity!!.onActivity{host->val vm=ViewModelProvider(host)[BooksModel::class.java];host.setContent{FamilyTheme{var closed by remember{mutableStateOf(false)};if(closed)Text("搜索主体已关闭")else LedgerSearch(vm,{closed=true}){_,_->error("Detail must be verified in the final shared-component integration, not this body test")}}}}
+            stage = "independent-search-host"
+            activity!!.onActivity { host ->
+                val vm = ViewModelProvider(host)[BooksModel::class.java]
+                host.setContent {
+                    FamilyTheme {
+                        var closed by remember { mutableStateOf(false) }
+                        BackHandler(enabled = !closed) { closed = true }
+                        if (closed) Text("搜索主体已关闭")
+                        else LedgerSearch(vm) { _, _ -> error("Use the shared transaction detail acceptance test") }
+                    }
+                }
+            }
             waitFor("all-complete"){has("${expected.items.size}笔账单")&&has("CNY · 完整匹配结果")};screenshot("all");tap("全部");waitFor("date-panel"){has("分组")};screenshot("date");checkTouchTargets();instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);waitFor("date-cancelled"){has("搜索汇总")&&!has("分组")}
             stage="date-quick";val today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));val previous=java.time.YearMonth.from(today).minusMonths(1)
             val twoYears="${today.year-1}~${today.year}";val twoYearResult=runBlocking{api.completeSearch(LedgerSearchFilter(firstDate="${today.year-1}-01-01",lastDate="${today.year}-12-31"))}

@@ -1,6 +1,5 @@
 package top.fjzhang233.books
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -62,8 +62,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
@@ -72,7 +70,11 @@ import java.time.YearMonth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun FamilyReportPage(vm: BooksModel, dismiss: () -> Unit) {
+internal fun FamilyReportPage(
+    vm: BooksModel,
+    dismiss: () -> Unit,
+    openChart: (FullscreenChartPage, ReportSnapshot) -> Unit,
+) {
     var selectedMonth by rememberSaveable { mutableStateOf(vm.month) }
     var yearly by rememberSaveable { mutableStateOf(false) }
     var memberId by rememberSaveable { mutableStateOf("0") }
@@ -104,11 +106,8 @@ internal fun FamilyReportPage(vm: BooksModel, dismiss: () -> Unit) {
         finally { loading = false }
     }
     LaunchedEffect(vm.token) { if (vm.token == null) dismiss() }
-    BackHandler(onBack = dismiss)
-
-    Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize().testTag("family-report"), color = ledgerColors.background) {
-            Column(Modifier.fillMaxSize().background(ledgerColors.background).navigationBarsPadding()) {
+            Column(Modifier.fillMaxSize().background(ledgerColors.background).systemBarsPadding()) {
                 Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = dismiss) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
                     Spacer(Modifier.weight(1f)); ReportSegments(listOf("月", "年"), if (yearly) 1 else 0, "family-period") { yearly = it == 1; chartType = 2 }; Spacer(Modifier.weight(1f))
@@ -129,7 +128,7 @@ internal fun FamilyReportPage(vm: BooksModel, dismiss: () -> Unit) {
                             item { FamilySummaryCard(report) }
                             if (report.days.any { it.active }) item {
                                 ReportCard(if (yearly) "月度对比" else "每日统计", actions = {
-                                    IconButton(onClick = { openReportChart(vm.getApplication(), report, chartType, lines) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.Fullscreen, "全屏图表", tint = reportMuted) }
+                                    IconButton(onClick = { openChart(FullscreenChartPage(ReportQuery(period), chartType, lines, memberId), report) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.Fullscreen, "全屏图表", tint = reportMuted) }
                                     IconButton(onClick = { lines = !lines }, modifier = Modifier.size(36.dp).testTag("family-report-chart-toggle")) { Icon(if (lines) Icons.Outlined.BarChart else Icons.Outlined.ShowChart, if (lines) "切换柱状图" else "切换折线图", tint = reportMuted) }
                                 }) {
                                     ReportChart(report, chartType, lines)
@@ -170,7 +169,6 @@ internal fun FamilyReportPage(vm: BooksModel, dismiss: () -> Unit) {
                 }
             }
         }
-    }
     if (choosePeriod) ReportPeriodChooser(period, { choosePeriod = false }) { selectedMonth = it.toString(); choosePeriod = false; reload++ }
     if (chooseMember) FamilyMemberScopeSheet(payload?.array("members").orEmpty(), memberId, { chooseMember = false }) { value -> memberId = value; reload++ }
     selectedDay?.let { date -> FamilyReportTransactionsSheet(vm, period, memberId, date, "", { selectedDay = null }) }

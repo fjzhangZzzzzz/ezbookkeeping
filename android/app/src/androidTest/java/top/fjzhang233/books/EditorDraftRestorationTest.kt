@@ -6,6 +6,11 @@ import android.content.SharedPreferences
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.scene.DialogSceneStrategy
+import androidx.navigation3.ui.NavDisplay
 import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -28,15 +33,14 @@ class EditorDraftRestorationTest {
         val vm=model();val requests=mutableListOf<JSONObject>();val restoration=StateRestorationTester(compose)
         restoration.setContent{FamilyTheme{AccountEditor(vm,null,close={},submit={_,body,_->requests+=JSONObject(body.toString())})}}
         compose.onNodeWithText("账户名称").performTextInput("虚构草稿账户")
-        compose.onNodeWithText("币种代码").performTextReplacement("USD")
-        compose.onNodeWithText("初始余额（USD）").performTextReplacement("1.23")
+        compose.onNodeWithText("初始余额（CNY）").performTextReplacement("1.23")
         compose.onNodeWithText("备注").performTextInput("仅编辑器恢复测试")
         compose.onNodeWithText("保存账户").performClick()
         compose.runOnIdle{assertEquals(1,requests.size)}
         // Submission deliberately leaves the editor open, as an unknown transport outcome would.
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithText("虚构草稿账户").assertExists()
-        compose.onNodeWithText("USD").assertExists()
+        compose.onNodeWithText("币种：CNY").assertExists()
         compose.onNodeWithText("1.23").assertExists()
         compose.onNodeWithText("仅编辑器恢复测试").assertExists()
         compose.onNodeWithText("保存账户").performClick()
@@ -45,25 +49,48 @@ class EditorDraftRestorationTest {
             assertEquals(requests[0].getString("clientSessionId"),requests[1].getString("clientSessionId"))
             assertEquals(requests[0].getLong("balanceTime"),requests[1].getLong("balanceTime"))
             assertEquals("123",requests[1].getString("balance"))
-            assertEquals("USD",requests[1].getString("currency"))
+            assertEquals("CNY",requests[1].getString("currency"))
         }
     }
     @Test fun categoryRequestIdentitySurvivesRetryAndRestoration(){
         val vm=model();val requests=mutableListOf<JSONObject>();val restoration=StateRestorationTester(compose)
-        restoration.setContent{FamilyTheme{CatalogEditor(vm,0,null,close={},submit={_,body,_->requests+=JSONObject(body.toString())})}}
-        compose.onNodeWithText("分类名称").performTextInput("虚构草稿分类")
+        val revision = "synthetic-category-revision"
+        restoration.setContent {
+            FamilyTheme {
+                CatalogEditor(vm, 0, null, initialRevision = revision, close = {}, submit = { _, body, _ ->
+                    requests += JSONObject(body.toString())
+                })
+            }
+        }
+        compose.onNodeWithText("分类名称").performTextInput("测试分类")
         repeat(2){compose.onNodeWithText("保存分类").performClick();compose.waitForIdle()}
         restoration.emulateSavedInstanceStateRestore()
-        compose.onNodeWithText("虚构草稿分类").assertExists()
+        compose.onNodeWithText("测试分类").assertExists()
         compose.onNodeWithText("保存分类").performClick()
         compose.runOnIdle{
             assertEquals(3,requests.size)
             assertEquals(1,requests.map{it.getString("clientSessionId")}.toSet().size)
-            assertTrue(requests.all{it.getString("name")=="虚构草稿分类" && it.getInt("type")==2 && it.getString("parentId")=="0"})
+            assertTrue(requests.all { it.getString("expectedRevision") == revision })
+            assertTrue(requests.all{it.getString("name")=="测试分类" && it.getInt("type")==2 && it.getString("parentId")=="0"})
         }
     }
     @Test fun tagManagementOpensTagsAndReturnsToUnsubmittedTransaction(){
-        val vm=model();compose.setContent{FamilyTheme{TransactionEditor(vm)}}
+        val vm = model()
+        compose.setContent {
+            FamilyTheme {
+                val stack = rememberNavBackStack(EntryPage)
+                NavDisplay(
+                    backStack = stack,
+                    sceneStrategies = listOf(DialogSceneStrategy<NavKey>()),
+                    entryProvider = entryProvider<NavKey> {
+                        entry<EntryPage> { TransactionEditor(vm) { stack.add(EntryCatalogPage(it)) } }
+                        entry<EntryCatalogPage>(metadata = fullScreenDialog) { page ->
+                            EntryCatalogContent(vm, page.section) { stack.removeLastOrNull() }
+                        }
+                    },
+                )
+            }
+        }
         compose.onNodeWithTag("entry-key-1").performClick()
         compose.onNodeWithTag("entry-comment").performTextInput("虚构未提交草稿")
         compose.onNode(hasText("#") and hasClickAction()).performClick()

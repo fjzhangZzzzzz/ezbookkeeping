@@ -1,6 +1,5 @@
 package top.fjzhang233.books
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -53,7 +52,13 @@ internal fun reportRatio(value:BigInteger,total:BigInteger):Float=if(total.signu
 private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=0)"0.00%" else value.toBigDecimal().multiply(BigDecimal(100)).divide(total.toBigDecimal(),2,RoundingMode.HALF_UP).toPlainString()+"%"
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun LedgerReport(vm:BooksModel,dismiss:()->Unit){
+@Composable internal fun LedgerReport(
+    vm: BooksModel,
+    dismiss: () -> Unit,
+    openChart: (FullscreenChartPage, ReportSnapshot) -> Unit,
+    showCategorySheet: Boolean,
+    openStatistics: (CategoryStatisticsPage) -> Unit,
+){
     var selectedMonth by rememberSaveable{mutableStateOf(vm.ledgerMonth)}
     var yearly by rememberSaveable{mutableStateOf(false)}
     var customFirst by rememberSaveable{mutableStateOf("")};var customLast by rememberSaveable{mutableStateOf("")}
@@ -62,18 +67,17 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
     var snapshot by remember{mutableStateOf<ReportSnapshot?>(null)}
     var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var reload by remember{mutableIntStateOf(0)}
     var chartType by rememberSaveable{mutableIntStateOf(2)};var categoryType by rememberSaveable{mutableIntStateOf(2)}
-    var lines by rememberSaveable{mutableStateOf(false)};var category by remember{mutableStateOf<ReportCategory?>(null)}
+    var lines by rememberSaveable{mutableStateOf(false)}
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedDay by rememberSaveable{mutableStateOf<String?>(null)}
     var choosePeriod by remember{mutableStateOf(false)};var filtering by remember{mutableStateOf(false)};var savedFilter by rememberSaveable{mutableStateOf("{}")};val filter=decodeReportFilter(savedFilter)
-    LaunchedEffect(period,reload,vm.token,filter){
+    LaunchedEffect(period,reload,vm.token,filter,vm.searchInvalidation,vm.accounts,vm.categories){
         loading=true;failure="";snapshot=null
         try { snapshot=vm.api.report(period,vm.accounts,vm.categories,filter) }
         catch(e:CancellationException){throw e}
         catch(e:Exception){vm.imageFailed(e);failure=if(e is ApiFailure)e.message.orEmpty() else "报表暂时无法加载，请重试"}
         finally {loading=false}
     }
-    LaunchedEffect(vm.token){if(vm.token==null)dismiss()}
-    BackHandler(onBack=dismiss)
     Surface(Modifier.fillMaxSize(),color=ledgerColors.background,contentColor=MaterialTheme.colorScheme.onSurface){
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface){Column(Modifier.fillMaxSize().background(ledgerColors.background).systemBarsPadding().testTag("ledger-report")){
             Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically){
@@ -92,7 +96,10 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
 }}
                 if(data.days.any{it.active}) {
                 item{ReportCard(if(yearly)"月度对比" else "每日统计",actions={
-                    IconButton(onClick={openReportChart(vm.getApplication(),data,chartType,lines)},modifier=Modifier.size(36.dp)){Icon(Icons.Outlined.Fullscreen,"全屏图表",tint=reportMuted)}
+                    IconButton(
+                        onClick = { openChart(FullscreenChartPage(ReportQuery(period, filter), chartType, lines), data) },
+                        modifier = Modifier.size(36.dp),
+                    ) { Icon(Icons.Outlined.Fullscreen, "全屏图表", tint = reportMuted) }
                     IconButton(onClick={lines=!lines},modifier=Modifier.size(36.dp).testTag("report-chart-toggle")){Icon(if(lines)Icons.Outlined.BarChart else Icons.Outlined.ShowChart,if(lines)"切换柱状图" else "切换折线图",tint=reportMuted)}
                 }){
                     ReportChart(data,chartType,lines)
@@ -103,7 +110,7 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){ReportSegments(listOf("支出","收入"),if(categoryType==2)0 else 1,"category"){categoryType=if(it==0)2 else 1}}
                     if(ranked.any{it.amount.signum()<0})Text("负数净额不绘入占比环图，仍显示于排名",fontSize=10.sp,color=reportMuted)
                     ranked.forEachIndexed{index,row->val color=reportPalette[index%reportPalette.size]
-                        Row(Modifier.fillMaxWidth().clickable{category=row}.padding(vertical=12.dp).testTag("report-category-${row.category.id()}"),verticalAlignment=Alignment.CenterVertically){
+                        Row(Modifier.fillMaxWidth().clickable{selectedCategory=row.category.toString()}.padding(vertical=12.dp).testTag("report-category-${row.category.id()}"),verticalAlignment=Alignment.CenterVertically){
                             Box(Modifier.size(36.dp).background(color,CircleShape),contentAlignment=Alignment.Center){BuiltinIcon(row.category,tint=if(color.luminance()>.179f)Color.Black else Color.White)}
                             Column(Modifier.weight(1f).padding(start=12.dp)){
                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(row.category.optString("name"),Modifier.weight(1f),fontSize=16.sp,lineHeight=20.sp,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis);Text(" "+reportPercent(row.amount,total),fontSize=12.sp,lineHeight=18.sp,color=reportMuted);Spacer(Modifier.width(8.dp));Text(money(row.amount.toString()),fontSize=16.sp,lineHeight=20.sp)}
@@ -122,8 +129,13 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
         if(choosePeriod)ReportPeriodChooser(period,{choosePeriod=false}){selectedMonth=it.toString();customFirst="";customLast="";choosePeriod=false}
         if(filtering)ReportFilterPanel(vm,filter,{filtering=false},{savedFilter=encodeReportFilter(it);filtering=false},quick={quick->val now=YearMonth.now(java.time.ZoneId.of("Asia/Shanghai"));yearly=quick>=2;chartType=2;customFirst="";customLast="";selectedMonth=when(quick){1->now.minusMonths(1);3->now.minusYears(1);else->now}.toString();filtering=false},custom={first,last->yearly=false;chartType=2;customFirst=first.toString();customLast=last.toString();filtering=false})
         selectedDay?.let{day->ReportDayTransactions(vm,java.time.LocalDate.parse(day),filter,{selectedDay=null}){reload++}}
-        category?.let{selected->val current=snapshot?.categories?.firstOrNull{it.category.id()==selected.category.id()}
-            ReportCategoryDetails(vm,period,selected.copy(amount=current?.amount?:BigInteger.ZERO,previous=current?.previous?:BigInteger.ZERO),filter,{category=null}){reload++}}
+        selectedCategory?.let { saved ->
+            val category = remember(saved) { JSONObject(saved) }
+            val amount = snapshot?.categories?.firstOrNull { it.category.id() == category.id() }?.amount ?: BigInteger.ZERO
+            ReportCategoryDetails(vm, period, category, amount, filter, showCategorySheet, { selectedCategory = null }) {
+                openStatistics(CategoryStatisticsPage(ReportQuery(period, filter), category.id(), category.optString("name"), category.optInt("type")))
+            }
+        }
     }
         }
 }
@@ -196,25 +208,33 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
     )
 }
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun ReportCategoryDetails(vm:BooksModel,period:ReportPeriod,category:ReportCategory,filter:ReportFilter,dismiss:()->Unit,changed:()->Unit){
-    var rows by remember{mutableStateOf<List<JSONObject>>(emptyList())};var page by remember{mutableIntStateOf(1)};var total by remember{mutableLongStateOf(0)};var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var retry by remember{mutableIntStateOf(0)};var statistics by remember{mutableStateOf(false)}
-    LaunchedEffect(page,retry){loading=true;failure="";try{val(result,count)=vm.api.reportCategoryPage(period,category.category.id(),vm.accounts,page,filter);rows=if(page==1)result else(rows+result).distinctBy{it.id()};total=count}catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="明细加载失败，请重试"}finally{loading=false}}
-    if(statistics){ReportCategoryStatistics(vm,period,category,filter,{statistics=false},{page=1;retry++;changed()});return}
+@Composable private fun ReportCategoryDetails(
+    vm: BooksModel,
+    period: ReportPeriod,
+    category: JSONObject,
+    amount: BigInteger,
+    filter: ReportFilter,
+    visible: Boolean,
+    dismiss: () -> Unit,
+    openStatistics: () -> Unit,
+){
+    var rows by remember{mutableStateOf<List<JSONObject>>(emptyList())}
+    var page by remember(vm.searchInvalidation){mutableIntStateOf(1)}
+    var total by remember{mutableLongStateOf(0)};var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var retry by remember{mutableIntStateOf(0)}
+    LaunchedEffect(page,retry,vm.searchInvalidation){loading=true;failure="";try{val(result,count)=vm.api.reportCategoryPage(period,category.id(),vm.accounts,page,filter);rows=if(page==1)result else(rows+result).distinctBy{it.id()};total=count}catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="明细加载失败，请重试"}finally{loading=false}}
     var selected by remember{mutableStateOf<JSONObject?>(null)}
-    fun refresh(){page=1;retry++;changed()}
-    ReportRefreshAfterEditor(vm,::refresh)
-    ModalBottomSheet(onDismissRequest=dismiss,containerColor=reportSurface){Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).navigationBarsPadding().testTag("report-category-sheet")){
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(category.category.optString("name"),Modifier.weight(1f),fontSize=20.sp);TextButton(onClick=dismiss){Text("关闭")};TextButton(onClick={statistics=true}){Text("统计")}}
-        Text("${period.label} · CNY · ${money(category.amount.toString())}",color=reportMuted)
+    if (visible) ModalBottomSheet(onDismissRequest=dismiss,containerColor=reportSurface){Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).navigationBarsPadding().testTag("report-category-sheet")){
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(category.optString("name"),Modifier.weight(1f),fontSize=20.sp);TextButton(onClick=dismiss){Text("关闭")};TextButton(onClick=openStatistics){Text("统计")}}
+        Text("${period.label} · CNY · ${money(amount.toString())}",color=reportMuted)
         if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
         if(failure.isNotEmpty())Row{Text(failure,color=reportRed);TextButton(onClick={retry++}){Text("重试")}}
         LazyColumn(Modifier.fillMaxWidth().heightIn(max=420.dp)){
-            items(rows,key={it.id()}){row->ListItem(headlineContent={Text(category.category.optString("name"))},supportingContent={Text(row.optString("comment"))},trailingContent={Text(money((if(category.category.optInt("type")==2)row.optString("sourceAmount").toBigInteger().negate() else row.optString("sourceAmount").toBigInteger()).toString())+" CNY",color=if(category.category.optInt("type")==2)reportRed else reportGreen)},modifier=Modifier.testTag("report-category-row-${row.id()}").clickable{selected=row})}
+            items(rows,key={it.id()}){row->ListItem(headlineContent={Text(category.optString("name"))},supportingContent={Text(row.optString("comment"))},trailingContent={Text(money((if(category.optInt("type")==2)row.optString("sourceAmount").toBigInteger().negate() else row.optString("sourceAmount").toBigInteger()).toString())+" CNY",color=if(category.optInt("type")==2)reportRed else reportGreen)},modifier=Modifier.testTag("report-category-row-${row.id()}").clickable{selected=row})}
             if(!loading&&failure.isEmpty()&&rows.size<total)item{TextButton(onClick={page++}){Text("加载更多")}}
             if(!loading&&rows.isEmpty())item{Text("暂无明细",Modifier.padding(24.dp))}
         }
     }}
-    selected?.let{row->LedgerTransactionDetails(vm,row){selected=null;refresh()}}
+    selected?.let{row->LedgerTransactionDetails(vm,row){selected=null}}
 }
 
 /** Editor/copy remains over this route; refresh only once it closes, without losing its period/filter. */
@@ -250,36 +270,38 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
     }
 }
 @Composable private fun ReportFilterChoice(label:String,checked:Boolean,click:()->Unit){Row(Modifier.fillMaxWidth().clickable(onClick=click).heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically){Checkbox(checked,onCheckedChange={click()});Text(label,fontSize=14.sp)}}
-@Composable private fun ReportCategoryStatistics(vm:BooksModel,initial:ReportPeriod,category:ReportCategory,filter:ReportFilter,dismiss:()->Unit,changed:()->Unit){
-    var period by remember{mutableStateOf(initial)}
+@Composable internal fun ReportCategoryStatistics(vm: BooksModel, route: CategoryStatisticsPage, dismiss: () -> Unit) {
+    var savedPeriod by rememberSaveable(stateSaver = ReportQuery.saver) { mutableStateOf(route.query) }
+    val period = savedPeriod.period()
+    val expenseCategory = route.categoryType == 2
     var data by remember{mutableStateOf<ReportSnapshot?>(null)}
     var rows by remember{mutableStateOf<List<JSONObject>>(emptyList())}
     var total by remember{mutableLongStateOf(0)};var page by remember{mutableIntStateOf(1)}
     var failure by remember{mutableStateOf("")};var retry by remember{mutableIntStateOf(0)};var loading by remember{mutableStateOf(true)}
     var yearPicker by remember{mutableStateOf(false)}
-    var graphKind by remember{mutableIntStateOf(if(category.category.optInt("type")==2)2 else 1)}
-    val selectedFilter=filter.copy(categoryIds=setOf(category.category.id()))
+    var graphKind by rememberSaveable{mutableIntStateOf(if(expenseCategory)2 else 1)}
+    val selectedFilter = remember(route) { route.query.filter().copy(categoryIds = setOf(route.categoryId)) }
     var selected by remember{mutableStateOf<JSONObject?>(null)}
-    fun refresh(){page=1;rows=emptyList();data=null;total=0;retry++;changed()}
+    fun refresh(){page=1;rows=emptyList();data=null;total=0;retry++}
     ReportRefreshAfterEditor(vm,::refresh)
-    fun changePeriod(value:ReportPeriod){period=value;page=1;rows=emptyList();data=null;total=0}
+    fun changePeriod(value:ReportPeriod){savedPeriod=ReportQuery(value);page=1;rows=emptyList();data=null;total=0}
     LaunchedEffect(period,page,retry){
         loading=true;failure=""
         try{
             if(page==1){
-                val(next,pageResult)=coroutineScope{val snapshot=async{vm.api.report(period,vm.accounts,vm.categories,selectedFilter)};val details=async{vm.api.reportCategoryPage(period,category.category.id(),vm.accounts,page,selectedFilter)};snapshot.await() to details.await()}
+                val(next,pageResult)=coroutineScope{val snapshot=async{vm.api.report(period,vm.accounts,vm.categories,selectedFilter)};val details=async{vm.api.reportCategoryPage(period,route.categoryId,vm.accounts,page,selectedFilter)};snapshot.await() to details.await()}
                 data=next;rows=pageResult.first;total=pageResult.second
             }else{
-                val(result,count)=vm.api.reportCategoryPage(period,category.category.id(),vm.accounts,page,selectedFilter)
+                val(result,count)=vm.api.reportCategoryPage(period,route.categoryId,vm.accounts,page,selectedFilter)
                 rows=(rows+result).distinctBy{it.id()};total=count
             }
         }catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="分类统计加载失败，请重试"}finally{loading=false}
     }
-    Dialog(onDismissRequest=dismiss,properties=DialogProperties(usePlatformDefaultWidth=false)){
-        Column(Modifier.fillMaxSize().background(ledgerColors.background).systemBarsPadding().testTag("report-category-statistics")){
+    Surface(Modifier.fillMaxSize(), color = ledgerColors.background, contentColor = MaterialTheme.colorScheme.onSurface) {
+        Column(Modifier.fillMaxSize().systemBarsPadding().testTag("report-category-statistics")){
             Row(Modifier.fillMaxWidth().height(56.dp),verticalAlignment=Alignment.CenterVertically){
                 IconButton(onClick=dismiss){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"返回明细")}
-                Column(Modifier.weight(1f)){Text("分类统计-"+category.category.optString("name"),fontSize=18.sp,lineHeight=24.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis);Text(period.label,fontSize=12.sp,lineHeight=16.sp,color=reportMuted)}
+                Column(Modifier.weight(1f)){Text("分类统计-"+route.categoryName,fontSize=18.sp,lineHeight=24.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis);Text(period.label,fontSize=12.sp,lineHeight=16.sp,color=reportMuted)}
             }
             Row(Modifier.fillMaxWidth().background(reportSurface),verticalAlignment=Alignment.CenterVertically){
                 TextButton(onClick={yearPicker=true},modifier=Modifier.width(86.dp)){Text("${period.month.year}年",fontSize=16.sp,fontWeight=FontWeight.Bold,color=ledgerColors.text)}
@@ -295,7 +317,7 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
             if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
             if(failure.isNotEmpty())Row{Text(failure);TextButton(onClick={retry++}){Text("重试")}}
             LazyColumn(Modifier.fillMaxSize().testTag("category-statistics-list"),contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-                data?.let{snapshot->val expenseCategory=category.category.optInt("type")==2;val amount=if(expenseCategory)snapshot.expense else snapshot.income
+                data?.let{snapshot->val amount=if(expenseCategory)snapshot.expense else snapshot.income
                     item{ReportCard(""){
                         Row(Modifier.fillMaxWidth()){ReportMetric(if(expenseCategory)"总支出"else "总收入",money(amount.toString()),Modifier.weight(1f));ReportMetric("结余",money((snapshot.income-snapshot.expense).toString()),Modifier.weight(1f));ReportMetric("总笔数",total.toString(),Modifier.weight(1f))}
                         Row(Modifier.fillMaxWidth()){ReportMetric("平均每笔",reportAverage(amount,total),Modifier.weight(1f));ReportMetric("平均每天",reportAverage(amount,period.days.toLong()),Modifier.weight(1f));Spacer(Modifier.weight(1f))}
@@ -308,8 +330,8 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
                     }}
                 }
                 rows.groupBy{java.time.Instant.ofEpochSecond(it.optLong("time")).atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate()}.forEach{(date,dayRows)->
-                    item{Surface(Modifier.fillMaxWidth(),color=reportSurface,shape=RoundedCornerShape(topStart=8.dp,topEnd=8.dp)){Row(Modifier.padding(horizontal=12.dp,vertical=10.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.toString().substring(5).replace('-','.'),fontSize=14.sp,fontWeight=FontWeight.Bold);Text(if(category.category.optInt("type")==2)"支出流水"else "收入流水",fontSize=12.sp)}}}
-                    items(dayRows,key={it.id()}){row->Surface(color=reportSurface){ListItem(headlineContent={Text(category.category.optString("name"),fontSize=16.sp)},supportingContent={Text(row.optString("comment"),fontSize=12.sp)},trailingContent={val value=row.optString("sourceAmount").toBigInteger();Text(money((if(category.category.optInt("type")==2)value.negate() else value).toString()),color=if(category.category.optInt("type")==2)reportRed else reportGreen)},modifier=Modifier.testTag("category-statistics-row-${row.id()}").clickable{selected=row})}}
+                    item{Surface(Modifier.fillMaxWidth(),color=reportSurface,shape=RoundedCornerShape(topStart=8.dp,topEnd=8.dp)){Row(Modifier.padding(horizontal=12.dp,vertical=10.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.toString().substring(5).replace('-','.'),fontSize=14.sp,fontWeight=FontWeight.Bold);Text(if(expenseCategory)"支出流水"else "收入流水",fontSize=12.sp)}}}
+                    items(dayRows,key={it.id()}){row->Surface(color=reportSurface){ListItem(headlineContent={Text(route.categoryName,fontSize=16.sp)},supportingContent={Text(row.optString("comment"),fontSize=12.sp)},trailingContent={val value=row.optString("sourceAmount").toBigInteger();Text(money((if(expenseCategory)value.negate() else value).toString()),color=if(expenseCategory)reportRed else reportGreen)},modifier=Modifier.testTag("category-statistics-row-${row.id()}").clickable{selected=row})}}
                 }
                 if(!loading&&failure.isEmpty()&&rows.size<total)item{TextButton(onClick={page++}){Text("加载更多")}}
             }

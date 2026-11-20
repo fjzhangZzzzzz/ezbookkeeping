@@ -57,7 +57,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
 
 /** Own transactions only. Shared family records keep their separate read-only view. */
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun LedgerSearch(vm:BooksModel,dismiss:()->Unit,detail:@Composable (JSONObject,()->Unit)->Unit) {
+@Composable internal fun LedgerSearch(vm:BooksModel,detail:@Composable (JSONObject,()->Unit)->Unit) {
     val cached=vm.searchCache
     var savedFilter by rememberSaveable{mutableStateOf(cached?.filterJson?:LedgerSearchFilter().toJson())}
     val filter=remember(savedFilter){LedgerSearchFilter.fromJson(savedFilter)}
@@ -111,7 +111,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
     val rows=remember(items,ascending){items.sortedWith(if(ascending)compareBy<JSONObject>{it.optLong("time")}.thenBy{it.id()}else compareByDescending<JSONObject>{it.optLong("time")}.thenByDescending{it.id()})}
     val groups=remember(rows,group){rows.groupBy{when(group){"none"->"";"month"->YearMonth.from(searchRowDay(it)).toString();else->searchRowDay(it).toString()}}}
     Surface(Modifier.fillMaxSize(),color=ledgerColors.background,contentColor=ledgerColors.text){
-        BackHandler{if(panel!=null)panel=null else dismiss()}
+        BackHandler(enabled = panel != null) { panel = null }
         Column(Modifier.fillMaxSize()){
                 Row(Modifier.fillMaxWidth()){
                     SearchDrop(searchDateLabel(filter),panel=="date",Modifier.weight(1f)){panel=if(panel=="date")null else "date"}

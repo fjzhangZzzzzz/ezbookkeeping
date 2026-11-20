@@ -15,36 +15,45 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.BrightnessAuto
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.CurrencyYuan
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,13 +62,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 @Composable
-internal fun SettingsPage(vm: BooksModel, navigate: (String) -> Unit) {
+internal fun SettingsPage(vm: BooksModel, navigate: (AppPage) -> Unit) {
     var logoutConfirm by rememberSaveable { mutableStateOf(false) }
     var themePicker by rememberSaveable { mutableStateOf(false) }
     var themeError by rememberSaveable { mutableStateOf(false) }
@@ -112,20 +125,20 @@ internal fun SettingsPage(vm: BooksModel, navigate: (String) -> Unit) {
                     testTag = "settings-default-currency",
                 )
                 SettingsDivider()
-                SettingsRow(Icons.Outlined.AccountBalanceWallet, "账户", onClick = { navigate("accounts") }, trailing = { SettingsChevron("账户") }, testTag = "settings-accounts")
+                SettingsRow(Icons.Outlined.AccountBalanceWallet, "账户", onClick = { navigate(AppPage.ACCOUNTS) }, trailing = { SettingsChevron("账户") }, testTag = "settings-accounts")
                 SettingsDivider()
-                SettingsRow(Icons.Outlined.Category, "分类与标签", onClick = { navigate("catalog") }, trailing = { SettingsChevron("分类与标签") }, testTag = "settings-catalog")
+                SettingsRow(Icons.Outlined.Category, "分类与标签", onClick = { navigate(AppPage.CATALOG) }, trailing = { SettingsChevron("分类与标签") }, testTag = "settings-catalog")
             }
         }
         item {
             SettingsSection("登录与安全") {
-                SettingsRow(Icons.Outlined.Devices, "登录设备", supporting = "管理已登录的设备和会话", onClick = { navigate("sessions") }, trailing = { SettingsChevron("登录设备") }, testTag = "settings-sessions")
+                SettingsRow(Icons.Outlined.Devices, "登录设备", supporting = "管理已登录的设备和会话", onClick = { navigate(AppPage.SESSIONS) }, trailing = { SettingsChevron("登录设备") }, testTag = "settings-sessions")
                 SettingsDivider()
                 SettingsRow(
                     Icons.Outlined.Link,
                     "第三方登录",
                     supporting = if (vm.externalLinked) "已关联 Pocket ID" else "未关联第三方登录",
-                    onClick = { navigate("external-auth") },
+                    onClick = { navigate(AppPage.EXTERNAL_AUTH) },
                     trailing = { SettingsChevron("第三方登录") },
                     testTag = "settings-external-auth",
                 )
@@ -142,7 +155,7 @@ internal fun SettingsPage(vm: BooksModel, navigate: (String) -> Unit) {
                     testTag = "settings-instant-entry",
                 )
                 SettingsDivider()
-                SettingsRow(Icons.Outlined.Info, "关于与更新", onClick = { navigate("about") }, trailing = { SettingsChevron("关于与更新") }, testTag = "settings-about")
+                SettingsRow(Icons.Outlined.Info, "关于与更新", onClick = { navigate(AppPage.ABOUT) }, trailing = { SettingsChevron("关于与更新") }, testTag = "settings-about")
             }
         }
         item {
@@ -196,13 +209,13 @@ internal fun SettingsPage(vm: BooksModel, navigate: (String) -> Unit) {
         )
     }
     if (themePicker) {
-        ThemePickerDialog(
+        ThemePickerSheet(
             selected = themeMode,
             error = themeError,
             onDismiss = { themePicker = false; themeError = false },
-            onSelect = { mode ->
+            save = { mode ->
                 themeError = !saveThemeMode(context, mode)
-                if (!themeError) themePicker = false
+                !themeError
             },
         )
     }
@@ -249,27 +262,57 @@ internal fun SettingsRow(
 @Composable internal fun SettingsChevron(description: String) { Icon(Icons.Outlined.ChevronRight, description, tint = ledgerColors.muted) }
 @Composable internal fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = ledgerColors.divider) }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ThemePickerDialog(selected: ThemeMode, error: Boolean, onDismiss: () -> Unit, onSelect: (ThemeMode) -> Unit) {
-    AlertDialog(
+private fun ThemePickerSheet(selected: ThemeMode, error: Boolean, onDismiss: () -> Unit, save: (ThemeMode) -> Boolean) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    fun close() {
+        scope.launch { sheetState.hide(); onDismiss() }
+    }
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("主题") },
-        text = {
-            Column {
-                ThemeMode.entries.forEach { mode ->
+        sheetState = sheetState,
+        containerColor = ledgerColors.surface,
+        contentColor = ledgerColors.text,
+    ) {
+        Column(Modifier.fillMaxWidth().testTag("theme-sheet").verticalScroll(rememberScrollState()).padding(bottom = 12.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("主题", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = ::close) { Text("取消") }
+            }
+            Column(Modifier.fillMaxWidth().selectableGroup()) {
+                ThemeMode.entries.forEachIndexed { index, mode ->
+                    if (index > 0) SettingsDivider()
+                    val checked = selected == mode
+                    val icon = when (mode) {
+                        ThemeMode.SYSTEM -> Icons.Outlined.BrightnessAuto
+                        ThemeMode.LIGHT -> Icons.Outlined.LightMode
+                        ThemeMode.DARK -> Icons.Outlined.DarkMode
+                    }
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onSelect(mode) },
+                        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                            .selectable(selected = checked, role = Role.RadioButton) { if (save(mode)) close() }
+                            .testTag("theme-${mode.key}").padding(horizontal = 24.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        RadioButton(selected = selected == mode, onClick = { onSelect(mode) })
-                        Text(mode.label, Modifier.padding(start = 8.dp))
+                        Icon(icon, null, Modifier.size(24.dp), tint = if (checked) ledgerColors.accent else ledgerColors.muted)
+                        Text(mode.label, Modifier.weight(1f).padding(start = 16.dp), style = MaterialTheme.typography.bodyLarge)
+                        RadioButton(selected = checked, onClick = null)
                     }
                 }
-                if (error) Text("主题设置未能保存，请重试", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+            if (error) Text(
+                "主题设置未能保存，请重试",
+                Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
 }
 
 private data class DiagnosticMetric(val name: String, val count: Int, val average: Long, val maximum: Long)

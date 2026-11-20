@@ -1,6 +1,9 @@
 package top.fjzhang233.books
 
-import android.content.Intent
+import android.app.UiAutomation
+import android.content.res.Configuration
+import androidx.activity.compose.setContent
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.core.view.WindowCompat
@@ -27,17 +30,40 @@ class ReportChartThemeTest {
         val folder=File(context.filesDir,"report-chart-theme-api${android.os.Build.VERSION.SDK_INT}").apply{mkdirs()}
         val period=ReportPeriod(YearMonth.of(2026,11),yearly=true)
         val data=ReportSnapshot(period,(0 until period.days).map{offset->val date=period.first.plusDays(offset.toLong());when{date.monthValue==1&&date.dayOfMonth==10->ReportDay(date,BigInteger.valueOf(100),BigInteger.valueOf(300));date.monthValue==11&&date.dayOfMonth==14->ReportDay(date,BigInteger.valueOf(500),BigInteger.valueOf(100));else->ReportDay(date,BigInteger.ZERO,BigInteger.ZERO)}},emptyList(),false)
-        var scenario:ActivityScenario<ReportChartActivity>?=null;var stage="initial"
+        var scenario:ActivityScenario<MainActivity>?=null;var stage="initial"
         try{
             for((mode,dark)in listOf("light" to false,"dark" to true)){
                 stage="$mode-launch";check(prefs.edit().putString("theme",mode).commit())
-                scenario=ActivityScenario.launch(Intent(context,ReportChartActivity::class.java).putExtra("chart",encodeReportChart(data,4,false)))
+                check(inst.uiAutomation.setRotation(UiAutomation.ROTATION_FREEZE_90))
+                val chartScenario = ActivityScenario.launch(MainActivity::class.java)
+                scenario = chartScenario
+                compose.waitUntil(5_000) {
+                    var landscape = false
+                    chartScenario.onActivity { landscape = it.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE }
+                    landscape
+                }
+                chartScenario.onActivity { host ->
+                    host.setContent { FamilyTheme { FullscreenReportChartContent(data, 4, false, host::finish) } }
+                }
                 compose.waitUntil(5000){compose.onAllNodesWithTag("report-chart-fullscreen").fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()};compose.waitForIdle()
                 stage="$mode-system-bars";scenario!!.onActivity{a->check(a.resources.configuration.orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE);val control=WindowCompat.getInsetsController(a.window,a.window.decorView);check(control.isAppearanceLightStatusBars==!dark&&control.isAppearanceLightNavigationBars==!dark);check(a.window.statusBarColor==android.graphics.Color.TRANSPARENT);check(a.window.navigationBarColor==android.graphics.Color.TRANSPARENT)}
                 for(lines in listOf(false,true)){
                     if(lines)compose.onNodeWithText("折线图",substring=false).performClick();compose.waitForIdle();android.os.SystemClock.sleep(300)
                     val ui=inst.uiAutomation;val info=ui.serviceInfo;info.flags=info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;ui.serviceInfo=info;compose.waitUntil(5000){ui.rootInActiveWindow?.packageName?.toString()==context.packageName};check(ui.rootInActiveWindow?.packageName?.toString()==context.packageName)
                     val image=checkNotNull(ui.takeScreenshot());check(image.width>image.height)
+                    stage = "$mode-period-label"
+                    val label = compose.onNodeWithText(period.label).fetchSemanticsNode().boundsInRoot
+                    val left = label.left.toInt().coerceIn(0, image.width)
+                    val topLabel = label.top.toInt().coerceIn(0, image.height)
+                    val labelWidth = label.right.toInt().coerceIn(left, image.width) - left
+                    val labelHeight = label.bottom.toInt().coerceIn(topLabel, image.height) - topLabel
+                    val labelPixels = IntArray(labelWidth * labelHeight)
+                    image.getPixels(labelPixels, 0, labelWidth, left, topLabel, labelWidth, labelHeight)
+                    val textColor = ledgerPalette(dark).text.toArgb()
+                    check(labelPixels.count { it == textColor } > 20) {
+                        "report_period_label_not_visible"
+                    }
+                    stage = "$mode-chart-series"
                     val canvas=compose.onNodeWithTag("report-interactive-chart").fetchSemanticsNode().boundsInRoot
                     val ink=ledgerPalette(dark).accent;val expected=intArrayOf((ink.red*255).toInt(),(ink.green*255).toInt(),(ink.blue*255).toInt());var matches=0
                     for(y in canvas.top.toInt().coerceAtLeast(0)until canvas.bottom.toInt().coerceAtMost(image.height))for(x in canvas.left.toInt().coerceAtLeast(0)until canvas.right.toInt().coerceAtMost(image.width)){val pixel=image.getPixel(x,y);if(kotlin.math.abs(android.graphics.Color.red(pixel)-expected[0])<=2&&kotlin.math.abs(android.graphics.Color.green(pixel)-expected[1])<=2&&kotlin.math.abs(android.graphics.Color.blue(pixel)-expected[2])<=2)matches++}
@@ -53,6 +79,6 @@ class ReportChartThemeTest {
             }
             File(folder,"result.json").writeText(JSONObject().put("passed",true).put("runtimeApi",android.os.Build.VERSION.SDK_INT).put("offlineSyntheticDataOnly",true).put("noCredentialsOrBackend",true).put("positiveAndNegativeNet",true).put("bothThemesAndBothChartKinds",true).toString())
         }catch(error:Throwable){runCatching{val ui=inst.uiAutomation;check(ui.rootInActiveWindow?.packageName?.toString()==context.packageName);val bitmap=checkNotNull(ui.takeScreenshot());File(folder,"90-failure.png").outputStream().use{bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()};File(folder,"sanitized-stack.txt").writeText(error.javaClass.name+"\n"+error.stackTrace.joinToString("\n"));throw AssertionError("Report chart theme stage=$stage class=${error.javaClass.simpleName}")}
-        finally{scenario?.close();check((if(present)prefs.edit().putString("theme",previous)else prefs.edit().remove("theme")).commit())}
+        finally{scenario?.close();inst.uiAutomation.setRotation(UiAutomation.ROTATION_UNFREEZE);check((if(present)prefs.edit().putString("theme",previous)else prefs.edit().remove("theme")).commit())}
     }
 }

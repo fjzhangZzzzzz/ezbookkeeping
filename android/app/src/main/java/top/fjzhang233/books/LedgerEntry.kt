@@ -4,7 +4,6 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -76,7 +75,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusChanged
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable internal fun TransactionEditor(vm: BooksModel) {
+@Composable internal fun TransactionEditor(vm: BooksModel, manageCatalog: (Int) -> Unit) {
     val original = vm.editTransaction
     val initial = original ?: vm.copiedTransaction ?: vm.restoredTransaction
     val editLocked=vm.busy || vm.transactionNeedsConfirmation
@@ -136,8 +135,6 @@ import androidx.compose.ui.focus.onFocusChanged
     var sheet by rememberSaveable { mutableStateOf("") }
     var accountAssetPicker by rememberSaveable{mutableStateOf(false)}
     var accountPresetKey by rememberSaveable{mutableStateOf("")}
-    var manageCategories by rememberSaveable{mutableStateOf(false)}
-    var manageSection by rememberSaveable{mutableIntStateOf(0)}
     LaunchedEffect(type, leaves, original?.id(), vm.copiedTransaction?.id()) {
         if (!keepOriginalCategory && category.isNotBlank() && category != "0" && leaves.none { it.id() == category } && hasEstablishedCategory) {
             category=""; requireExplicitCategory=true
@@ -170,8 +167,6 @@ import androidx.compose.ui.focus.onFocusChanged
     }
     val currency=vm.accounts.firstOrNull { it.id()==account }?.optString("currency")?:"CNY"
     val usable=!editLocked&&!vm.draftAttachmentProblem&&(original==null||original.optBoolean("editable",true))
-    BackHandler { if(!editLocked) close() }
-    Dialog(onDismissRequest={if(!editLocked) close()},properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
         val keyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
         val focus=androidx.compose.ui.platform.LocalFocusManager.current
         val editingMemo=memoFocused&&WindowInsets.isImeVisible
@@ -187,7 +182,7 @@ import androidx.compose.ui.focus.onFocusChanged
                         }
                     }
                     }
-                    IconButton(onClick={manageSection=0;manageCategories=true},enabled=!editLocked){Box(Modifier.size(24.dp).clip(RoundedCornerShape(7.dp)).background(ledgerColors.text),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Add,"分类管理",Modifier.size(22.dp),tint=ledgerColors.background)}}
+                    IconButton(onClick={manageCatalog(0)},enabled=!editLocked){Box(Modifier.size(24.dp).clip(RoundedCornerShape(7.dp)).background(ledgerColors.text),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Add,"分类管理",Modifier.size(22.dp),tint=ledgerColors.background)}}
                 }
                 if(vm.copiedTransaction!=null) Text("复制流水 · 保存后生成新记录",Modifier.padding(horizontal=20.dp),style=MaterialTheme.typography.labelMedium)
                 if(original!=null) Text("编辑流水",Modifier.padding(horizontal=20.dp),style=MaterialTheme.typography.labelMedium)
@@ -281,9 +276,8 @@ import androidx.compose.ui.focus.onFocusChanged
             }
         }
 
-        if(sheet=="tags") LedgerTagPicker(vm.tags,selectedTags,{selectedTags=it},{sheet=""},{manageSection=1;manageCategories=true})
+        if(sheet=="tags") LedgerTagPicker(vm.tags,selectedTags,{selectedTags=it},{sheet=""},{manageCatalog(1)})
         if(sheet=="date") EntryDatePicker(whenText,{sheet=""}){whenText=it;sheet=""}
-        if(manageCategories) Dialog(onDismissRequest={manageCategories=false},properties=DialogProperties(usePlatformDefaultWidth=false)){Surface(Modifier.fillMaxSize()){Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)){Row(verticalAlignment=Alignment.CenterVertically){IconButton(onClick={manageCategories=false}){Icon(Icons.Outlined.ArrowBack,"返回记账")};Text("分类与标签",style=MaterialTheme.typography.titleLarge)};CatalogPage(vm,initialSection=manageSection)}}}
 
         if(sheet=="pictures") ModalBottomSheet(onDismissRequest={sheet=""}) { Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp)) {
             Text("图片附件",style=MaterialTheme.typography.titleLarge)
@@ -294,6 +288,18 @@ import androidx.compose.ui.focus.onFocusChanged
             TextButton(onClick={sheet=""}){Text("完成")}
         } }
 
+}
+
+@Composable
+internal fun EntryCatalogContent(vm: BooksModel, section: Int, back: () -> Unit) {
+    Surface(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = back) { Icon(Icons.Outlined.ArrowBack, "返回记账") }
+                Text("分类与标签", style = MaterialTheme.typography.titleLarge)
+            }
+            CatalogPage(vm, initialSection = section)
+        }
     }
 }
 

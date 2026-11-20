@@ -83,7 +83,7 @@ internal fun calendarLunarLabel(date:LocalDate):String {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun LedgerCalendar(vm:BooksModel,dismiss:()->Unit,pickMonth:()->Unit){
+@Composable internal fun LedgerCalendar(vm:BooksModel,dismiss:()->Unit){
     val month=YearMonth.parse(vm.ledgerMonth);val today=LocalDate.now(ZoneId.of("Asia/Shanghai"))
     var dayNumber by rememberSaveable{mutableIntStateOf(vm.ledgerDay?.let{LocalDate.parse(it).dayOfMonth}?:today.dayOfMonth)}
     val selected=month.atDay(dayNumber.coerceAtMost(month.lengthOfMonth()))
@@ -91,6 +91,8 @@ internal fun calendarLunarLabel(date:LocalDate):String {
     var firstDay by rememberSaveable{mutableIntStateOf(prefs.getInt("firstDay",1).takeIf{it in setOf(1,6,7)}?:1)}
     var mode by rememberSaveable{mutableStateOf(CalendarAmountMode.BOTH)}
     var menu by remember{mutableStateOf(false)};var weekPicker by remember{mutableStateOf(false)}
+    var monthPicker by rememberSaveable { mutableStateOf(false) }
+    val pickMonth: () -> Unit = { monthPicker = true }
     var detail by remember{mutableStateOf<JSONObject?>(null)}
     val snapshot=remember(vm.ledgerMonth,vm.dailyAmounts){calendarAmounts(month,vm.dailyAmounts)}
     LaunchedEffect(vm.ledgerMonth,dayNumber){if(vm.token!=null&&vm.ledgerDay!=selected.toString())vm.changeLedgerDay(selected.toString())}
@@ -98,7 +100,6 @@ internal fun calendarLunarLabel(date:LocalDate):String {
     fun shift(offset:Long){if(!vm.busy)vm.changeLedgerMonth(month.plusMonths(offset).toString())}
     fun choose(date:LocalDate){if(!vm.busy){dayNumber=date.dayOfMonth;if(vm.ledgerDay!=date.toString())vm.changeLedgerDay(date.toString())}}
     fun current(){if(!vm.busy){dayNumber=today.dayOfMonth;if(YearMonth.from(today)!=month)vm.changeLedgerMonth(YearMonth.from(today).toString())else vm.changeLedgerDay(today.toString())}}
-    Dialog(onDismissRequest=dismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         Scaffold(containerColor=ledgerColors.background,topBar={CenterAlignedTopAppBar(expandedHeight=56.dp,title={Row(Modifier.clickable(enabled=!vm.busy,onClick=pickMonth),verticalAlignment=Alignment.CenterVertically){Text(vm.ledgerMonth.replace('-','.'),fontSize=18.sp,fontWeight=FontWeight.Bold);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(18.dp))}},navigationIcon={IconButton(onClick=dismiss){Icon(Icons.Outlined.ArrowBack,"返回流水")}},actions={Box{IconButton(onClick={menu=true}){Icon(Icons.Outlined.MoreVert,"日历更多选项")};DropdownMenu(expanded=menu,onDismissRequest={menu=false},containerColor=ledgerColors.surface){DropdownMenuItem(text={Text("选择每周第一天")},onClick={menu=false;weekPicker=true})}}})},floatingActionButtonPosition=FabPosition.Center,floatingActionButton={FloatingActionButton(onClick={vm.newTransaction(selected.toString())},modifier=Modifier.size(56.dp).testTag("calendar-add-transaction"),shape=CircleShape,containerColor=ledgerColors.accent,contentColor=Color.White){Icon(Icons.Outlined.Add,"添加新的账单",Modifier.size(28.dp))}}){padding->
             Box(Modifier.fillMaxSize().padding(padding)){
                 LazyColumn(Modifier.fillMaxSize().testTag("calendar-ledger"),contentPadding=PaddingValues(top=12.dp,bottom=100.dp),verticalArrangement=Arrangement.spacedBy(0.dp)){
@@ -117,6 +118,9 @@ internal fun calendarLunarLabel(date:LocalDate):String {
         }
         if(weekPicker)Dialog(onDismissRequest={weekPicker=false}){Surface(shape=RoundedCornerShape(4.dp),color=ledgerColors.surface){Column(Modifier.padding(vertical=8.dp)){Text("选择每周第一天",Modifier.padding(horizontal=24.dp,vertical=12.dp),fontSize=14.sp);listOf(1 to "星期一",6 to "星期六",7 to "星期日").forEach{(value,label)->TextButton(onClick={firstDay=value;prefs.edit().putInt("firstDay",value).apply();weekPicker=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){Text(label)}}}}}
         detail?.let{row->LedgerTransactionDetails(vm,row){detail=null}}
+    if (monthPicker) LedgerMonthPicker(vm.ledgerMonth, { monthPicker = false }) {
+        vm.changeLedgerMonth(it)
+        monthPicker = false
     }
 }
 

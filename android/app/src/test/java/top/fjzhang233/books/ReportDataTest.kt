@@ -73,10 +73,13 @@ class ReportDataTest {
         assertEquals(3,p.days);assertEquals(BooksApi.dayBounds("2024-03-01").second,p.bounds.second)
         assertEquals(p.first,p.shift(-1).until)
         assertThrows(IllegalArgumentException::class.java){ReportPeriod(p.month,false,p.until,p.first)}
-        val data=ReportSnapshot(p,(0 until p.days).map{ReportDay(p.first.plusDays(it.toLong()),BigInteger.TEN,BigInteger.ONE)},emptyList(),false)
-        val(decoded,options)=decodeReportChart(encodeReportChart(data,2,true));assertEquals(data,decoded);assertEquals(2 to true,options)
-        val corrupt=JSONObject(encodeReportChart(data,2,true));corrupt.getJSONArray("days").getJSONObject(0).put("date","2024-02-27")
-        assertThrows(IllegalArgumentException::class.java){decodeReportChart(corrupt.toString())}
+    }
+    @Test fun reportRouteArgumentsRepresentTheOriginalPeriodAndFilter() {
+        val period = ReportPeriod(YearMonth.of(2024, 2), false, java.time.LocalDate.parse("2024-02-28"), java.time.LocalDate.parse("2024-03-01"))
+        val filter = ReportFilter(setOf("1"), setOf("10"), setOf("20", "21"), allTags = true)
+        val query = ReportQuery(period, filter)
+        assertEquals(period, query.period())
+        assertEquals(filter, query.filter())
     }
     @Test fun monthlyMeanIncludesIncomeOnlyMonthsAndUsesSymmetricDecimalHalfEven(){
         val period=ReportPeriod(YearMonth.of(2025,11),true)

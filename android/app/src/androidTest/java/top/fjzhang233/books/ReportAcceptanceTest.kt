@@ -40,7 +40,7 @@ class ReportAcceptanceTest {
         val logicalBounds=android.graphics.Rect();root.getBoundsInScreen(logicalBounds)
         var landscape=false;var activityWidth=0;var activityHeight=0
         InstrumentationRegistry.getInstrumentation().runOnMainSync{
-            val activity=androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).filterIsInstance<ReportChartActivity>().singleOrNull()
+            val activity=androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).filterIsInstance<MainActivity>().singleOrNull()
             if(activity!=null){landscape=activity.resources.configuration.orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;activityWidth=activity.window.decorView.width;activityHeight=activity.window.decorView.height}
         }
         capturePhase="xml";val xml=File(folder,"$name.xml");xml.outputStream().use{out->val serializer=android.util.Xml.newSerializer();serializer.setOutput(out,"UTF-8");serializer.startDocument("UTF-8",true)
@@ -111,7 +111,20 @@ class ReportAcceptanceTest {
             compose.waitUntil(30_000){exists("ledger-report")};awaitText("0.06")
             stage="year"
             compose.onNodeWithTag("report-segment-period-1").performClick();awaitText("6.06");awaitText("1.21");capture("06-year")
-            scroll("report-segment-trend-2");compose.onNodeWithTag("report-segment-trend-2").performClick();compose.onNodeWithContentDescription("全屏图表").performScrollTo().performClick();compose.waitUntil(30_000){exists("report-chart-fullscreen")};check(capture("07-fullscreen-landscape"));stage="fullscreen-return";compose.onNodeWithText("关闭",substring=false).performClick();compose.waitUntil(30_000){exists("ledger-report")}
+            stage = "fullscreen-landscape"
+            scroll("report-segment-trend-2")
+            compose.onNodeWithTag("report-segment-trend-2").performClick()
+            compose.onNodeWithContentDescription("全屏图表").performScrollTo().performClick()
+            compose.waitUntil(30_000) {
+                var landscape = false
+                scenario!!.onActivity { landscape = it.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE }
+                landscape && exists("report-chart-fullscreen")
+            }
+            check(capture("07-fullscreen-landscape"))
+            stage = "fullscreen-return"
+            compose.onNodeWithText("关闭",substring=false).performClick()
+            compose.waitUntil(30_000){exists("ledger-report")}
+            awaitText("6.06")
             stage="custom"
             compose.onNodeWithTag("report-filter").performClick();compose.onNodeWithText("开始日期 YYYY-MM-DD").performScrollTo().performTextInput("2026-11-14");compose.onNodeWithText("结束日期 YYYY-MM-DD").performScrollTo().performTextInput("2026-11-14");compose.onNodeWithText("使用自定义周期").performScrollTo().performClick();awaitText("0.06");capture("08-custom-day")
             File(context.filesDir,"report-validation/result.json").writeText(JSONObject().put("syntheticOnly",true).put("realApiTotalsAndRankMatch",true).put("usdExcluded",true).put("yearActiveMonths",5).put("yearExpense","6.06").put("yearIncome","60.10").put("monthlyMean","1.21").put("nativeMonthYearLineSeriesCategoryAndCustom",true).put("realLandscapeActivity",true).put("productionTouched",false).toString())

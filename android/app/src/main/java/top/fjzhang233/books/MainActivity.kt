@@ -15,6 +15,9 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
@@ -58,6 +61,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.scene.DialogSceneStrategy
+import androidx.navigation3.ui.NavDisplay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -89,23 +97,35 @@ class MainActivity : ComponentActivity() {
     override fun onResume() { super.onResume(); model.resume(); updates.resume() }
 }
 
-private enum class AppRoute { LEDGER, SEARCH, FAMILY, SETTINGS, ACCOUNTS, CATALOG, SESSIONS, EXTERNAL_AUTH, ABOUT }
-
-private val appRouteSaver = androidx.compose.runtime.saveable.Saver<AppRoute, String>(
-    save = { it.name },
-    restore = { value -> runCatching { AppRoute.valueOf(value) }.getOrDefault(AppRoute.LEDGER) },
-)
-
 private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BooksApp(vm: BooksModel, updates: UpdateModel) {
-    var route by rememberSaveable(stateSaver = appRouteSaver) { mutableStateOf(AppRoute.LEDGER) }
+    val backStack = rememberNavBackStack(AppPage.LEDGER)
+    val authenticated = vm.token != null
+    val hasPrivatePages = !authenticated && backStack.any { it != AppPage.LEDGER && it != AppPage.ABOUT }
+    val activeStack: List<NavKey> = if (hasPrivatePages) listOf(AppPage.LEDGER) else backStack
+    val current = activeStack.last()
     val context = LocalContext.current
-    val feedback=remember{SnackbarHostState()}
-    var monthPicker by rememberSaveable{mutableStateOf(false)}
-    var calendar by rememberSaveable{mutableStateOf(false)}
-    var report by rememberSaveable{mutableStateOf(false)}
+    val feedback = remember { SnackbarHostState() }
+    val dialogStrategy = remember { DialogSceneStrategy<NavKey>() }
+
+    fun push(destination: NavKey) {
+        if (backStack.last() != destination) backStack.add(destination)
+    }
+
+    fun pop(destination: NavKey) {
+        if (backStack.size <= 1 || backStack.last() != destination) return
+        backStack.removeLastOrNull()
+        if (destination == AppPage.CALENDAR && vm.token != null) vm.changeLedgerDay(null)
+        if (destination is FullscreenChartPage) vm.fullscreenChart = null
+    }
+
+    fun openChart(destination: FullscreenChartPage, snapshot: ReportSnapshot) {
+        vm.fullscreenChart = destination to snapshot
+        push(destination)
+    }
+
     LaunchedEffect(vm.error,vm.notice,vm.showEditor){if(!vm.showEditor){val message=vm.error.ifBlank{vm.notice};if(message.isNotBlank()){if(vm.error.isBlank())android.widget.Toast.makeText(context,message,android.widget.Toast.LENGTH_SHORT).show() else feedback.showSnackbar(message,duration=SnackbarDuration.Long);vm.dismissFeedback(message)}}}
     val drawer=rememberDrawerState(DrawerValue.Closed)
     val moveDirection = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1 else -1
@@ -117,25 +137,31 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
             onSettled()
         }
     }
-    var wasAuthenticated by remember{mutableStateOf(vm.token!=null)}
-    LaunchedEffect(vm.token!=null){val authenticated=vm.token!=null;if(wasAuthenticated&&!authenticated){route=AppRoute.LEDGER;drawer.snapTo(DrawerValue.Closed)};wasAuthenticated=authenticated}
+    var wasAuthenticated by remember { mutableStateOf(authenticated) }
+    LaunchedEffect(authenticated, hasPrivatePages, vm.showEditor) {
+        if (authenticated != wasAuthenticated || hasPrivatePages) {
+            while (backStack.size > 1) backStack.removeLastOrNull()
+            drawer.snapTo(DrawerValue.Closed)
+        }
+        wasAuthenticated = authenticated
+        if (authenticated && vm.showEditor) {
+            if (EntryPage !in backStack) push(EntryPage)
+        } else if (EntryPage in backStack) {
+            while (EntryPage in backStack) backStack.removeLastOrNull()
+        }
+    }
+    ReportOrientation(current is FullscreenChartPage)
     LaunchedEffect(vm.browserUrl) { vm.browserUrl?.let { url ->
         runCatching { CustomTabsIntent.Builder().build().launchUrl(context, android.net.Uri.parse(url)) }.onFailure { vm.browserFailed() }
         vm.browserUrl = null
     } }
-    BackHandler(enabled = route != AppRoute.LEDGER) {
-        route = if (vm.token == null) AppRoute.LEDGER else when (route) {
-            AppRoute.ACCOUNTS, AppRoute.CATALOG, AppRoute.SESSIONS, AppRoute.EXTERNAL_AUTH, AppRoute.ABOUT -> AppRoute.SETTINGS
-            else -> AppRoute.LEDGER
-        }
-    }
     BackHandler(enabled=!drawer.isOpen&&drawer.targetValue==DrawerValue.Open){moveDrawer(DrawerValue.Closed)}
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val drawerWidth = (maxWidth * 0.70f).coerceAtMost(360.dp)
     val drawerWidthPx = with(LocalDensity.current) { drawerWidth.roundToPx() }
     ModalNavigationDrawer(
         drawerState=drawer,
-        gesturesEnabled=vm.token!=null&&route==AppRoute.LEDGER,
+        gesturesEnabled=authenticated&&current==AppPage.LEDGER,
         scrimColor=Color.Black.copy(alpha=if(ledgerColors.dark) 0.48f else 0.32f),
         drawerContent={
         // Keep both drag anchors distinct while the user signs in or out.
@@ -143,58 +169,81 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
           if(vm.token!=null) {
             Text("家庭账本",Modifier.padding(start=24.dp,top=28.dp,bottom=8.dp),style=MaterialTheme.typography.headlineSmall)
             Text(vm.nickname,Modifier.padding(start=24.dp,bottom=20.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
-            data class Destination(val title:String,val icon:androidx.compose.ui.graphics.vector.ImageVector,val target:AppRoute)
+            data class Destination(val title:String,val icon:androidx.compose.ui.graphics.vector.ImageVector,val target:AppPage)
             val destinations=listOf(
-                Destination("搜索",Icons.Outlined.Search,AppRoute.SEARCH),
-                Destination("家庭",Icons.Outlined.People,AppRoute.FAMILY),
-                Destination("设置",Icons.Outlined.Settings,AppRoute.SETTINGS),
+                Destination("搜索",Icons.Outlined.Search,AppPage.SEARCH),
+                Destination("家庭",Icons.Outlined.People,AppPage.FAMILY),
+                Destination("设置",Icons.Outlined.Settings,AppPage.SETTINGS),
             )
-            destinations.forEach { item -> NavigationDrawerItem(label={Text(item.title)},icon={Icon(item.icon,null)},selected=route==item.target,onClick={moveDrawer(DrawerValue.Closed){if(vm.token!=null)route=item.target}},modifier=Modifier.padding(horizontal=12.dp).testTag("nav-${item.title}")) }
+            destinations.forEach { item -> NavigationDrawerItem(label={Text(item.title)},icon={Icon(item.icon,null)},selected=current==item.target,onClick={moveDrawer(DrawerValue.Closed){if(vm.token!=null&&current==AppPage.LEDGER)push(item.target)}},modifier=Modifier.padding(horizontal=12.dp).testTag("nav-${item.title}")) }
           }
         }
     }) {
-    val home=vm.token!=null&&route==AppRoute.LEDGER
     Box(Modifier.fillMaxSize().graphicsLayer {
         val offset = drawer.currentOffset
-        if (home && !offset.isNaN()) {
+        if (authenticated && !offset.isNaN()) {
             translationX = (drawerWidthPx + offset).coerceIn(0f, drawerWidthPx.toFloat()) * moveDirection
         } else {
             translationX = 0f
         }
     }.background(ledgerColors.background)){
-    if(home){Image(androidx.compose.ui.res.painterResource(R.drawable.ledger_landscape),null,Modifier.fillMaxWidth().height(240.dp),contentScale=androidx.compose.ui.layout.ContentScale.Crop);Box(Modifier.fillMaxWidth().height(240.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(ledgerColors.background.copy(alpha=if(ledgerColors.dark).35f else .78f),ledgerColors.background.copy(alpha=if(ledgerColors.dark).72f else .94f)))))}
-    Scaffold(containerColor=if(home)Color.Transparent else ledgerColors.background,contentColor=MaterialTheme.colorScheme.onSurface,snackbarHost={SnackbarHost(feedback)},
-        topBar = { CenterAlignedTopAppBar(colors=TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor=Color.Transparent),expandedHeight=56.dp,title={if(vm.token!=null&&route==AppRoute.LEDGER) Row(Modifier.clickable{monthPicker=true},verticalAlignment=Alignment.CenterVertically){Text(vm.ledgerMonth,fontSize=18.sp);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))} else Text(when(route){AppRoute.SEARCH->"搜索";AppRoute.FAMILY->"家庭";AppRoute.SETTINGS->"设置";AppRoute.ACCOUNTS->"账户";AppRoute.CATALOG->"分类与标签";AppRoute.SESSIONS->"登录设备";AppRoute.EXTERNAL_AUTH->"第三方登录";AppRoute.ABOUT->"关于与更新";else->"家庭账本"})},
-            navigationIcon={if(route!=AppRoute.LEDGER)IconButton(onClick={route=when(route){AppRoute.ACCOUNTS,AppRoute.CATALOG,AppRoute.SESSIONS,AppRoute.EXTERNAL_AUTH,AppRoute.ABOUT->AppRoute.SETTINGS;else->AppRoute.LEDGER}}){Icon(Icons.Outlined.ArrowBack,"返回")}else if(vm.token!=null) IconButton(onClick={moveDrawer(DrawerValue.Open)}){Icon(Icons.Outlined.Menu,"打开菜单")}},
-            actions={if(vm.token!=null&&route==AppRoute.LEDGER){IconButton(onClick={calendar=true}){Icon(Icons.Outlined.CalendarMonth,"日历视图")};IconButton(onClick={report=true}){Icon(Icons.Outlined.BarChart,"月报表")}}else if(vm.token==null&&route!=AppRoute.ABOUT)IconButton(onClick={route=AppRoute.ABOUT}){Icon(Icons.Outlined.Info,"关于")}}) },
-        floatingActionButtonPosition=FabPosition.Center,
-        floatingActionButton = { if (vm.token != null && route == AppRoute.LEDGER) FloatingActionButton(onClick={vm.newTransaction()},modifier=Modifier.size(56.dp).testTag("add-transaction"),shape=androidx.compose.foundation.shape.CircleShape,containerColor=MaterialTheme.colorScheme.primary,contentColor=MaterialTheme.colorScheme.onPrimary) { Icon(Icons.Outlined.Add,"记一笔",Modifier.size(28.dp)) } }
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (vm.token!=null && vm.backgroundRefreshFailed) LedgerRefreshRetry(vm)
-
-            if (route == AppRoute.ABOUT) UpdatePage(updates)
-            else if (vm.token == null) LoginPage(vm)
-            else when (route) {
-                AppRoute.SEARCH -> LedgerSearch(vm,{route=AppRoute.LEDGER}){item,close->LedgerTransactionDetails(vm,item,close)}
-                AppRoute.FAMILY -> FamilyPage(vm) { route = AppRoute.LEDGER }
-                AppRoute.SETTINGS -> SettingsPage(vm) { page -> route=when(page){"accounts"->AppRoute.ACCOUNTS;"catalog"->AppRoute.CATALOG;"sessions"->AppRoute.SESSIONS;"external-auth"->AppRoute.EXTERNAL_AUTH;"about"->AppRoute.ABOUT;else->AppRoute.SETTINGS}; if(page=="sessions")vm.getSessions() }
-                AppRoute.ACCOUNTS -> AccountsPage(vm)
-                AppRoute.CATALOG -> CatalogPage(vm)
-                AppRoute.SESSIONS -> SessionsPage(vm)
-                AppRoute.EXTERNAL_AUTH -> ExternalAuthPage(vm)
-                else -> TransactionsPage(vm)
-            }
-        }
+        NavDisplay(
+            backStack = activeStack,
+            modifier = Modifier.fillMaxSize(),
+            sceneStrategies = listOf(dialogStrategy),
+            transitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
+            popTransitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
+            onBack = {
+                when (current) {
+                    EntryPage -> if (!vm.busy && !vm.transactionNeedsConfirmation) vm.closeTransaction()
+                    else -> pop(current)
+                }
+            },
+            entryProvider = entryProvider<NavKey> {
+                entry<AppPage> { page ->
+                    when (page) {
+                        AppPage.REPORT -> LedgerReport(
+                            vm, { pop(page) }, ::openChart,
+                            showCategorySheet = activeStack.none { it is CategoryStatisticsPage },
+                            openStatistics = ::push,
+                        )
+                        AppPage.FAMILY -> FamilyReportPage(vm, { pop(page) }, ::openChart)
+                        AppPage.CALENDAR -> LedgerCalendar(vm) { pop(page) }
+                        else -> BooksScaffold(vm, page, feedback, { pop(page) }, { moveDrawer(DrawerValue.Open) }, ::push) {
+                            when (page) {
+                                AppPage.ABOUT -> UpdatePage(updates)
+                                AppPage.LEDGER -> if (authenticated) TransactionsPage(vm) else LoginPage(vm)
+                                AppPage.SEARCH -> LedgerSearch(vm) { item, close -> LedgerTransactionDetails(vm, item, close) }
+                                AppPage.SETTINGS -> SettingsPage(vm) { destination ->
+                                    push(destination)
+                                    if (destination == AppPage.SESSIONS) vm.getSessions()
+                                }
+                                AppPage.ACCOUNTS -> AccountsPage(vm)
+                                AppPage.CATALOG -> CatalogPage(vm)
+                                AppPage.SESSIONS -> SessionsPage(vm)
+                                AppPage.EXTERNAL_AUTH -> ExternalAuthPage(vm)
+                                else -> Unit
+                            }
+                        }
+                    }
+                }
+                entry<EntryPage>(metadata = fullScreenDialog) {
+                    if (authenticated && vm.showEditor) TransactionEditor(vm) { push(EntryCatalogPage(it)) }
+                }
+                entry<EntryCatalogPage>(metadata = fullScreenDialog) { page ->
+                    EntryCatalogContent(vm, page.section) { pop(page) }
+                }
+                entry<CategoryStatisticsPage>(metadata = fullScreenDialog) { page ->
+                    ReportCategoryStatistics(vm, page) { pop(page) }
+                }
+                entry<FullscreenChartPage> { page ->
+                    FullscreenReportChart(vm, page) { pop(page) }
+                }
+            },
+        )
     }
     }
     }
-    }
-    if(calendar)LedgerCalendar(vm,{calendar=false;if(vm.token!=null)vm.changeLedgerDay(null)},{monthPicker=true})
-    if(report)LedgerReport(vm){report=false}
-    if(monthPicker) LedgerMonthPicker(vm.ledgerMonth,{monthPicker=false}){vm.changeLedgerMonth(it);monthPicker=false}
-    if (vm.showEditor && vm.token != null) TransactionEditor(vm)
     if(vm.entityReviewOpen && vm.token!=null)PendingEntityDialog(vm)
     if (vm.twoFactorToken != null) {
         var passcode by remember { mutableStateOf("") }
@@ -208,6 +257,97 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
             OutlinedTextField(passcode, { passcode = it }, label = { Text("二步验证码（如已启用）") }, singleLine = true)
             if (vm.error.isNotBlank()) Text(vm.error, color = MaterialTheme.colorScheme.error)
         } }, confirmButton = { TextButton(onClick = { vm.finishOidc(password, passcode); password = "" }, enabled = !vm.busy && password.isNotEmpty()) { Text("确认关联") } }, dismissButton = { TextButton(onClick = vm::dismissOidc) { Text("取消") } })
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun BooksScaffold(
+    vm: BooksModel,
+    page: AppPage,
+    feedback: SnackbarHostState,
+    back: () -> Unit,
+    openDrawer: () -> Unit,
+    navigate: (AppPage) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val home = page == AppPage.LEDGER && vm.token != null
+    var monthPicker by rememberSaveable { mutableStateOf(false) }
+    val title = when (page) {
+        AppPage.SEARCH -> "搜索"
+        AppPage.SETTINGS -> "设置"
+        AppPage.ACCOUNTS -> "账户"
+        AppPage.CATALOG -> "分类与标签"
+        AppPage.SESSIONS -> "登录设备"
+        AppPage.EXTERNAL_AUTH -> "第三方登录"
+        AppPage.ABOUT -> "关于与更新"
+        else -> "家庭账本"
+    }
+    Box(Modifier.fillMaxSize().background(ledgerColors.background)) {
+        if (home) {
+            val header = Modifier.fillMaxWidth().height(240.dp)
+            Image(
+                androidx.compose.ui.res.painterResource(R.drawable.ledger_landscape), null, header,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+            val shade = ledgerColors.background
+            Box(header.background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(
+                shade.copy(alpha = if (ledgerColors.dark) .35f else .78f),
+                shade.copy(alpha = if (ledgerColors.dark) .72f else .94f),
+            ))))
+        }
+        Scaffold(
+            containerColor = if (home) Color.Transparent else ledgerColors.background,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            snackbarHost = { SnackbarHost(feedback) },
+            topBar = {
+                CenterAlignedTopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    expandedHeight = 56.dp,
+                    title = {
+                        if (home) Row(Modifier.clickable { monthPicker = true }, verticalAlignment = Alignment.CenterVertically) {
+                            Text(vm.ledgerMonth, fontSize = 18.sp)
+                            Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
+                        } else Text(title)
+                    },
+                    navigationIcon = {
+                        if (page != AppPage.LEDGER) IconButton(onClick = back) {
+                            Icon(Icons.Outlined.ArrowBack, "返回")
+                        } else if (home) IconButton(onClick = openDrawer) {
+                            Icon(Icons.Outlined.Menu, "打开菜单")
+                        }
+                    },
+                    actions = {
+                        if (home) {
+                            IconButton(onClick = { navigate(AppPage.CALENDAR) }) { Icon(Icons.Outlined.CalendarMonth, "日历视图") }
+                            IconButton(onClick = { navigate(AppPage.REPORT) }) { Icon(Icons.Outlined.BarChart, "月报表") }
+                        } else if (vm.token == null && page != AppPage.ABOUT) {
+                            IconButton(onClick = { navigate(AppPage.ABOUT) }) { Icon(Icons.Outlined.Info, "关于") }
+                        }
+                    },
+                )
+            },
+            floatingActionButtonPosition = FabPosition.Center,
+            floatingActionButton = {
+                if (home) FloatingActionButton(
+                    onClick = { vm.newTransaction() },
+                    modifier = Modifier.size(56.dp).testTag("add-transaction"),
+                    shape = CircleShape,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) { Icon(Icons.Outlined.Add, "记一笔", Modifier.size(28.dp)) }
+            },
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (vm.token != null && vm.backgroundRefreshFailed) LedgerRefreshRetry(vm)
+                content()
+            }
+        }
+    }
+    if (monthPicker) LedgerMonthPicker(vm.ledgerMonth, { monthPicker = false }) {
+        vm.changeLedgerMonth(it)
+        monthPicker = false
     }
 }
 
@@ -301,7 +441,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     }
     selected?.let{item->LedgerTransactionDetails(vm,item){selected=null}}
 }
-@Composable private fun LedgerMonthPicker(value:String,dismiss:()->Unit,select:(String)->Unit){
+@Composable internal fun LedgerMonthPicker(value:String,dismiss:()->Unit,select:(String)->Unit){
     val current=java.time.YearMonth.parse(value);var year by rememberSaveable{mutableIntStateOf(current.year)}
     AlertDialog(onDismissRequest=dismiss,containerColor=ledgerColors.surface,shape=androidx.compose.foundation.shape.RoundedCornerShape(4.dp),text={Row(Modifier.fillMaxWidth().height(300.dp)){
         LazyColumn(Modifier.width(96.dp),state=androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex=0)){items((current.year+3 downTo current.year-20).toList()){item->TextButton(onClick={year=item},modifier=Modifier.fillMaxWidth(),shape=androidx.compose.foundation.shape.CircleShape,colors=ButtonDefaults.textButtonColors(containerColor=if(item==year)MaterialTheme.colorScheme.primary else Color.Transparent,contentColor=if(item==year)MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)){Text("${item}年")}}}
@@ -366,9 +506,6 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     }
 }
 
-@Composable private fun FamilyPage(vm: BooksModel, dismiss: () -> Unit) {
-    FamilyReportPage(vm, dismiss)
-}
 
 @Composable internal fun Picture(vm: BooksModel, path: String) {
     var bitmap by remember(path) { mutableStateOf<android.graphics.Bitmap?>(null) }; var failed by remember(path) { mutableStateOf(false) }
@@ -517,14 +654,23 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     if (open && (editingId.isEmpty() || editing!=null)) CatalogEditor(vm, section, editing, initialType=newType, initialParentId=newParentId, close={ open = false })
 }
 
-@Composable internal fun CatalogEditor(vm: BooksModel, section: Int, original: JSONObject?, initialType: String = "2", initialParentId: String = "0", close: () -> Unit, submit: (String,JSONObject,()->Unit)->Unit = vm::saveEntity) {
+@Composable internal fun CatalogEditor(
+    vm: BooksModel,
+    section: Int,
+    original: JSONObject?,
+    initialType: String = "2",
+    initialParentId: String = "0",
+    initialRevision: String? = vm.categoryRevision,
+    close: () -> Unit,
+    submit: (String, JSONObject, () -> Unit) -> Unit = vm::saveEntity,
+) {
     var name by rememberSaveable(section, original?.id()) { mutableStateOf(original?.optString("name") ?: "") }; var type by rememberSaveable(section, original?.id(), initialType) { mutableStateOf(original?.optString("type") ?: initialType) }
     var icon by rememberSaveable(section, original?.id(), initialParentId) { mutableStateOf(original?.optString("icon")?.takeIf { it.isNotBlank() } ?: "1") }
     var parent by rememberSaveable(section, original?.id(), initialParentId) { mutableStateOf(original?.id("parentId") ?: initialParentId) }; var group by rememberSaveable(section, original?.id()) { mutableStateOf(original?.id("groupId") ?: "0") }
     val locked=vm.busy||vm.entityBlocked
     LaunchedEffect(vm.entityAwaitingReview,vm.busy){if(vm.entityAwaitingReview&&!vm.busy)close()}
     val requestId = rememberSaveable(section, original?.id()) { UUID.randomUUID().toString() }
-    var openedRevision by rememberSaveable(section, original?.id()) { mutableStateOf(vm.categoryRevision ?: "") }
+    var openedRevision by rememberSaveable(section, original?.id()) { mutableStateOf(initialRevision.orEmpty()) }
     var impactCount by rememberSaveable(section, original?.id()) { mutableStateOf<String?>(null) }
     var categoryAction by rememberSaveable(section, original?.id()) { mutableStateOf("modify") }
     val parentValid = section != 0 || parent == "0" || vm.categories.any { it.id() == parent && it.id("parentId") == "0" && it.optString("type") == type && !it.optBoolean("hidden") }
