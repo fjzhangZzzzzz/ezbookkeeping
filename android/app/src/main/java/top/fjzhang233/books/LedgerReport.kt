@@ -54,8 +54,6 @@ internal val reportSurface:Color @Composable get()=ledgerColors.surface
 internal val reportMuted:Color @Composable get()=ledgerColors.muted
 internal val reportRed:Color @Composable get()=ledgerColors.expense
 internal val reportGreen:Color @Composable get()=ledgerColors.income
-internal val reportPalette:List<Color> @Composable get()=ledgerReportPalette(ledgerColors.dark)
-internal fun ledgerReportPalette(dark:Boolean):List<Color> =if(dark)listOf(Color(0xFFFFA936),Color(0xFFFF8267),Color(0xFF72C4D6),Color(0xFFBCA0DE),Color(0xFF93C695))else listOf(Color(0xFF9C5700),Color(0xFFB82431),Color(0xFF126E80),Color(0xFF68409A),Color(0xFF3D713C))
 internal fun reportAverage(value:BigInteger,count:Long):String=if(count<=0)"0.00" else value.toBigDecimal().divide(BigDecimal.valueOf(count),0,RoundingMode.HALF_EVEN).movePointLeft(2).setScale(2).toPlainString()
 internal fun reportRatio(value:BigInteger,total:BigInteger):Float=if(total.signum()<=0)0f else value.toBigDecimal().divide(total.toBigDecimal(),8,RoundingMode.HALF_UP).toFloat()
 private fun reportPercent(value:BigInteger,total:BigInteger)=when {

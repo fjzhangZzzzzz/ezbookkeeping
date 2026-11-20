@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
@@ -52,8 +53,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -139,18 +138,20 @@ internal fun FamilyReportPage(
                             }
                             item {
                                 ReportCard("分类报表") {
-                                    val ranked = report.ranking(categoryType); val positive = ranked.filter { it.amount.signum() > 0 }; val total = positive.fold(BigInteger.ZERO) { sum, row -> sum + row.amount }
-                                    ReportDonut(ranked, if (categoryType == 2) "支出比例" else "收入比例")
+                                    val ranked = report.ranking(categoryType)
+                                    val total = ranked.fold(BigInteger.ZERO) { sum, row -> sum + row.amount.max(BigInteger.ZERO) }
+                                    val colors = rememberReportCategoryPalette(categoryType)
+                                    ReportDonut(ranked, if (categoryType == 2) "支出比例" else "收入比例", categoryColors = colors)
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { ReportSegments(listOf("支出", "收入"), if (categoryType == 2) 0 else 1, "family-category") { categoryType = if (it == 0) 2 else 1 } }
                                     ranked.forEachIndexed { index, row ->
-                                        val color = reportPalette[index % reportPalette.size]
+                                        val color = colors[index]
                                         Row(Modifier.fillMaxWidth().clickable { selectedCategory = row }.padding(vertical = 12.dp).testTag("family-report-category-${row.category.id()}"), verticalAlignment = Alignment.CenterVertically) {
-                                            Box(Modifier.size(36.dp).background(color, androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) { BuiltinIcon(row.category, tint = if (color.luminance() > .179f) Color.Black else Color.White) }
+                                            Box(Modifier.size(36.dp).background(color.fill, CircleShape), contentAlignment = Alignment.Center) { BuiltinIcon(row.category, tint = color.onFill) }
                                             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(row.category.optString("name"), Modifier.weight(1f), fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(" ${reportPercentForFamily(row.amount, total)}", fontSize = 12.sp, color = reportMuted); Text(money(row.amount.toString()), fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                                 val difference = row.amount - row.previous
                                                 Text("较${if (yearly) "上年" else "上月"} ${if (difference.signum() > 0) "+" else ""}${money(difference.toString())}", fontSize = 10.sp, color = reportMuted)
-                                                LinearProgressIndicator(progress = { reportRatio(row.amount, total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(3.dp), color = color)
+                                                LinearProgressIndicator(progress = { reportRatio(row.amount, total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(3.dp), color = color.fill)
                                             }
                                         }
                                     }

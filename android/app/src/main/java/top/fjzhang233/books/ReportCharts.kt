@@ -127,11 +127,10 @@ internal fun reportChartSeries(data:ReportSnapshot,type:Int,palette:LedgerPalett
     }
 }
 @Composable internal fun ReportDonut(
-    ranked:List<ReportCategory>,centerLabel:String,diameter:Dp=172.dp,height:Dp=216.dp,
+    ranked:List<ReportCategory>,centerLabel:String,categoryColors:ReportCategoryPalette,diameter:Dp=172.dp,height:Dp=216.dp,
     selection:String?=null,onSelectionChange:((String?)->Unit)?=null,showGuide:Boolean=true,
-    categoryColors:ReportCategoryPalette?=null,
 ){
-    val palette=ledgerColors;val ringColors=reportPalette
+    val palette=ledgerColors
     val positiveRanks=ranked.indices.filter { ranked[it].amount.signum()>0 }
     val positive=positiveRanks.map(ranked::get)
     val total=positive.fold(BigInteger.ZERO){s,r->s+r.amount}
@@ -163,9 +162,9 @@ internal fun reportChartSeries(data:ReportSnapshot,type:Int,palette:LedgerPalett
         val center=Offset(size.width/2,size.height/2);val outer=diameter.toPx()/2;val stroke=outer*.45f;val inner=outer-stroke
         val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{textSize=10.sp.toPx()};var start=rotation
         positive.forEachIndexed{index,row->
-            val series=categoryColors?.get(positiveRanks[index])
-            val color=series?.fill?:ringColors[index%ringColors.size]
-            val labelColor=series?.label?:color
+            val series=categoryColors[positiveRanks[index]]
+            val color=series.fill
+            val labelColor=series.label
             val ratio=reportRatio(row.amount,total);val sweep=ratio*360;val edge=outer+if(row.category.id()==selected)6.dp.toPx()else 0f;val width=edge-inner;val middle=(edge+inner)/2
             drawArc(color,start,sweep,false,topLeft=Offset(center.x-middle,center.y-middle),size=Size(middle*2,middle*2),style=Stroke(width))
             val highlight=inner+2.dp.toPx();drawArc(androidx.compose.ui.graphics.lerp(color,Color.White,.4f),start,sweep,false,topLeft=Offset(center.x-highlight,center.y-highlight),size=Size(highlight*2,highlight*2),style=Stroke(3.dp.toPx()))

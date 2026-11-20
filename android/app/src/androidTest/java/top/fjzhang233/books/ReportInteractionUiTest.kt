@@ -33,7 +33,7 @@ class ReportInteractionUiTest {
     }
     @Test fun donutPointerSelectionRotationAndAccessibleSelection(){
         val ranked=listOf(ReportCategory(JSONObject().put("id","1").put("name","零食"),BigInteger.valueOf(5),BigInteger.ZERO),ReportCategory(JSONObject().put("id","2").put("name","三餐"),BigInteger.ONE,BigInteger.ZERO))
-        compose.setContent{FamilyTheme{Column{ReportDonut(ranked,"支出比例")}}}
+        compose.setContent{FamilyTheme{Column{ReportDonut(ranked,"支出比例",categoryColors=rememberReportCategoryPalette(2))}}}
         val donut=compose.onNodeWithTag("report-interactive-donut")
         donut.performTouchInput{click(Offset(width*.5f- width*.15f,height*.5f))}
         donut.assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription,"零食，0.05"))

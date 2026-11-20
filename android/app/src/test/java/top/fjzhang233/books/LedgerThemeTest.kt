@@ -15,7 +15,6 @@ class LedgerThemeTest{
     }
     @Test fun financialAndSecondaryTextMeetNormalTextContrastInBothThemes(){
         for(dark in listOf(false,true)){val p=ledgerPalette(dark);for(bg in listOf(p.background,p.surface,p.field)){for((name,ink)in listOf("text" to p.text,"muted" to p.muted,"expense" to p.expense,"income" to p.income,"accent" to p.accent)){assertTrue("$dark $name contrast on $bg",contrast(ink,bg)>=4.5)}}
-            ledgerReportPalette(dark).forEach{assertTrue(contrast(it,p.surface)>=4.5)}
             assertTrue(contrast(p.onAccent,p.accent)>=4.5);assertTrue(contrast(p.onAccent,p.expense)>=4.5)
         }
     }
