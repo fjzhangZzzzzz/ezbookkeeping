@@ -204,16 +204,16 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
                     when (page) {
                         AppPage.REPORT -> LedgerReport(
                             vm, { pop(page) }, ::openChart,
-                            showCategorySheet = activeStack.none { it is CategoryStatisticsPage },
+                            showReportSheets = activeStack.none { it is CategoryStatisticsPage },
                             openStatistics = ::push,
                         )
                         AppPage.FAMILY -> FamilyReportPage(vm, { pop(page) }, ::openChart)
-                        AppPage.CALENDAR -> LedgerCalendar(vm) { pop(page) }
+                        AppPage.CALENDAR -> LedgerCalendar(vm, ::push) { pop(page) }
                         else -> BooksScaffold(vm, page, feedback, { pop(page) }, { moveDrawer(DrawerValue.Open) }, ::push) {
                             when (page) {
                                 AppPage.ABOUT -> UpdatePage(updates)
-                                AppPage.LEDGER -> if (authenticated) TransactionsPage(vm) else LoginPage(vm)
-                                AppPage.SEARCH -> LedgerSearch(vm) { item, close -> LedgerTransactionDetails(vm, item, close) }
+                                AppPage.LEDGER -> if (authenticated) TransactionsPage(vm, ::push) else LoginPage(vm)
+                                AppPage.SEARCH -> LedgerSearch(vm) { item, close -> LedgerTransactionDetails(vm, item, ::push, dismiss = close) }
                                 AppPage.SETTINGS -> SettingsPage(vm) { destination ->
                                     push(destination)
                                     if (destination == AppPage.SESSIONS) vm.getSessions()
@@ -228,12 +228,15 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
                     }
                 }
                 entry<EntryPage>(metadata = fullScreenDialog) {
+                    LedgerWindowAppearance()
                     if (authenticated && vm.showEditor) TransactionEditor(vm) { push(EntryCatalogPage(it)) }
                 }
                 entry<EntryCatalogPage>(metadata = fullScreenDialog) { page ->
+                    LedgerWindowAppearance()
                     EntryCatalogContent(vm, page.section) { pop(page) }
                 }
                 entry<CategoryStatisticsPage>(metadata = fullScreenDialog) { page ->
+                    LedgerWindowAppearance()
                     ReportCategoryStatistics(vm, page) { pop(page) }
                 }
                 entry<FullscreenChartPage> { page ->
@@ -393,7 +396,7 @@ internal fun transactionLabel(item: JSONObject): String = if(item.optInt("type")
 private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.of("Asia/Shanghai")).format(Instant.ofEpochSecond(time)) }.getOrDefault("")
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun TransactionsPage(vm: BooksModel) {
+@Composable private fun TransactionsPage(vm: BooksModel, openStatistics: (CategoryStatisticsPage) -> Unit) {
     var selected by remember{mutableStateOf<JSONObject?>(null)}
     val daily=vm.dailyAmounts.associateBy{it.optString("date")}
     val amounts=vm.dailyAmounts.flatMap{it.array("amounts")}
@@ -423,15 +426,8 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                             Text(ledgerDaySummary(dayIncome,dayExpense),fontSize=12.sp,fontWeight=FontWeight.Bold)
                         }
                         rows.forEachIndexed{index,item->
-                            if(index>0) LedgerTransactionDivider()
-                            Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("transaction-${item.id()}").clickable(enabled=!vm.busy){selected=item}.padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
-                                Box(Modifier.size(4.dp).background(when(item.optInt("type")){2->ledgerColors.income;3->ledgerColors.expense;else->ledgerColors.muted},androidx.compose.foundation.shape.CircleShape))
-                                Column(Modifier.weight(1f).padding(start=12.dp,end=8.dp)) {
-                                    Row(verticalAlignment=Alignment.CenterVertically){Text(transactionLabel(item),fontSize=14.sp);Text(" · "+(item.optJSONObject("sourceAccount")?.optString("name")?:""),Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=10.sp,color=ledgerColors.muted)}
-                                    if(item.optString("comment").isNotBlank()||item.array("pictures").isNotEmpty())Text(item.optString("comment")+if(item.array("pictures").isNotEmpty())" · 图片" else "",maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=11.sp,color=ledgerColors.muted)
-                                }
-                                Text(ledgerTransactionAmount(item),fontSize=16.sp,color=when(item.optInt("type")){2->ledgerColors.income;3->ledgerColors.expense;else->MaterialTheme.colorScheme.onSurface})
-                            }
+                            LedgerTransactionRow(item,index==0,Modifier.testTag("transaction-${item.id()}"),
+                                showAccount=true,enabled=!vm.busy){selected=item}
                         }
                     }
                 }
@@ -439,7 +435,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         }
         if(vm.hasMoreTransactions) item{TextButton(onClick=vm::loadMore,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("加载更多")}}
     }
-    selected?.let{item->LedgerTransactionDetails(vm,item){selected=null}}
+    selected?.let{item->LedgerTransactionDetails(vm,item,openStatistics){selected=null}}
 }
 @Composable internal fun LedgerMonthPicker(value:String,dismiss:()->Unit,select:(String)->Unit){
     val current=java.time.YearMonth.parse(value);var year by rememberSaveable{mutableIntStateOf(current.year)}

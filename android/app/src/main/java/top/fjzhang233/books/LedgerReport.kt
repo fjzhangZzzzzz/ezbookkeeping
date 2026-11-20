@@ -2,12 +2,14 @@ package top.fjzhang233.books
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,23 +20,27 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -49,14 +55,18 @@ internal val reportPalette:List<Color> @Composable get()=ledgerReportPalette(led
 internal fun ledgerReportPalette(dark:Boolean):List<Color> =if(dark)listOf(Color(0xFFFFA936),Color(0xFFFF8267),Color(0xFF72C4D6),Color(0xFFBCA0DE),Color(0xFF93C695))else listOf(Color(0xFF9C5700),Color(0xFFB82431),Color(0xFF126E80),Color(0xFF68409A),Color(0xFF3D713C))
 internal fun reportAverage(value:BigInteger,count:Long):String=if(count<=0)"0.00" else value.toBigDecimal().divide(BigDecimal.valueOf(count),0,RoundingMode.HALF_EVEN).movePointLeft(2).setScale(2).toPlainString()
 internal fun reportRatio(value:BigInteger,total:BigInteger):Float=if(total.signum()<=0)0f else value.toBigDecimal().divide(total.toBigDecimal(),8,RoundingMode.HALF_UP).toFloat()
-private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=0)"0.00%" else value.toBigDecimal().multiply(BigDecimal(100)).divide(total.toBigDecimal(),2,RoundingMode.HALF_UP).toPlainString()+"%"
+private fun reportPercent(value:BigInteger,total:BigInteger)=when {
+    value.signum()<0 -> "—"
+    total.signum()<=0 -> "0.00%"
+    else -> value.toBigDecimal().multiply(BigDecimal(100)).divide(total.toBigDecimal(),2,RoundingMode.HALF_UP).toPlainString()+"%"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun LedgerReport(
     vm: BooksModel,
     dismiss: () -> Unit,
     openChart: (FullscreenChartPage, ReportSnapshot) -> Unit,
-    showCategorySheet: Boolean,
+    showReportSheets: Boolean,
     openStatistics: (CategoryStatisticsPage) -> Unit,
 ){
     var selectedMonth by rememberSaveable{mutableStateOf(vm.ledgerMonth)}
@@ -67,8 +77,10 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
     var snapshot by remember{mutableStateOf<ReportSnapshot?>(null)}
     var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var reload by remember{mutableIntStateOf(0)}
     var chartType by rememberSaveable{mutableIntStateOf(2)};var categoryType by rememberSaveable{mutableIntStateOf(2)}
+    var groupByParent by rememberSaveable{mutableStateOf(false)}
     var lines by rememberSaveable{mutableStateOf(false)}
     var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedChild by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedDay by rememberSaveable{mutableStateOf<String?>(null)}
     var choosePeriod by remember{mutableStateOf(false)};var filtering by remember{mutableStateOf(false)};var savedFilter by rememberSaveable{mutableStateOf("{}")};val filter=decodeReportFilter(savedFilter)
     LaunchedEffect(period,reload,vm.token,filter,vm.searchInvalidation,vm.accounts,vm.categories){
@@ -105,18 +117,14 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
                     ReportChart(data,chartType,lines)
                     Row(Modifier.fillMaxWidth().padding(top=8.dp),horizontalArrangement=Arrangement.Center){ReportSegments(if(yearly)listOf("支出","收入","结余","全部") else listOf("支出","收入","全部"),chartType-2,"trend"){chartType=it+2}}}}
                 item{ReportCard("分类报表"){
-                    val ranked=data.ranking(categoryType);val positive=ranked.filter{it.amount.signum()>0};val total=positive.fold(BigInteger.ZERO){s,r->s+r.amount}
-                    ReportDonut(ranked,if(categoryType==2)"支出比例" else "收入比例")
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){ReportSegments(listOf("支出","收入"),if(categoryType==2)0 else 1,"category"){categoryType=if(it==0)2 else 1}}
-                    if(ranked.any{it.amount.signum()<0})Text("负数净额不绘入占比环图，仍显示于排名",fontSize=10.sp,color=reportMuted)
-                    ranked.forEachIndexed{index,row->val color=reportPalette[index%reportPalette.size]
-                        Row(Modifier.fillMaxWidth().clickable{selectedCategory=row.category.toString()}.padding(vertical=12.dp).testTag("report-category-${row.category.id()}"),verticalAlignment=Alignment.CenterVertically){
-                            Box(Modifier.size(36.dp).background(color,CircleShape),contentAlignment=Alignment.Center){BuiltinIcon(row.category,tint=if(color.luminance()>.179f)Color.Black else Color.White)}
-                            Column(Modifier.weight(1f).padding(start=12.dp)){
-                                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(row.category.optString("name"),Modifier.weight(1f),fontSize=16.sp,lineHeight=20.sp,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis);Text(" "+reportPercent(row.amount,total),fontSize=12.sp,lineHeight=18.sp,color=reportMuted);Spacer(Modifier.width(8.dp));Text(money(row.amount.toString()),fontSize=16.sp,lineHeight=20.sp)}
-                                val difference=row.amount-row.previous
-                                Text("较${if(period.custom)"上一期间" else if(yearly)"上年" else "上月"} ${if(difference.signum()>0)"+" else ""}${money(difference.toString())}",fontSize=10.sp,color=reportMuted)
-                                LinearProgressIndicator(progress={reportRatio(row.amount.max(BigInteger.ZERO),total).coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth().height(3.dp).padding(top=1.dp),color=color,trackColor=ledgerColors.divider)}}}
+                    val ranked=if(groupByParent)data.parentRanking(categoryType,vm.categories) else data.ranking(categoryType)
+                    val colors=rememberReportCategoryPalette(categoryType)
+                    ReportDonut(ranked,if(categoryType==2)"支出比例" else "收入比例",categoryColors=colors)
+                    FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp,Alignment.CenterHorizontally)){
+                        ReportSegments(listOf("支出","收入"),if(categoryType==2)0 else 1,"category"){categoryType=if(it==0)2 else 1}
+                        ReportSegments(listOf("明细分类","一级分类"),if(groupByParent)1 else 0,"category-level",92.dp){groupByParent=it==1}
+                    }
+                    ReportCategoryRanking(ranked,period,"report-category",colors) { row -> selectedCategory=row.category.id() }
                     if(ranked.isEmpty())Text("所选期间没有${if(categoryType==2)"支出" else "收入"}",Modifier.padding(16.dp),color=reportMuted)}}
                 item{ReportCard(if(yearly)"月报表" else "日报表"){
                     ReportTableRow("日期","收入","支出","结余",true)
@@ -128,16 +136,145 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
         }
         if(choosePeriod)ReportPeriodChooser(period,{choosePeriod=false}){selectedMonth=it.toString();customFirst="";customLast="";choosePeriod=false}
         if(filtering)ReportFilterPanel(vm,filter,{filtering=false},{savedFilter=encodeReportFilter(it);filtering=false},quick={quick->val now=YearMonth.now(java.time.ZoneId.of("Asia/Shanghai"));yearly=quick>=2;chartType=2;customFirst="";customLast="";selectedMonth=when(quick){1->now.minusMonths(1);3->now.minusYears(1);else->now}.toString();filtering=false},custom={first,last->yearly=false;chartType=2;customFirst=first.toString();customLast=last.toString();filtering=false})
-        selectedDay?.let{day->ReportDayTransactions(vm,java.time.LocalDate.parse(day),filter,{selectedDay=null}){reload++}}
-        selectedCategory?.let { saved ->
-            val category = remember(saved) { JSONObject(saved) }
-            val amount = snapshot?.categories?.firstOrNull { it.category.id() == category.id() }?.amount ?: BigInteger.ZERO
-            ReportCategoryDetails(vm, period, category, amount, filter, showCategorySheet, { selectedCategory = null }) {
-                openStatistics(CategoryStatisticsPage(ReportQuery(period, filter), category.id(), category.optString("name"), category.optInt("type")))
+        val reportQuery=ReportQuery(period,filter)
+        val parentIds=remember(vm.categories){vm.categories.reportParentIds()}
+        val directParentIds=snapshot?.categories.orEmpty().mapNotNull{it.category.id().takeIf(parentIds::contains)}.toSet()
+        selectedDay?.let{day->
+            ReportDayTransactions(vm,java.time.LocalDate.parse(day),reportQuery,directParentIds,showReportSheets,openStatistics,{selectedDay=null}){reload++}
+        }
+        val category=vm.categories.firstOrNull { it.id()==selectedCategory }
+        if(category!=null) {
+            val type=category.optInt("type")
+            val breakdown=groupByParent && category.id("parentId")=="0"
+            if(breakdown) {
+                val scope=reportCategoryScope(category.id(),vm.categories,filter.categoryScope)
+                val children=snapshot?.ranking(type).orEmpty().filter { scope.accepts(it.category.id()) }
+                ReportCategoryBreakdown(
+                    category,children,period,category.id() in parentIds,loading,showReportSheets,
+                    openStatistics={openStatistics(CategoryStatisticsPage(reportQuery,category.id(),category.optString("name"),type))},
+                    openChild={selectedChild=it.category.id()},
+                    dismiss={selectedChild=null;selectedCategory=null},
+                )
+            }
+            val detailId=if(breakdown)selectedChild else selectedCategory
+            val detail=vm.categories.firstOrNull { it.id()==detailId }
+            if(detail!=null) key(detail.id()) {
+                val amount=snapshot?.categories?.firstOrNull { it.category.id()==detail.id() }?.amount
+                val exactParent=detail.id() in parentIds
+                val detailQuery=if(exactParent) ReportQuery(period,filter.copy(categoryIds=setOf(detail.id()))) else reportQuery
+                val title=if(breakdown && exactParent) "${detail.optString("name")}（直接记入）" else detail.optString("name")
+                ReportCategoryDetails(
+                    vm,detailQuery,reportQuery,detail,title,amount,parentIds,directParentIds,showReportSheets,openStatistics,
+                ) {
+                    if(breakdown) selectedChild=null else selectedCategory=null
+                }
             }
         }
     }
         }
+}
+@Composable private fun ReportCategoryRanking(
+    ranked:List<ReportCategory>,period:ReportPeriod,tagPrefix:String,colors:ReportCategoryPalette,open:(ReportCategory)->Unit,
+){
+    val total=ranked.fold(BigInteger.ZERO){sum,row -> sum+row.amount.max(BigInteger.ZERO)}
+    val comparison=when {
+        period.custom -> "上一期间"
+        period.yearly -> "上年"
+        else -> "上月"
+    }
+    if(ranked.any { it.amount.signum()<0 }) {
+        Text("占比按正净额计算。负净额计入排名和合计。",fontSize=12.sp,color=reportMuted)
+    }
+    if(ranked.any { it.amount!=it.previous }) {
+        Text("较$comparison",Modifier.fillMaxWidth(),fontSize=12.sp,lineHeight=16.sp,color=reportMuted,textAlign=TextAlign.End)
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val useSingleLine=maxWidth>=300.dp && LocalDensity.current.fontScale<=1.25f
+        Column {
+            ranked.forEachIndexed { index,row ->
+                if(index>0) LedgerTransactionDivider(Modifier.padding(start=44.dp))
+                ReportRankingRow(row,total,colors[index],comparison,useSingleLine,tagPrefix) { open(row) }
+            }
+        }
+    }
+}
+
+@Composable private fun ReportRankingRow(
+    row:ReportCategory,total:BigInteger,color:ReportCategoryColor,comparison:String,useSingleLine:Boolean,tagPrefix:String,open:()->Unit,
+){
+    val difference=row.amount-row.previous
+    val name=row.category.optString("name")
+    val share=reportPercent(row.amount,total)
+    val amount=money(row.amount.toString())
+    val change=if(difference.signum()==0) "" else money(difference.abs().toString())
+    val changeModifier=Modifier.testTag("$tagPrefix-change-${row.category.id()}")
+    val compact=useSingleLine && amount.length+change.length+share.length<=28
+    Row(
+        Modifier.fillMaxWidth().testTag("$tagPrefix-${row.category.id()}").clickable(onClick=open)
+            .heightIn(min=48.dp).padding(vertical=8.dp),
+        verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp),
+    ){
+        Box(Modifier.size(32.dp).background(color.fill,CircleShape),contentAlignment=Alignment.Center){
+            BuiltinIcon(row.category,tint=color.onFill)
+        }
+        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
+            if(compact){
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Text(name,Modifier.weight(1f),fontSize=15.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text(share,fontSize=12.sp,color=reportMuted)
+                    if(change.isNotEmpty()) ReportChangeBadge(change,difference.signum()>0,row.category.optInt("type"),comparison,changeModifier)
+                    Text(amount,fontSize=16.sp,fontWeight=FontWeight.SemiBold)
+                }
+            }else{
+                Text(name,fontSize=15.sp,fontWeight=FontWeight.SemiBold)
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.Center){
+                    Text(share,fontSize=12.sp,color=reportMuted,modifier=Modifier.align(Alignment.CenterVertically))
+                    if(change.isNotEmpty()) ReportChangeBadge(change,difference.signum()>0,row.category.optInt("type"),comparison,changeModifier.align(Alignment.CenterVertically))
+                    Text(amount,Modifier.align(Alignment.CenterVertically),fontSize=16.sp,fontWeight=FontWeight.SemiBold)
+                }
+            }
+            if(total.signum()>0){
+                val fraction=reportRatio(row.amount.max(BigInteger.ZERO),total).coerceIn(0f,1f)
+                Box(Modifier.fillMaxWidth().height(2.dp).background(ledgerColors.field,CircleShape)){
+                    Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(color.fill,CircleShape))
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun ReportChangeBadge(
+    amount:String,increase:Boolean,categoryType:Int,comparison:String,modifier:Modifier,
+){
+    val palette=ledgerColors
+    val favorable=if(categoryType==1) increase else !increase
+    val color=if(favorable) palette.income else palette.expense
+    val direction=if(increase) "增加" else "减少"
+    Row(
+        modifier.background(color.copy(alpha=if(palette.dark) .20f else .09f),RoundedCornerShape(6.dp))
+            .padding(horizontal=5.dp,vertical=2.dp)
+            .clearAndSetSemantics { contentDescription="较$comparison$direction $amount" },
+        horizontalArrangement=Arrangement.spacedBy(3.dp),
+        verticalAlignment=Alignment.CenterVertically,
+    ) {
+        Canvas(Modifier.size(width=8.dp,height=5.5.dp)) {
+            val corner=.65.dp.toPx()
+            val middle=size.width/2f
+            val triangle=Path().apply {
+                moveTo(middle-corner,corner)
+                quadraticTo(middle,-corner,middle+corner,corner)
+                lineTo(size.width-corner/4f,size.height-corner/2f)
+                quadraticTo(size.width,size.height,size.width-corner,size.height)
+                lineTo(corner,size.height)
+                quadraticTo(0f,size.height,corner/4f,size.height-corner/2f)
+                close()
+            }
+            scale(scaleX=1f,scaleY=if(increase) 1f else -1f) {
+                drawPath(triangle,color)
+            }
+        }
+        Text(amount,fontSize=12.sp,lineHeight=16.sp,fontWeight=FontWeight.Medium,color=color,softWrap=false)
+    }
 }
 @Composable internal fun ReportCard(title:String,actions:(@Composable RowScope.()->Unit)?=null,content:@Composable ColumnScope.()->Unit){
     Surface(shape=RoundedCornerShape(8.dp),color=reportSurface){Column(Modifier.fillMaxWidth().padding(12.dp),horizontalAlignment=Alignment.CenterHorizontally){
@@ -149,13 +286,13 @@ private fun reportPercent(value:BigInteger,total:BigInteger)=if(total.signum()<=
     }}
 }
 @Composable internal fun ReportMetric(label:String,value:String,modifier:Modifier){Column(modifier.padding(vertical=6.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(label,color=reportMuted,fontSize=14.sp,lineHeight=20.sp);Text(value,fontSize=16.sp,lineHeight=20.sp,fontWeight=FontWeight.Bold,color=ledgerColors.text)}}
-@Composable internal fun ReportSegments(labels:List<String>,selected:Int,group:String="generic",choose:(Int)->Unit){
+@Composable internal fun ReportSegments(labels:List<String>,selected:Int,group:String="generic",segmentWidth:Dp=52.dp,choose:(Int)->Unit){
     val period=group=="period";val shape=if(period)RoundedCornerShape(8.dp)else CircleShape
     Box(Modifier.height(48.dp),contentAlignment=Alignment.Center){
         Box(Modifier.matchParentSize().padding(vertical=7.dp).background(if(period)ledgerColors.background else ledgerColors.background,shape))
         Row(Modifier.padding(horizontal=4.dp)){
             labels.forEachIndexed{index,label->
-                Box(Modifier.width(if(period)48.dp else 52.dp).height(48.dp).testTag("report-segment-$group-$index").clickable{choose(index)},contentAlignment=Alignment.Center){
+                Box(Modifier.width(if(period)48.dp else segmentWidth).height(48.dp).testTag("report-segment-$group-$index").clickable{choose(index)},contentAlignment=Alignment.Center){
                     if(index==selected)Box(Modifier.fillMaxWidth().height(28.dp).background(if(period)reportSurface else reportSurface,if(period)RoundedCornerShape(5.dp)else CircleShape))
                     Text(label,fontSize=if(period)18.sp else 14.sp,lineHeight=20.sp,color=if(index==selected)ledgerColors.text else reportMuted)
                 }
@@ -170,24 +307,34 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun ReportDayTransactions(vm:BooksModel,date:java.time.LocalDate,filter:ReportFilter,dismiss:()->Unit,changed:()->Unit){
-    var rows by remember{mutableStateOf<List<JSONObject>>(emptyList())};var page by remember{mutableIntStateOf(1)};var total by remember{mutableLongStateOf(0)}
+@Composable private fun ReportDayTransactions(
+    vm:BooksModel,date:java.time.LocalDate,query:ReportQuery,directParentIds:Set<String>,visible:Boolean,
+    openStatistics:(CategoryStatisticsPage)->Unit,dismiss:()->Unit,changed:()->Unit,
+){
+    var rows by remember{mutableStateOf<List<JSONObject>>(emptyList())};var page by remember(vm.searchInvalidation){mutableIntStateOf(1)};var total by remember{mutableLongStateOf(0)}
     var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var retry by remember{mutableIntStateOf(0)};var selected by remember{mutableStateOf<JSONObject?>(null)}
     fun refresh(){page=1;retry++;changed()}
     ReportRefreshAfterEditor(vm,::refresh)
-    LaunchedEffect(date,page,retry){loading=true;failure="";try{val(result,count)=vm.api.reportDayPage(date,vm.accounts,vm.categories,page,filter);rows=if(page==1)result else(rows+result).distinctBy{it.id()};total=count}catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="当日流水加载失败，请重试"}finally{loading=false}}
-    ModalBottomSheet(onDismissRequest=dismiss,containerColor=reportSurface,dragHandle=null){Column(Modifier.fillMaxWidth().navigationBarsPadding().testTag("report-day-transactions")){
+    LaunchedEffect(date,page,retry,query,vm.searchInvalidation,vm.accounts,vm.categories,directParentIds){
+        loading=true;failure=""
+        try{val(result,count)=vm.api.reportDayPage(date,vm.accounts,vm.categories,page,query.filter(),directParentIds);rows=if(page==1)result else(rows+result).distinctBy{it.id()};total=count}
+        catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="当日流水加载失败，请重试"}finally{loading=false}
+    }
+    val listState=androidx.compose.foundation.lazy.rememberLazyListState()
+    if(visible) ModalBottomSheet(onDismissRequest=dismiss,containerColor=reportSurface,dragHandle=null){Column(Modifier.fillMaxWidth().navigationBarsPadding().testTag("report-day-transactions")){
         Text(date.toString(),Modifier.padding(16.dp),fontSize=18.sp,fontWeight=FontWeight.Bold)
         Text("CNY · 上海时间 · 沿用报表筛选",Modifier.padding(horizontal=16.dp),fontSize=11.sp,color=reportMuted)
         if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
         if(failure.isNotEmpty())Row{Text(failure,color=reportRed);TextButton(onClick={retry++}){Text("重试")}}
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max=420.dp)){
-            items(rows,key={it.id()}){row->ListItem(headlineContent={Text(transactionLabel(row))},supportingContent={if(row.optString("comment").isNotBlank())Text(row.optString("comment"))},trailingContent={Text(ledgerTransactionAmount(row),color=if(row.optInt("type")==2)reportGreen else reportRed)},modifier=Modifier.testTag("report-day-transaction-${row.id()}").clickable{selected=row})}
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max=420.dp),state=listState){
+            itemsIndexed(rows,key={_,row->row.id()}){index,row->
+                LedgerTransactionRow(row,index==0,Modifier.testTag("report-day-transaction-${row.id()}")){selected=row}
+            }
             if(!loading&&failure.isEmpty()&&rows.size<total)item{TextButton(onClick={page++}){Text("加载更多")}}
             if(!loading&&failure.isEmpty()&&rows.isEmpty())item{Text("暂无匹配的当日流水",Modifier.padding(24.dp),color=reportMuted)}
         }
     }}
-    selected?.let{row->LedgerTransactionDetails(vm,row){selected=null;refresh()}}
+    if(visible) selected?.let{row->LedgerTransactionDetails(vm,row,openStatistics,query){selected=null}}
 }
 @Composable internal fun ReportPeriodChooser(period:ReportPeriod,dismiss:()->Unit,choose:(YearMonth)->Unit){
     var year by remember{mutableIntStateOf(period.month.year)}
@@ -208,33 +355,121 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
     )
 }
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun ReportCategoryBreakdown(
+    category:JSONObject,
+    ranked:List<ReportCategory>,
+    period:ReportPeriod,
+    hasChildren:Boolean,
+    loading:Boolean,
+    visible:Boolean,
+    openStatistics:()->Unit,
+    openChild:(ReportCategory)->Unit,
+    dismiss:()->Unit,
+){
+    val sheet=rememberModalBottomSheetState(skipPartiallyExpanded=true)
+    val listState=androidx.compose.foundation.lazy.rememberLazyListState()
+    if(!visible) return
+    val colors=rememberReportCategoryPalette(category.optInt("type"))
+    val parts=remember(ranked,hasChildren,category.id()) {
+        ranked.map { row ->
+            if(hasChildren && row.category.id()==category.id()){
+                row.copy(category=JSONObject(row.category.toString()).put("name","直接记入"))
+            } else row
+        }
+    }
+    ModalBottomSheet(onDismissRequest=dismiss,sheetState=sheet,containerColor=reportSurface,dragHandle=null){
+        Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).navigationBarsPadding().testTag("report-parent-category-sheet")){
+            ReportCategorySheetHeader(category.optString("name"),"report-parent-category-statistics",openStatistics)
+            if(loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            LazyColumn(
+                Modifier.fillMaxWidth().heightIn(max=460.dp),
+                state=listState,contentPadding=PaddingValues(bottom=12.dp),
+            ){
+                if(parts.isNotEmpty()){
+                    item(key="chart"){
+                        Box(Modifier.fillMaxWidth().testTag("report-parent-category-chart")){
+                            ReportDonut(parts,"分类占比",diameter=120.dp,height=148.dp,showGuide=false,categoryColors=colors)
+                        }
+                    }
+                    item(key="categories"){ ReportCategoryRanking(parts,period,"report-child-category",colors,openChild) }
+                } else if(!loading){
+                    item(key="empty"){ Text("所选期间暂无分类数据",Modifier.padding(vertical=24.dp),color=reportMuted) }
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun ReportCategorySheetHeader(title:String,tag:String,openStatistics:()->Unit){
+    Row(
+        Modifier.fillMaxWidth().heightIn(min=56.dp).padding(vertical=4.dp),
+        horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically,
+    ){
+        Text(title,Modifier.weight(1f),fontSize=18.sp,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
+        Box(
+            Modifier.heightIn(min=48.dp).widthIn(min=48.dp).testTag(tag).clickable(role=Role.Button,onClick=openStatistics),
+            contentAlignment=Alignment.Center,
+        ){
+            Row(
+                Modifier.border(1.dp,ledgerColors.divider,RoundedCornerShape(8.dp)).padding(horizontal=9.dp,vertical=5.dp),
+                horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.CenterVertically,
+            ){
+                Text("统计",fontSize=14.sp,lineHeight=18.sp,color=reportMuted)
+                Icon(Icons.Outlined.PieChart,null,Modifier.size(14.dp),tint=reportMuted)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun ReportCategoryDetails(
     vm: BooksModel,
-    period: ReportPeriod,
+    query: ReportQuery,
+    sourceQuery: ReportQuery,
     category: JSONObject,
-    amount: BigInteger,
-    filter: ReportFilter,
+    title: String,
+    amount: BigInteger?,
+    parentIds: Set<String>,
+    directParentIds: Set<String>,
     visible: Boolean,
+    openStatistics: (CategoryStatisticsPage) -> Unit,
     dismiss: () -> Unit,
-    openStatistics: () -> Unit,
 ){
+    val period=query.period()
+    val filter=query.filter()
+    val resolved=reportCategoryScope(category.id(),vm.categories,filter.categoryScope)
+    val ids=(resolved as? ReportCategoryScope.Only)?.ids.orEmpty() - (parentIds - directParentIds)
+    val scope=if(ids.isEmpty()) ReportCategoryScope.Empty else ReportCategoryScope.Only(ids)
     var rows by remember{mutableStateOf<List<JSONObject>>(emptyList())}
-    var page by remember(vm.searchInvalidation){mutableIntStateOf(1)}
+    var page by remember(vm.searchInvalidation,scope){mutableIntStateOf(1)}
     var total by remember{mutableLongStateOf(0)};var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var retry by remember{mutableIntStateOf(0)}
-    LaunchedEffect(page,retry,vm.searchInvalidation){loading=true;failure="";try{val(result,count)=vm.api.reportCategoryPage(period,category.id(),vm.accounts,page,filter);rows=if(page==1)result else(rows+result).distinctBy{it.id()};total=count}catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="明细加载失败，请重试"}finally{loading=false}}
+    LaunchedEffect(query,scope,page,retry,vm.searchInvalidation,vm.accounts,directParentIds){
+        loading=true;failure=""
+        try{val(result,count)=vm.api.reportCategoryPage(period,scope,vm.accounts,page,filter,directParentIds);rows=if(page==1)result else(rows+result).distinctBy{it.id()};total=count}
+        catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="明细加载失败，请重试"}finally{loading=false}
+    }
     var selected by remember{mutableStateOf<JSONObject?>(null)}
-    if (visible) ModalBottomSheet(onDismissRequest=dismiss,containerColor=reportSurface){Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).navigationBarsPadding().testTag("report-category-sheet")){
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(category.optString("name"),Modifier.weight(1f),fontSize=20.sp);TextButton(onClick=dismiss){Text("关闭")};TextButton(onClick=openStatistics){Text("统计")}}
-        Text("${period.label} · CNY · ${money(amount.toString())}",color=reportMuted)
+    val listState=androidx.compose.foundation.lazy.rememberLazyListState()
+    val sheet=rememberModalBottomSheetState(skipPartiallyExpanded=true)
+    if (visible) ModalBottomSheet(onDismissRequest=dismiss,sheetState=sheet,containerColor=reportSurface,dragHandle=null){Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).navigationBarsPadding().testTag("report-category-sheet")){
+        ReportCategorySheetHeader(title,"report-category-sheet-statistics"){
+            openStatistics(CategoryStatisticsPage(query,category.id(),title,category.optInt("type")))
+        }
+        val context=listOfNotNull(period.label,amount?.let { money(it.toString()) }).joinToString(" · ")
+        Text(context,Modifier.padding(bottom=6.dp),fontSize=12.sp,color=reportMuted)
+        LedgerTransactionDivider(Modifier.fillMaxWidth())
         if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
         if(failure.isNotEmpty())Row{Text(failure,color=reportRed);TextButton(onClick={retry++}){Text("重试")}}
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max=420.dp)){
-            items(rows,key={it.id()}){row->ListItem(headlineContent={Text(category.optString("name"))},supportingContent={Text(row.optString("comment"))},trailingContent={Text(money((if(category.optInt("type")==2)row.optString("sourceAmount").toBigInteger().negate() else row.optString("sourceAmount").toBigInteger()).toString())+" CNY",color=if(category.optInt("type")==2)reportRed else reportGreen)},modifier=Modifier.testTag("report-category-row-${row.id()}").clickable{selected=row})}
+        LazyColumn(Modifier.fillMaxWidth().heightIn(min=144.dp,max=420.dp),state=listState){
+            itemsIndexed(rows,key={_,row->row.id()}){index,row->
+                val date=shanghaiReportDate(row.optLong("time")).toString()
+                LedgerTransactionRow(row,index==0,Modifier.testTag("report-category-row-${row.id()}"),dateLabel=date){selected=row}
+            }
             if(!loading&&failure.isEmpty()&&rows.size<total)item{TextButton(onClick={page++}){Text("加载更多")}}
-            if(!loading&&rows.isEmpty())item{Text("暂无明细",Modifier.padding(24.dp))}
+            if(!loading&&failure.isEmpty()&&rows.isEmpty())item{Text("暂无明细",Modifier.padding(24.dp),color=reportMuted)}
         }
     }}
-    selected?.let{row->LedgerTransactionDetails(vm,row){selected=null}}
+    if(visible) selected?.let{row->LedgerTransactionDetails(vm,row,openStatistics,sourceQuery){selected=null}}
 }
 
 /** Editor/copy remains over this route; refresh only once it closes, without losing its period/filter. */
@@ -244,23 +479,31 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
     LaunchedEffect(vm.showEditor){if(wasEditing&&!vm.showEditor)latestRefresh();wasEditing=vm.showEditor}
 }
 
-@Composable private fun ReportFilterPanel(vm:BooksModel,initial:ReportFilter,dismiss:()->Unit,apply:(ReportFilter)->Unit,quick:(Int)->Unit,custom:(java.time.LocalDate,java.time.LocalDate)->Unit){
+@Composable private fun ReportFilterPanel(
+    vm:BooksModel,initial:ReportFilter,dismiss:()->Unit,apply:(ReportFilter)->Unit,
+    quick:((Int)->Unit)?=null,custom:((java.time.LocalDate,java.time.LocalDate)->Unit)?=null,
+    categoryOptions:List<JSONObject> = vm.categories.filter{it.optInt("type") in 1..2&&it.id("parentId")!="0"},
+){
     var accounts by remember{mutableStateOf(initial.accountIds)};var categories by remember{mutableStateOf(initial.categoryIds)};var tags by remember{mutableStateOf(initial.tagIds)};var allTags by remember{mutableStateOf(initial.allTags)};var first by rememberSaveable{mutableStateOf("")};var last by rememberSaveable{mutableStateOf("")};var dateError by remember{mutableStateOf("")}
     Dialog(onDismissRequest=dismiss,properties=DialogProperties(usePlatformDefaultWidth=false)){
         Box(Modifier.fillMaxSize().clickable(onClick=dismiss),contentAlignment=Alignment.CenterEnd){
             Column(Modifier.fillMaxHeight().width(320.dp).background(reportSurface).clickable{}.systemBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp)){
                 Text("筛选报表",fontSize=20.sp,fontWeight=FontWeight.Bold)
-                Text("日期",Modifier.padding(top=16.dp),color=reportMuted)
-                listOf("本月","上月","今年","去年").chunked(2).forEachIndexed{row,labels->Row{labels.forEachIndexed{index,label->TextButton(onClick={quick(row*2+index)}){Text(label)}}}}
-                OutlinedTextField(first,{first=it},label={Text("开始日期 YYYY-MM-DD")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                OutlinedTextField(last,{last=it},label={Text("结束日期 YYYY-MM-DD")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                if(dateError.isNotEmpty())Text(dateError,color=reportRed,fontSize=12.sp)
-                TextButton(onClick={runCatching{val a=java.time.LocalDate.parse(first);val b=java.time.LocalDate.parse(last);ReportPeriod(YearMonth.from(a),false,a,b);a to b}.onSuccess{custom(it.first,it.second)}.onFailure{dateError="请填写有效起止日期，结束不早于开始，最多十年"}}){Text("使用自定义周期")}
+                if(quick!=null && custom!=null){
+                    Text("日期",Modifier.padding(top=16.dp),color=reportMuted)
+                    listOf("本月","上月","今年","去年").chunked(2).forEachIndexed{row,labels->Row{labels.forEachIndexed{index,label->TextButton(onClick={quick(row*2+index)}){Text(label)}}}}
+                    OutlinedTextField(first,{first=it},label={Text("开始日期 YYYY-MM-DD")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(last,{last=it},label={Text("结束日期 YYYY-MM-DD")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    if(dateError.isNotEmpty())Text(dateError,color=reportRed,fontSize=12.sp)
+                    TextButton(onClick={runCatching{val a=java.time.LocalDate.parse(first);val b=java.time.LocalDate.parse(last);ReportPeriod(YearMonth.from(a),false,a,b);a to b}.onSuccess{custom(it.first,it.second)}.onFailure{dateError="请填写有效起止日期，结束不早于开始，最多十年"}}){Text("使用自定义周期")}
+                }
                 Text("资金账户 · CNY",Modifier.padding(top=16.dp),color=reportMuted)
                 Text("不勾选表示全部",fontSize=11.sp,color=reportMuted)
                 vm.accounts.filter{it.optString("currency")=="CNY"}.forEach{item->ReportFilterChoice(item.optString("name"),item.id() in accounts){accounts=if(item.id() in accounts)accounts-item.id() else accounts+item.id()}}
-                Text("分类",Modifier.padding(top=16.dp),color=reportMuted)
-                vm.categories.filter{it.optInt("type") in 1..2&&it.id("parentId")!="0"}.forEach{item->ReportFilterChoice(item.optString("name"),item.id() in categories){categories=if(item.id() in categories)categories-item.id() else categories+item.id()}}
+                if(categoryOptions.isNotEmpty()){
+                    Text("分类",Modifier.padding(top=16.dp),color=reportMuted)
+                    categoryOptions.forEach{item->ReportFilterChoice(item.optString("name"),item.id() in categories){categories=if(item.id() in categories)categories-item.id() else categories+item.id()}}
+                }
                 Text("标签",Modifier.padding(top=16.dp),color=reportMuted)
                 ReportFilterChoice("必须包含全部所选标签",allTags){allTags=!allTags}
                 vm.tags.filterNot{it.optBoolean("hidden")}.forEach{item->ReportFilterChoice(item.optString("name"),item.id() in tags){tags=if(item.id() in tags)tags-item.id() else tags+item.id()}}
@@ -271,73 +514,247 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
 }
 @Composable private fun ReportFilterChoice(label:String,checked:Boolean,click:()->Unit){Row(Modifier.fillMaxWidth().clickable(onClick=click).heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically){Checkbox(checked,onCheckedChange={click()});Text(label,fontSize=14.sp)}}
 @Composable internal fun ReportCategoryStatistics(vm: BooksModel, route: CategoryStatisticsPage, dismiss: () -> Unit) {
-    var savedPeriod by rememberSaveable(stateSaver = ReportQuery.saver) { mutableStateOf(route.query) }
-    val period = savedPeriod.period()
-    val expenseCategory = route.categoryType == 2
-    var data by remember{mutableStateOf<ReportSnapshot?>(null)}
-    var rows by remember{mutableStateOf<List<JSONObject>>(emptyList())}
-    var total by remember{mutableLongStateOf(0)};var page by remember{mutableIntStateOf(1)}
-    var failure by remember{mutableStateOf("")};var retry by remember{mutableIntStateOf(0)};var loading by remember{mutableStateOf(true)}
-    var yearPicker by remember{mutableStateOf(false)}
-    var graphKind by rememberSaveable{mutableIntStateOf(if(expenseCategory)2 else 1)}
-    val selectedFilter = remember(route) { route.query.filter().copy(categoryIds = setOf(route.categoryId)) }
-    var selected by remember{mutableStateOf<JSONObject?>(null)}
-    fun refresh(){page=1;rows=emptyList();data=null;total=0;retry++}
-    ReportRefreshAfterEditor(vm,::refresh)
-    fun changePeriod(value:ReportPeriod){savedPeriod=ReportQuery(value);page=1;rows=emptyList();data=null;total=0}
-    LaunchedEffect(period,page,retry){
-        loading=true;failure=""
-        try{
-            if(page==1){
-                val(next,pageResult)=coroutineScope{val snapshot=async{vm.api.report(period,vm.accounts,vm.categories,selectedFilter)};val details=async{vm.api.reportCategoryPage(period,route.categoryId,vm.accounts,page,selectedFilter)};snapshot.await() to details.await()}
-                data=next;rows=pageResult.first;total=pageResult.second
-            }else{
-                val(result,count)=vm.api.reportCategoryPage(period,route.categoryId,vm.accounts,page,selectedFilter)
-                rows=(rows+result).distinctBy{it.id()};total=count
-            }
-        }catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="分类统计加载失败，请重试"}finally{loading=false}
+    var query by rememberSaveable(stateSaver = ReportQuery.saver) { mutableStateOf(route.query) }
+    val period = query.period()
+    val filter = query.filter()
+    val scope = remember(route.categoryId, vm.categories, filter.categoryIds) {
+        reportCategoryScope(route.categoryId, vm.categories, filter.categoryScope)
     }
+    val parentIds = remember(vm.categories) { vm.categories.reportParentIds() }
+    val expense = route.categoryType == 2
+    var data by remember(query, scope, vm.searchInvalidation) { mutableStateOf<ReportSnapshot?>(null) }
+    var slice by rememberSaveable { mutableStateOf<String?>(null) }
+    var yearPicker by rememberSaveable { mutableStateOf(false) }
+    var filtering by rememberSaveable { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<JSONObject?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
+    var reportError by remember { mutableStateOf("") }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val monthsState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 12 - period.month.monthValue)
+    val coroutineScope = rememberCoroutineScope()
+
+    fun change(period: ReportPeriod, filter: ReportFilter) {
+        query = ReportQuery(period, filter)
+        slice = null
+        coroutineScope.launch { listState.scrollToItem(0) }
+    }
+    LaunchedEffect(query, scope, retry, vm.searchInvalidation, vm.accounts, vm.categories) {
+        reportError = ""
+        try {
+            data = vm.api.report(period, vm.accounts, vm.categories, filter, scope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            vm.imageFailed(e)
+            reportError = "分类统计加载失败"
+        }
+    }
+
+    val ranked = data?.ranking(route.categoryType).orEmpty()
+    val activeSlice = ranked.firstOrNull { it.category.id() == slice }
+    val detailScope = data?.detailCategoryScope(activeSlice?.category?.id())
+    val directParents = ranked.mapNotNull { it.category.id().takeIf(parentIds::contains) }.toSet()
+    var page by remember(query, detailScope, vm.searchInvalidation) { mutableIntStateOf(1) }
+    var rows by remember(query, detailScope, vm.searchInvalidation) { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var total by remember(query, detailScope, vm.searchInvalidation) { mutableStateOf<Long?>(null) }
+    var loadingRows by remember { mutableStateOf(false) }
+    var detailError by remember { mutableStateOf("") }
+    LaunchedEffect(query, detailScope, page, retry, vm.searchInvalidation, vm.accounts, directParents) {
+        if (detailScope == null) return@LaunchedEffect
+        loadingRows = true
+        detailError = ""
+        try {
+            val (result, count) = vm.api.reportCategoryPage(period, detailScope, vm.accounts, page, filter, directParents)
+            rows = if (page == 1) result else (rows + result).distinctBy { it.id() }
+            total = count
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            vm.imageFailed(e)
+            detailError = "流水加载失败"
+        } finally {
+            loadingRows = false
+        }
+    }
+
     Surface(Modifier.fillMaxSize(), color = ledgerColors.background, contentColor = MaterialTheme.colorScheme.onSurface) {
-        Column(Modifier.fillMaxSize().systemBarsPadding().testTag("report-category-statistics")){
-            Row(Modifier.fillMaxWidth().height(56.dp),verticalAlignment=Alignment.CenterVertically){
-                IconButton(onClick=dismiss){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"返回明细")}
-                Column(Modifier.weight(1f)){Text("分类统计-"+route.categoryName,fontSize=18.sp,lineHeight=24.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis);Text(period.label,fontSize=12.sp,lineHeight=16.sp,color=reportMuted)}
+        Column(Modifier.fillMaxSize().systemBarsPadding().testTag("report-category-statistics")) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = dismiss) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回明细") }
+                Column(Modifier.weight(1f).padding(vertical=6.dp)) {
+                    Text(route.categoryName, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                    Text("分类统计 · ${period.label}", Modifier.testTag("category-statistics-period"), fontSize = 12.sp, color = reportMuted)
+                }
+                IconButton(onClick = { filtering = true }, modifier = Modifier.testTag("category-statistics-filter")) {
+                    Icon(Icons.Outlined.FilterAlt, "筛选分类统计")
+                }
             }
-            Row(Modifier.fillMaxWidth().background(reportSurface),verticalAlignment=Alignment.CenterVertically){
-                TextButton(onClick={yearPicker=true},modifier=Modifier.width(86.dp)){Text("${period.month.year}年",fontSize=16.sp,fontWeight=FontWeight.Bold,color=ledgerColors.text)}
-                androidx.compose.foundation.lazy.LazyRow(Modifier.weight(1f),state=androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex=12-period.month.monthValue)){
-                    items((12 downTo 1).toList()){month->
-                        Box(Modifier.width(62.dp).height(48.dp).testTag("category-report-month-$month").clickable{changePeriod(ReportPeriod(java.time.YearMonth.of(period.month.year,month)))},contentAlignment=Alignment.Center){
-                            if(!period.yearly&&!period.custom&&month==period.month.monthValue)Box(Modifier.width(52.dp).height(28.dp).background(ledgerColors.selection,CircleShape))
-                            Text("${month}月",fontSize=16.sp,lineHeight=22.sp,fontWeight=FontWeight.Bold,color=if(!period.yearly&&!period.custom&&month==period.month.monthValue)MaterialTheme.colorScheme.primary else reportMuted)
+            Row(Modifier.fillMaxWidth().background(reportSurface), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { yearPicker = true }) { Text("${period.month.year}年", color = ledgerColors.text) }
+                CategoryPeriodButton("全年", period.yearly && !period.custom, "category-report-year") {
+                    change(ReportPeriod(period.month, yearly = true), filter)
+                }
+                androidx.compose.foundation.lazy.LazyRow(Modifier.weight(1f), state = monthsState) {
+                    items((12 downTo 1).toList()) { month ->
+                        CategoryPeriodButton("${month}月", !period.yearly && !period.custom && month == period.month.monthValue, "category-report-month-$month") {
+                            change(ReportPeriod(YearMonth.of(period.month.year, month)), filter)
                         }
                     }
                 }
             }
-            if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
-            if(failure.isNotEmpty())Row{Text(failure);TextButton(onClick={retry++}){Text("重试")}}
-            LazyColumn(Modifier.fillMaxSize().testTag("category-statistics-list"),contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-                data?.let{snapshot->val amount=if(expenseCategory)snapshot.expense else snapshot.income
-                    item{ReportCard(""){
-                        Row(Modifier.fillMaxWidth()){ReportMetric(if(expenseCategory)"总支出"else "总收入",money(amount.toString()),Modifier.weight(1f));ReportMetric("结余",money((snapshot.income-snapshot.expense).toString()),Modifier.weight(1f));ReportMetric("总笔数",total.toString(),Modifier.weight(1f))}
-                        Row(Modifier.fillMaxWidth()){ReportMetric("平均每笔",reportAverage(amount,total),Modifier.weight(1f));ReportMetric("平均每天",reportAverage(amount,period.days.toLong()),Modifier.weight(1f));Spacer(Modifier.weight(1f))}
-                        if(snapshot.days.any{it.active}){
-                            ReportChart(snapshot,if(graphKind==2)2 else 3,false,118.dp)
-                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){ReportSegments(listOf("支出","收入"),if(graphKind==2)0 else 1,"category-detail-kind"){graphKind=if(it==0)2 else 1}}
-                            ReportDonut(snapshot.ranking(graphKind),"",diameter=146.dp,height=190.dp)
-                        }else Text("暂无收支",Modifier.padding(32.dp),color=reportMuted)
-                        Text("个人 · CNY · 上海时间 · 外币不合并",fontSize=9.sp,lineHeight=12.sp,color=reportMuted)
-                    }}
+            val appliedFilters = listOfNotNull(
+                filter.accountIds.size.takeIf { it > 0 }?.let { "账户 $it" },
+                filter.categoryIds.size.takeIf { it > 0 }?.let { "分类 $it" },
+                filter.tagIds.size.takeIf { it > 0 }?.let { "标签 $it" },
+            )
+            if (appliedFilters.isNotEmpty()) Text(appliedFilters.joinToString(" · "), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, color = reportMuted)
+            if ((data == null && reportError.isEmpty()) || loadingRows) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (reportError.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(reportError, Modifier.padding(start = 16.dp), color = reportRed)
+                TextButton(onClick = { retry++ }) { Text("重试") }
+            }
+
+            val byMonth = period.yearly && !period.custom
+            val groups = rows.groupBy {
+                val date = shanghaiReportDate(it.optLong("time"))
+                when {
+                    byMonth -> "${date.monthValue}月"
+                    period.first.year != period.until.minusDays(1).year -> date.toString()
+                    else -> date.toString().substring(5).replace('-', '.')
                 }
-                rows.groupBy{java.time.Instant.ofEpochSecond(it.optLong("time")).atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate()}.forEach{(date,dayRows)->
-                    item{Surface(Modifier.fillMaxWidth(),color=reportSurface,shape=RoundedCornerShape(topStart=8.dp,topEnd=8.dp)){Row(Modifier.padding(horizontal=12.dp,vertical=10.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.toString().substring(5).replace('-','.'),fontSize=14.sp,fontWeight=FontWeight.Bold);Text(if(expenseCategory)"支出流水"else "收入流水",fontSize=12.sp)}}}
-                    items(dayRows,key={it.id()}){row->Surface(color=reportSurface){ListItem(headlineContent={Text(route.categoryName,fontSize=16.sp)},supportingContent={Text(row.optString("comment"),fontSize=12.sp)},trailingContent={val value=row.optString("sourceAmount").toBigInteger();Text(money((if(expenseCategory)value.negate() else value).toString()),color=if(expenseCategory)reportRed else reportGreen)},modifier=Modifier.testTag("category-statistics-row-${row.id()}").clickable{selected=row})}}
+            }
+            LazyColumn(
+                Modifier.fillMaxSize().testTag("category-statistics-list").semantics {
+                    stateDescription = when {
+                        detailError.isNotEmpty() -> "流水加载失败"
+                        total == null -> "正在加载流水"
+                        else -> "流水已加载"
+                    }
+                },
+                state = listState, contentPadding = PaddingValues(12.dp),
+            ) {
+                data?.let { snapshot ->
+                    val amount = if (expense) snapshot.expense else snapshot.income
+                    item(key = "summary") {
+                        ReportCard("") {
+                            Row(Modifier.fillMaxWidth()) {
+                                ReportMetric(if (expense) "总支出" else "总收入", money(amount.toString()), Modifier.weight(1f))
+                                ReportMetric("结余", money((snapshot.income - snapshot.expense).toString()), Modifier.weight(1f))
+                                ReportMetric("平均每天", reportAverage(amount, period.days.toLong()), Modifier.weight(1f))
+                            }
+                            if (snapshot.days.any { it.active }) ReportChart(snapshot, if (expense) 2 else 3, false, 98.dp)
+                            Text(if (snapshot.excludedForeign) "CNY · 上海时间 · 已排除外币" else "CNY · 上海时间",
+                                Modifier.testTag("category-statistics-summary"), fontSize = 12.sp, color = reportMuted)
+                        }
+                    }
+                    if (ranked.isNotEmpty()) item(key = "composition") {
+                        Spacer(Modifier.height(8.dp))
+                        CategoryComposition(ranked, route, route.categoryId in parentIds, activeSlice?.category?.id()) { slice = it }
+                    }
+                    item(key = "transactions-heading") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(if (activeSlice == null) "流水" else categorySliceName(activeSlice, route, route.categoryId in parentIds),
+                                    Modifier.align(Alignment.CenterVertically),fontWeight = FontWeight.SemiBold)
+                                val count = total
+                                if (count != null) Text("${count} 笔 · 平均每笔 ${reportAverage(activeSlice?.amount ?: amount, count)}",
+                                    Modifier.align(Alignment.CenterVertically).testTag("category-statistics-count"), fontSize = 12.sp, color = reportMuted)
+                            }
+                            if (activeSlice != null) TextButton(onClick = { slice = null }, modifier = Modifier.testTag("category-statistics-clear-slice")) { Text("查看全部流水") }
+                        }
+                    }
                 }
-                if(!loading&&failure.isEmpty()&&rows.size<total)item{TextButton(onClick={page++}){Text("加载更多")}}
+                groups.forEach { (label, group) ->
+                    item(key = "group-$label") {
+                        Surface(
+                            Modifier.fillMaxWidth().padding(top = 6.dp).testTag("category-statistics-group-$label"),
+                            color = reportSurface, shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+                        ) {
+                            Text(label, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    itemsIndexed(group, key = { _, row -> row.id() }) { index, row ->
+                        val date=if(byMonth) shanghaiReportDate(row.optLong("time")).toString().substring(5) else null
+                        LedgerTransactionRow(row, index == 0, Modifier.testTag("category-statistics-row-${row.id()}"), dateLabel = date) { selected = row }
+                    }
+                }
+                if (detailError.isNotEmpty()) item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(detailError, color = reportRed)
+                        TextButton(onClick = { retry++ }) { Text("重试") }
+                    }
+                }
+                if (!loadingRows && detailError.isEmpty() && rows.size.toLong() < (total ?: 0L)) {
+                    item { TextButton(onClick = { page++ }) { Text("加载更多") } }
+                }
+                if (total == 0L && detailError.isEmpty()) item {
+                    Text("所选范围内暂无流水", Modifier.fillMaxWidth().padding(24.dp), color = reportMuted)
+                }
             }
         }
-        selected?.let{row->LedgerTransactionDetails(vm,row){selected=null;refresh()}}
-        if(yearPicker)ReportPeriodChooser(period.copy(yearly=true),{yearPicker=false}){chosen->changePeriod(ReportPeriod(java.time.YearMonth.of(chosen.year,period.month.monthValue),period.yearly));yearPicker=false}
+        selected?.let { row -> LedgerTransactionDetails(vm, row) { selected = null } }
+        if (yearPicker) ReportPeriodChooser(period.copy(yearly = true), { yearPicker = false }) { chosen ->
+            change(ReportPeriod(YearMonth.of(chosen.year, period.month.monthValue), yearly = period.yearly), filter)
+            yearPicker = false
+        }
+        if (filtering) ReportFilterPanel(
+            vm, filter, { filtering = false }, { change(period, it); filtering = false },
+            categoryOptions = vm.categories.filter { it.id("parentId") == route.categoryId || (route.categoryId in parentIds && it.id() == route.categoryId) },
+        )
+    }
+}
+
+@Composable private fun CategoryPeriodButton(label: String, selected: Boolean, tag: String, click: () -> Unit) {
+    Box(
+        Modifier.testTag(tag).semantics { this.selected = selected }.heightIn(min = 48.dp)
+            .clickable(onClick = click).padding(horizontal = 3.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, Modifier.background(if (selected) ledgerColors.selection else Color.Transparent, CircleShape)
+            .padding(horizontal = 10.dp, vertical = 5.dp), color = if (selected) MaterialTheme.colorScheme.primary else reportMuted,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+private fun categorySliceName(row:ReportCategory,route:CategoryStatisticsPage,parent:Boolean):String =
+    if (parent && row.category.id() == route.categoryId) "${route.categoryName}（直接记入）" else row.category.optString("name")
+
+@Composable private fun CategoryComposition(
+    ranked:List<ReportCategory>,route:CategoryStatisticsPage,parent:Boolean,selection:String?,select:(String?)->Unit,
+) {
+    val total = ranked.fold(BigInteger.ZERO) { sum, row -> sum + row.amount.max(BigInteger.ZERO) }
+    val colors = rememberReportCategoryPalette(route.categoryType)
+    ReportCard("") {
+        Text("分类构成",Modifier.align(Alignment.Start),fontSize=14.sp,fontWeight=FontWeight.SemiBold)
+        val chartRows = ranked.map { row ->
+            val label = categorySliceName(row, route, parent)
+            if(label == row.category.optString("name")) row
+            else row.copy(category = JSONObject(row.category.toString()).put("name", label))
+        }
+        ReportDonut(chartRows, "¥${money(total.toString())}", diameter = 140.dp, height = 156.dp,
+            selection = selection, onSelectionChange = select, showGuide = false, categoryColors = colors)
+        if (ranked.any { it.amount.signum() < 0 }) {
+            Text("占比按正净额计算。负净额计入合计和流水。", fontSize = 12.sp, color = reportMuted)
+        }
+        chartRows.forEachIndexed { index, row ->
+            val id = row.category.id()
+            if (index > 0) LedgerTransactionDivider(Modifier.padding(start = 20.dp))
+            Row(
+                Modifier.fillMaxWidth().testTag("category-statistics-slice-$id")
+                    .background(if (selection == id) ledgerColors.selection else Color.Transparent, RoundedCornerShape(8.dp))
+                    .heightIn(min = 48.dp).clickable(onClickLabel = "查看分项流水") { select(if (selection == id) null else id) }
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(Modifier.size(8.dp).background(if (row.amount.signum() > 0) colors[index].fill else reportMuted, CircleShape))
+                Text(row.category.optString("name"), Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(reportPercent(row.amount, total), fontSize = 12.sp, color = reportMuted)
+                Text(money(row.amount.toString()), fontSize = 14.sp)
+            }
+        }
     }
 }
 

@@ -52,6 +52,7 @@ class ReportAcceptanceTest {
     }
     private fun awaitText(value:String){compose.waitUntil(60_000){compose.onAllNodesWithText(value,substring=false).fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()}}
     private fun scroll(tag:String){compose.onNodeWithTag("report-list").performScrollToNode(hasTestTag(tag))}
+    private fun back(){check(InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))}
     @Test fun completeNativeReport(){
         assumeTrue("Requires private synthetic fixture",BuildConfig.DEBUG&&BuildConfig.API_BASE_URL=="http://127.0.0.1:18090")
         val inputFile=File(context.filesDir,"qa-config.json");assumeTrue(inputFile.isFile);val input=JSONObject(inputFile.readText());var stage="launch"
@@ -88,9 +89,13 @@ class ReportAcceptanceTest {
             compose.onNodeWithContentDescription("月报表").performClick();compose.waitUntil(30_000){exists("ledger-report")};stage="report-overview";awaitText("收支总览");stage="report-filter"
             compose.onNodeWithTag("report-filter").performClick();compose.onNodeWithText(name,substring=false).performScrollTo().performClick();compose.onNodeWithText("应用",substring=false).performScrollTo().performClick();stage="report-filter-total";awaitText("0.06");capture("01-month")
             scroll("report-segment-trend-1");compose.onNodeWithTag("report-segment-trend-1").performClick();compose.onNodeWithTag("report-chart-toggle").performScrollTo().performClick();capture("02-income-line")
-            scroll("report-category-$snack");capture("03-ranking");compose.onNodeWithTag("report-category-$snack").performClick();awaitText("-0.05 CNY");capture("04-category-sheet")
-            compose.onNodeWithText("统计",substring=false).performClick();compose.waitUntil(30_000){exists("report-category-statistics")};awaitText("0.05");capture("05-category-statistics");compose.onNodeWithContentDescription("返回明细").performClick()
-            compose.onNode(hasText("关闭") and hasClickAction()).performClick();compose.waitForIdle()
+            scroll("report-category-$snack")
+            compose.onNodeWithContentDescription("较上月增加 0.05",useUnmergedTree=true).assertExists()
+            capture("03-ranking")
+            compose.onNodeWithTag("report-category-$snack").performClick();awaitText(transactionSignedAmount(3,"5"));capture("04-category-sheet")
+            compose.onNodeWithTag("report-category-sheet-statistics").performClick();compose.waitUntil(30_000){exists("report-category-statistics")};awaitText("0.05");capture("05-category-statistics");compose.onNodeWithContentDescription("返回明细").performClick()
+            compose.waitUntil(30_000){exists("report-category-sheet")&&!exists("report-category-statistics")}
+            back();compose.waitUntil(30_000){!exists("report-category-sheet")}
             stage="interactive-chart"
             scroll("report-interactive-chart")
             compose.onNodeWithTag("report-interactive-chart").performTouchInput{click(androidx.compose.ui.geometry.Offset(width*.47f,height*.65f))}
@@ -99,6 +104,55 @@ class ReportAcceptanceTest {
             scroll("report-interactive-donut")
             compose.onNodeWithTag("report-interactive-donut").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick){check(it())}
             compose.onNodeWithTag("report-interactive-donut").assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription,"统计零食-$suffix，0.05"));capture("10-selected-sector")
+            stage="parent-category-slice"
+            val parent=vm.categories.single{it.id()==snack}.id("parentId")
+            scroll("report-segment-category-level-1");compose.onNodeWithTag("report-segment-category-level-1").performClick()
+            scroll("report-category-$parent");compose.onNodeWithTag("report-category-$parent").performClick()
+            compose.waitUntil(30_000){exists("report-parent-category-sheet")}
+            compose.onNodeWithTag("report-parent-category-chart").assertIsDisplayed()
+            compose.onNodeWithTag("report-parent-category-statistics").assertHasClickAction()
+            compose.onNodeWithTag("report-child-category-$snack").assertTextContains("83.33%")
+            compose.onNodeWithTag("report-child-category-$food").assertTextContains("16.67%")
+            compose.onNodeWithTag("report-category-sheet").assertDoesNotExist()
+            compose.onAllNodesWithText("关闭",substring=false).assertCountEquals(0)
+            capture("12-parent-breakdown")
+
+            stage="parent-child-ledger"
+            val ids=runBlocking{
+                val period=ReportPeriod(YearMonth.of(2026,11))
+                val filter=ReportFilter(setOf(account))
+                listOf(snack,food).map{vm.api.reportCategoryPage(period,it,vm.accounts,1,filter).first.single().id()}
+            }
+            val snackRow="report-category-row-${ids[0]}"
+            val foodRow="report-category-row-${ids[1]}"
+            compose.onNodeWithTag("report-child-category-$snack").performClick()
+            compose.waitUntil(30_000){exists("report-category-sheet")&&exists(snackRow)}
+            compose.onNodeWithTag(snackRow).assertTextContains(transactionSignedAmount(3,"5"))
+            compose.onNodeWithTag(foodRow).assertDoesNotExist()
+            compose.onAllNodesWithText("关闭",substring=false).assertCountEquals(0)
+            capture("13-stacked-child-ledger")
+            compose.onNodeWithTag("report-category-sheet-statistics").performClick()
+            compose.waitUntil(30_000){exists("report-category-statistics")&&!exists("report-category-sheet")}
+            compose.onNodeWithTag("category-statistics-period").assertTextContains("2026-11",substring=true)
+            awaitText("账户 1")
+            back();compose.waitUntil(30_000){exists("report-category-sheet")&&exists(snackRow)}
+            back();compose.waitUntil(30_000){exists("report-parent-category-sheet")&&!exists("report-category-sheet")}
+
+            stage="parent-category-statistics"
+            compose.onNodeWithTag("report-parent-category-statistics").performClick();compose.waitUntil(30_000){exists("report-category-statistics")}
+            val statsList=compose.onNodeWithTag("category-statistics-list")
+            compose.waitUntil(30_000){exists("category-statistics-summary")}
+            statsList.performScrollToNode(hasTestTag("category-statistics-slice-$snack"))
+            compose.onNodeWithTag("category-statistics-slice-$snack").performClick()
+            statsList.performScrollToNode(hasTestTag("category-statistics-clear-slice"))
+            compose.waitUntil(30_000){exists("category-statistics-count")}
+            awaitText("1 笔 · 平均每笔 0.05")
+            compose.onNodeWithTag("category-statistics-clear-slice").performClick()
+            awaitText("2 笔 · 平均每笔 0.03")
+            capture("14-parent-statistics")
+            back()
+            compose.waitUntil(30_000){exists("report-parent-category-sheet")&&!exists("report-category-statistics")}
+            back();compose.waitUntil(30_000){exists("ledger-report")&&!exists("report-parent-category-sheet")}
             stage="daily-drilldown"
             scroll("report-day-row-2026-11-14");compose.onNodeWithTag("report-day-row-2026-11-14").performClick()
             compose.waitUntil(30_000){exists("report-day-transactions")};awaitText(transactionSignedAmount(3,"5"))
@@ -106,8 +160,12 @@ class ReportAcceptanceTest {
             check(expectedDay.second==3L&&expectedDay.first.size==3&&expectedDay.first.all{it.id("sourceAccountId")==account})
             val selected=expectedDay.first.first{it.optString("sourceAmount")=="5"};compose.onNodeWithTag("report-day-transaction-${selected.id()}").performClick()
             compose.waitUntil(30_000){exists("transaction-details")};capture("11-daily-shared-detail")
+            compose.onNodeWithTag("transaction-category-statistics").performClick()
+            compose.waitUntil(30_000){exists("report-category-statistics")&&!exists("transaction-details")}
+            compose.onNodeWithTag("category-statistics-period").assertTextContains("2026-11",substring=true)
+            awaitText("账户 1")
             androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
-            compose.waitUntil(30_000){exists("report-day-transactions")};androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            compose.waitUntil(30_000){exists("report-day-transactions")&&!exists("report-category-statistics")};androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
             compose.waitUntil(30_000){exists("ledger-report")};awaitText("0.06")
             stage="year"
             compose.onNodeWithTag("report-segment-period-1").performClick();awaitText("6.06");awaitText("1.21");capture("06-year")

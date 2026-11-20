@@ -126,11 +126,20 @@ internal fun reportChartSeries(data:ReportSnapshot,type:Int,palette:LedgerPalett
     if(negative)Text("负数绘于零轴下方；正负净额均计入统计",fontSize=10.sp,lineHeight=12.sp,color=reportMuted)
     }
 }
-@Composable internal fun ReportDonut(ranked:List<ReportCategory>,centerLabel:String,diameter:Dp=172.dp,height:Dp=216.dp){
+@Composable internal fun ReportDonut(
+    ranked:List<ReportCategory>,centerLabel:String,diameter:Dp=172.dp,height:Dp=216.dp,
+    selection:String?=null,onSelectionChange:((String?)->Unit)?=null,showGuide:Boolean=true,
+    categoryColors:ReportCategoryPalette?=null,
+){
     val palette=ledgerColors;val ringColors=reportPalette
-    val positive=ranked.filter{it.amount.signum()>0};val total=positive.fold(BigInteger.ZERO){s,r->s+r.amount}
-    val keys=positive.map{it.category.id()};var rotation by rememberSaveable(keys){mutableFloatStateOf(0f)};var selected by rememberSaveable(keys){mutableStateOf<String?>(null)}
-    fun move(delta:Int):Boolean{if(positive.isEmpty())return false;val old=positive.indexOfFirst{it.category.id()==selected};selected=positive[if(old<0){if(delta>0)0 else positive.lastIndex}else (old+delta+positive.size)%positive.size].category.id();return true}
+    val positiveRanks=ranked.indices.filter { ranked[it].amount.signum()>0 }
+    val positive=positiveRanks.map(ranked::get)
+    val total=positive.fold(BigInteger.ZERO){s,r->s+r.amount}
+    val keys=positive.map{it.category.id()};var rotation by rememberSaveable(keys){mutableFloatStateOf(0f)};var localSelection by rememberSaveable(keys){mutableStateOf<String?>(null)}
+    val selected=if(onSelectionChange==null)localSelection else selection
+    val updateSelection by rememberUpdatedState(onSelectionChange)
+    fun select(id:String?){val update=updateSelection;if(update==null)localSelection=id else update(id)}
+    fun move(delta:Int):Boolean{if(positive.isEmpty())return false;val old=positive.indexOfFirst{it.category.id()==selected};select(positive[if(old<0){if(delta>0)0 else positive.lastIndex}else (old+delta+positive.size)%positive.size].category.id());return true}
     val selectedRow=positive.firstOrNull{it.category.id()==selected}
     Canvas(Modifier.fillMaxWidth().height(height).testTag("report-interactive-donut").semantics{
         contentDescription=if(positive.isEmpty())"暂无分类收支"else "$centerLabel，分类占比，可拖动旋转"
@@ -139,7 +148,7 @@ internal fun reportChartSeries(data:ReportSnapshot,type:Int,palette:LedgerPalett
         customActions=listOf(CustomAccessibilityAction("上一分类"){move(-1)},CustomAccessibilityAction("下一分类"){move(1)},CustomAccessibilityAction("顺时针旋转"){rotation=reportNormalizedAngle(rotation+45);true},CustomAccessibilityAction("逆时针旋转"){rotation=reportNormalizedAngle(rotation-45);true})
     }.focusable().pointerInput(positive,diameter){
         detectTapGestures{position->val center=Offset(size.width/2f,size.height/2f);val distance=(position-center).getDistance();val outer=diameter.toPx()/2
-            selected=if(distance in outer*.55f..outer+8.dp.toPx()){val angle=Math.toDegrees(atan2((position.y-center.y).toDouble(),(position.x-center.x).toDouble())).toFloat();reportDonutIndex(positive.map{it.amount},angle-rotation)?.let{positive[it].category.id()}}else null}
+            select(if(distance in outer*.55f..outer+8.dp.toPx()){val angle=Math.toDegrees(atan2((position.y-center.y).toDouble(),(position.x-center.x).toDouble())).toFloat();reportDonutIndex(positive.map{it.amount},angle-rotation)?.let{positive[it].category.id()}}else null)}
     }.pointerInput(positive,diameter){
         awaitEachGesture{
             val down=awaitFirstDown(requireUnconsumed=false);val center=Offset(size.width/2f,size.height/2f);val outer=diameter.toPx()/2
@@ -153,11 +162,15 @@ internal fun reportChartSeries(data:ReportSnapshot,type:Int,palette:LedgerPalett
     }){
         val center=Offset(size.width/2,size.height/2);val outer=diameter.toPx()/2;val stroke=outer*.45f;val inner=outer-stroke
         val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{textSize=10.sp.toPx()};var start=rotation
-        positive.forEachIndexed{index,row->val ratio=reportRatio(row.amount,total);val sweep=ratio*360;val color=ringColors[index%ringColors.size];val edge=outer+if(row.category.id()==selected)6.dp.toPx()else 0f;val width=edge-inner;val middle=(edge+inner)/2
+        positive.forEachIndexed{index,row->
+            val series=categoryColors?.get(positiveRanks[index])
+            val color=series?.fill?:ringColors[index%ringColors.size]
+            val labelColor=series?.label?:color
+            val ratio=reportRatio(row.amount,total);val sweep=ratio*360;val edge=outer+if(row.category.id()==selected)6.dp.toPx()else 0f;val width=edge-inner;val middle=(edge+inner)/2
             drawArc(color,start,sweep,false,topLeft=Offset(center.x-middle,center.y-middle),size=Size(middle*2,middle*2),style=Stroke(width))
             val highlight=inner+2.dp.toPx();drawArc(androidx.compose.ui.graphics.lerp(color,Color.White,.4f),start,sweep,false,topLeft=Offset(center.x-highlight,center.y-highlight),size=Size(highlight*2,highlight*2),style=Stroke(3.dp.toPx()))
-            if(ratio>=.02f){val angle=(start+sweep/2)*Math.PI/180;val side=if(cos(angle)>=0)1 else -1;val a=Offset(center.x+(edge+2.dp.toPx())*cos(angle).toFloat(),center.y+(edge+2.dp.toPx())*sin(angle).toFloat());val b=Offset(center.x+(edge+8.dp.toPx())*cos(angle).toFloat(),center.y+(edge+8.dp.toPx())*sin(angle).toFloat());val textX=center.x+side*(outer+14.dp.toPx());drawLine(color,a,b,1.dp.toPx());drawLine(color,b,Offset(textX-side*3.dp.toPx(),b.y),1.dp.toPx())
-                paint.color=android.graphics.Color.argb(255,(color.red*255).toInt(),(color.green*255).toInt(),(color.blue*255).toInt());paint.textAlign=if(side>0)Paint.Align.LEFT else Paint.Align.RIGHT
+            if(ratio>=.02f){val angle=(start+sweep/2)*Math.PI/180;val side=if(cos(angle)>=0)1 else -1;val a=Offset(center.x+(edge+2.dp.toPx())*cos(angle).toFloat(),center.y+(edge+2.dp.toPx())*sin(angle).toFloat());val b=Offset(center.x+(edge+8.dp.toPx())*cos(angle).toFloat(),center.y+(edge+8.dp.toPx())*sin(angle).toFloat());val textX=center.x+side*(outer+14.dp.toPx());drawLine(labelColor,a,b,1.dp.toPx());drawLine(labelColor,b,Offset(textX-side*3.dp.toPx(),b.y),1.dp.toPx())
+                paint.color=labelColor.toArgb();paint.textAlign=if(side>0)Paint.Align.LEFT else Paint.Align.RIGHT
                 val name=row.category.optString("name").let{if(it.length>3)it.take(3)+"…"else it};val percent=row.amount.toBigDecimal().multiply(BigDecimal(100)).divide(total.toBigDecimal(),1,RoundingMode.HALF_EVEN).toPlainString()+"%"
                 drawContext.canvas.nativeCanvas.drawText("$name $percent",textX,b.y+paint.textSize/3,paint)};start+=sweep
         }
@@ -166,5 +179,5 @@ internal fun reportChartSeries(data:ReportSnapshot,type:Int,palette:LedgerPalett
             while(paint.measureText(label)>inner*1.9f&&paint.textSize>9.sp.toPx())paint.textSize-=1
             drawContext.canvas.nativeCanvas.drawText(label,center.x,center.y+paint.textSize/3,paint)}
     }
-    if(positive.isNotEmpty())Text("可拖动旋转；小于2%的分类不显示外侧标签",fontSize=10.sp,lineHeight=14.sp,color=reportMuted)
+    if(showGuide && positive.isNotEmpty()) Text("可拖动旋转；小于2%的分类不显示外侧标签",fontSize=10.sp,lineHeight=14.sp,color=reportMuted)
 }

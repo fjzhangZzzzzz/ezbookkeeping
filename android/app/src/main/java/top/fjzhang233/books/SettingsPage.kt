@@ -38,7 +38,6 @@ import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -260,7 +259,7 @@ internal fun SettingsRow(
 }
 
 @Composable internal fun SettingsChevron(description: String) { Icon(Icons.Outlined.ChevronRight, description, tint = ledgerColors.muted) }
-@Composable internal fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = ledgerColors.divider) }
+@Composable internal fun SettingsDivider() { LedgerTransactionDivider(Modifier.padding(horizontal = 16.dp)) }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

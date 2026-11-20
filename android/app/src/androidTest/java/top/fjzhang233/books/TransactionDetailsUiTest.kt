@@ -30,6 +30,6 @@ class TransactionDetailsUiTest {
         compose.onNodeWithTag("transaction-detail-error").assertTextEquals("删除未完成，请重试")
         compose.onNodeWithTag("transaction-delete").assertIsNotEnabled()
         compose.onNodeWithTag("transaction-edit").assertIsNotEnabled()
-        compose.onNodeWithText("−0.01 CNY").assertExists()
+        compose.onNodeWithText("−0.01").assertExists()
     }
 }

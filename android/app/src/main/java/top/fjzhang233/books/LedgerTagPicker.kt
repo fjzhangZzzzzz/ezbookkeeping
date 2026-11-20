@@ -7,7 +7,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -52,7 +51,7 @@ internal fun LedgerTagPicker(
                     Spacer(Modifier.width(8.dp))
                     TagPickerAction("保存", "entry-tags-save") { onSelected(pending); dismiss() }
                 }
-                HorizontalDivider(color = ledgerColors.divider, thickness = 1.dp)
+                LedgerTransactionDivider(Modifier.padding(horizontal = 16.dp))
                 if (visibleTags.isEmpty()) {
                     // The reference empty chooser has only a 12dp footer, not a large empty-state panel.
                     Spacer(Modifier.height(11.dp))

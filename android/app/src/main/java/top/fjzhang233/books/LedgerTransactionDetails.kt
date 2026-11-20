@@ -11,16 +11,21 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -28,40 +33,68 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 import java.time.Instant
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /** One own-transaction detail surface shared by ledger, calendar, reports and search. */
-@Composable internal fun LedgerTransactionDetails(vm:BooksModel,item:JSONObject,dismiss:()->Unit){
+@Composable internal fun LedgerTransactionDetails(
+    vm: BooksModel,
+    item: JSONObject,
+    openStatistics: ((CategoryStatisticsPage) -> Unit)? = null,
+    reportQuery: ReportQuery? = null,
+    dismiss: () -> Unit,
+){
     val tagNames=item.array("tags").map{it.optString("name")}.filter{it.isNotBlank()}.ifEmpty{
         val ids=item.optJSONArray("tagIds")
         if(ids==null)emptyList() else (0 until ids.length()).mapNotNull{index->vm.tags.firstOrNull{it.id()==ids.getString(index)}?.optString("name")}
     }
+    val showCategory = openStatistics?.let { open ->
+        transactionCategoryStatistics(item, vm.categories, reportQuery)?.let { route -> { dismiss(); open(route) } }
+    }
     LedgerTransactionDetailContent(item,vm.busy,vm.error,tagNames,dismiss,
         edit={dismiss();vm.openTransaction(item.id())},
         duplicate={dismiss();vm.copyTransaction(item.id())},
-        remove={vm.deleteTransaction(item.id(),dismiss)}){picture->
+        remove={vm.deleteTransaction(item.id(),dismiss)},
+        showCategory=showCategory,
+    ){picture->
         val extension=android.net.Uri.parse(picture.optString("originalUrl")).path?.substringAfterLast('.')?.lowercase()
         if(extension in setOf("jpg","jpeg","png","webp"))Picture(vm,"/api/v1/family/pictures/${picture.id("pictureId")}.$extension")
     }
 }
 
+internal fun transactionCategoryStatistics(
+    item: JSONObject,
+    categories: List<JSONObject>,
+    reportQuery: ReportQuery?,
+): CategoryStatisticsPage? {
+    val type = when (item.optInt("type")) { 2 -> 1; 3 -> 2; else -> return null }
+    val id = item.id("categoryId").takeIf(::isReportCategoryId)
+        ?: item.optJSONObject("category")?.id()?.takeIf(::isReportCategoryId) ?: return null
+    val name = categories.firstOrNull { it.id() == id }?.optString("name")?.takeIf(String::isNotBlank)
+        ?: transactionLabel(item)
+    val query = reportQuery ?: item.optLong("time").takeIf { it > 0 }?.let {
+        ReportQuery(ReportPeriod(YearMonth.from(shanghaiReportDate(it)), yearly = true))
+    } ?: return null
+    return CategoryStatisticsPage(query, id, name, type)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun LedgerTransactionDetailContent(
     item:JSONObject,busy:Boolean,error:String,tagNames:List<String>,dismiss:()->Unit,
-    edit:()->Unit,duplicate:()->Unit,remove:()->Unit,pictureContent:@Composable (JSONObject)->Unit={}
+    edit:()->Unit,duplicate:()->Unit,remove:()->Unit,showCategory:(()->Unit)?=null,
+    pictureContent:@Composable (JSONObject)->Unit={}
 ){
     var confirmDelete by rememberSaveable(item.id()){mutableStateOf(false)}
     val context=LocalContext.current
     val editable=item.optBoolean("editable",false)
     val type=item.optInt("type")
     val red=ledgerColors.expense;val green=ledgerColors.income
-    val currency=item.optJSONObject("sourceAccount")?.optString("currency").orEmpty()
     val busyState=rememberUpdatedState(busy)
     val detailSheet=rememberModalBottomSheetState(skipPartiallyExpanded=true,confirmValueChange={next->next!=SheetValue.Hidden||!busyState.value})
     ModalBottomSheet(sheetState=detailSheet,onDismissRequest={if(!busy)dismiss()},containerColor=ledgerColors.background,dragHandle=null){
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().testTag("transaction-details")){
-            Row(Modifier.fillMaxWidth().heightIn(min=48.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically){
+            Row(Modifier.fillMaxWidth().heightIn(min=56.dp).padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically){
                 Text("详情",Modifier.weight(1f),fontSize=18.sp,fontWeight=FontWeight.Bold)
                 if(type in 2..4)DetailAction("复制",!busy,"transaction-copy",duplicate)
                 if(type in 2..4)DetailAction("修改",editable&&!busy,"transaction-edit",edit)
@@ -70,12 +103,12 @@ import java.time.format.DateTimeFormatter
             if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
             if(error.isNotBlank())Text(error,Modifier.fillMaxWidth().padding(12.dp).testTag("transaction-detail-error"),color=red)
             Column(Modifier.fillMaxWidth().background(ledgerColors.surface)){
-                TransactionDetailLine("金额",transactionSignedAmount(type,item.optString("sourceAmount"))+" "+currency,when(type){2->green;3->red;else->ledgerColors.text})
-                TransactionDetailLine("分类",transactionLabel(item))
+                TransactionDetailLine("金额",ledgerTransactionAmount(item),when(type){2->green;3->red;else->ledgerColors.text},highlight=true)
+                TransactionDetailLine("分类",transactionLabel(item),action=showCategory,busy=busy)
                 TransactionDetailLine(if(type==4)"转出账户" else "账户",item.optJSONObject("sourceAccount")?.optString("name").orEmpty())
                 if(type==4){
                     TransactionDetailLine("转入账户",item.optJSONObject("destinationAccount")?.optString("name").orEmpty())
-                    TransactionDetailLine("转入金额",money(item.optString("destinationAmount"))+" "+item.optJSONObject("destinationAccount")?.optString("currency").orEmpty())
+                    TransactionDetailLine("转入金额",ledgerAmountWithCurrency(money(item.optString("destinationAmount")),item.optJSONObject("destinationAccount")?.optString("currency").orEmpty()))
                 }
                 TransactionDetailLine("时间",DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.of("Asia/Shanghai")).format(Instant.ofEpochSecond(item.optLong("time"))))
                 if(tagNames.isNotEmpty())TransactionDetailLine("标签",tagNames.joinToString(" · "))
@@ -102,9 +135,21 @@ import java.time.format.DateTimeFormatter
         Box(Modifier.background(ledgerColors.surface,CircleShape).padding(horizontal=12.dp,vertical=7.dp)){Text(label,fontSize=14.sp,color=if(enabled)color else ledgerColors.outline)}
     }
 }
-@Composable private fun TransactionDetailLine(label:String,value:String,valueColor:Color=ledgerColors.text,modifier:Modifier=Modifier){
-    Row(modifier.fillMaxWidth().heightIn(min=48.dp).padding(horizontal=12.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){
-        Text(label,fontSize=14.sp,color=ledgerColors.text);Text(value,Modifier.weight(1f).padding(start=16.dp),fontSize=14.sp,color=valueColor,textAlign=TextAlign.End)
+@Composable private fun TransactionDetailLine(
+    label:String,value:String,valueColor:Color=ledgerColors.text,modifier:Modifier=Modifier,
+    highlight:Boolean=false,action:(()->Unit)?=null,busy:Boolean=false,
+){
+    val lineColor = ledgerColors.divider.copy(alpha = 0.22f)
+    val divider = if (highlight) Modifier else Modifier.drawBehind {
+        val inset = 16.dp.toPx()
+        drawLine(lineColor, Offset(inset, 0.5f), Offset(size.width - inset, 0.5f), strokeWidth = 1f)
     }
-    HorizontalDivider(color=ledgerColors.divider)
+    val interaction = if(action == null) Modifier else Modifier.testTag("transaction-category-statistics")
+        .clickable(enabled=!busy,role=Role.Button,onClickLabel="查看分类统计",onClick=action)
+    Row(modifier.then(interaction).fillMaxWidth().heightIn(min=48.dp).then(divider).padding(horizontal=16.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically){
+        Text(label,fontSize=14.sp,color=ledgerColors.muted)
+        Text(value,Modifier.weight(1f).padding(start=16.dp),fontSize=if(highlight)23.sp else 14.sp,
+            fontWeight=if(highlight)FontWeight.SemiBold else FontWeight.Normal,color=valueColor,textAlign=TextAlign.End)
+        if(action!=null) Icon(Icons.Outlined.ChevronRight,null,Modifier.padding(start=4.dp).size(18.dp),tint=ledgerColors.muted)
+    }
 }

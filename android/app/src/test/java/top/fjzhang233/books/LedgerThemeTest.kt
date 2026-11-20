@@ -22,6 +22,28 @@ class LedgerThemeTest{
     @Test fun selectionAndHeatColoursKeepFinancialTextLegible(){
         for(dark in listOf(false,true)){val p=ledgerPalette(dark);assertTrue(contrast(p.accent,p.selection)>=4.5);for(bg in listOf(p.heatExpenseLow,p.heatExpenseHigh))assertTrue(contrast(p.expense,bg)>=4.5);for(bg in listOf(p.heatIncomeLow,p.heatIncomeHigh))assertTrue(contrast(p.income,bg)>=4.5)}
     }
+    @Test fun categoryPalettesKeepRankOrderAndReadableForegroundsAcrossThemes(){
+        for(dark in listOf(false,true)){
+            val theme=ledgerPalette(dark)
+            val expenses=reportCategoryPalette(2,theme)
+            val income=reportCategoryPalette(1,theme)
+            assertEquals(11,expenses.size)
+            assertEquals(13,income.size)
+            assertEquals(Color(0xFFFDA93D),expenses[0].fill)
+            assertEquals(Color(0xFFFC65D5),expenses[10].fill)
+            assertEquals(Color(0xFF6ECCAF),income[0].fill)
+            assertEquals(Color(0xFF607D8B),income[12].fill)
+            for(palette in listOf(expenses,income)){
+                assertEquals(palette.size,(0 until palette.size).map{palette[it].fill}.toSet().size)
+                assertEquals(palette[0],palette[palette.size])
+                for(rank in 0 until palette.size){
+                    val style=palette[rank]
+                    assertTrue("Category label, dark=$dark rank=$rank",contrast(style.label,theme.surface)>=4.5)
+                    assertTrue("Category icon, dark=$dark rank=$rank",contrast(style.onFill,style.fill)>=4.5)
+                }
+            }
+        }
+    }
     @Test fun annualNetAndCombinedSeriesKeepNonTextContrastAndSignedMoney(){
         val data=ReportSnapshot(ReportPeriod(java.time.YearMonth.of(2026,11),yearly=true),listOf(ReportDay(java.time.LocalDate.of(2026,11,14),java.math.BigInteger.ONE,java.math.BigInteger.TEN)),emptyList(),false)
         for(dark in listOf(false,true)){

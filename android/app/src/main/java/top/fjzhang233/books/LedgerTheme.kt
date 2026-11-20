@@ -26,9 +26,9 @@ private val LocalLedgerPalette=staticCompositionLocalOf{ledgerPalette(true)}
 internal val ledgerColors:LedgerPalette @Composable get()=LocalLedgerPalette.current
 
 @Composable
-internal fun LedgerTransactionDivider() {
+internal fun LedgerTransactionDivider(modifier: Modifier = Modifier.padding(start = 28.dp, end = 12.dp)) {
     HorizontalDivider(
-        modifier = Modifier.padding(start = 28.dp, end = 12.dp),
+        modifier = modifier,
         color = ledgerColors.divider.copy(alpha = 0.45f),
     )
 }
@@ -44,10 +44,29 @@ internal fun saveThemeMode(context:Context,mode:ThemeMode):Boolean=runCatching{c
     val mode=rememberThemeMode();val systemDark=isSystemInDarkTheme();val dark=when(mode){ThemeMode.SYSTEM->systemDark;ThemeMode.DARK->true;ThemeMode.LIGHT->false};val p=ledgerPalette(dark)
     val base=if(dark)darkColorScheme()else lightColorScheme()
     val scheme=base.copy(primary=p.accent,onPrimary=p.onAccent,primaryContainer=p.selection,onPrimaryContainer=p.accent,secondary=p.text,onSecondary=p.surface,secondaryContainer=p.field,onSecondaryContainer=p.text,tertiary=p.text,onTertiary=p.surface,tertiaryContainer=p.field,onTertiaryContainer=p.text,background=p.background,onBackground=p.text,surface=p.surface,onSurface=p.text,onSurfaceVariant=p.muted,surfaceVariant=p.field,surfaceContainerLowest=p.background,surfaceContainerLow=p.surface,surfaceContainer=p.surface,surfaceContainerHigh=p.surface,surfaceContainerHighest=p.field,outline=p.outline,outlineVariant=p.divider,error=p.expense,onError=p.onAccent,errorContainer=if(dark)Color(0xFF5A2028)else Color(0xFFFFDADD),onErrorContainer=if(dark)Color(0xFFFFDADD)else Color(0xFF700019))
-    val view=LocalView.current;val context=LocalContext.current
-    SideEffect{
-        val window=(view.parent as? DialogWindowProvider)?.window?:run{var current=context;while(current is android.content.ContextWrapper&&current !is Activity)current=current.baseContext;(current as? Activity)?.window}
-        window?.let{WindowCompat.getInsetsController(it,view).apply{isAppearanceLightStatusBars=!dark;isAppearanceLightNavigationBars=!dark};if(view.parent !is DialogWindowProvider)it.setBackgroundDrawable(ColorDrawable(p.background.toArgb()))}
+    CompositionLocalProvider(LocalLedgerPalette provides p) {
+        LedgerWindowAppearance()
+        MaterialTheme(colorScheme=scheme,content=content)
     }
-    CompositionLocalProvider(LocalLedgerPalette provides p){MaterialTheme(colorScheme=scheme,content=content)}
+}
+
+@Composable internal fun LedgerWindowAppearance() {
+    val palette = ledgerColors
+    val view = LocalView.current
+    val context = LocalContext.current
+    SideEffect {
+        val dialog = view.parent as? DialogWindowProvider
+        val window = dialog?.window ?: run {
+            var current = context
+            while (current is android.content.ContextWrapper && current !is Activity) current = current.baseContext
+            (current as? Activity)?.window
+        }
+        if (window != null) {
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !palette.dark
+                isAppearanceLightNavigationBars = !palette.dark
+            }
+            if (dialog == null) window.setBackgroundDrawable(ColorDrawable(palette.background.toArgb()))
+        }
+    }
 }

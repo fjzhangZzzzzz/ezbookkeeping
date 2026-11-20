@@ -1,6 +1,8 @@
 package top.fjzhang233.books
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.lifecycle.ViewModelProvider
@@ -23,6 +25,10 @@ class SharedDetailRoutesAcceptanceTest {
  private fun exists(tag:String)=compose.onAllNodesWithTag(tag,useUnmergedTree=true).fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()
  private fun await(tag:String)=compose.waitUntil(45_000){exists(tag)}
  private fun idle()=compose.waitUntil(45_000){!vm.busy&&vm.token!=null}
+ private fun awaitStatisticsRows(){
+  val ready=hasTestTag("category-statistics-list") and SemanticsMatcher.expectValue(SemanticsProperties.StateDescription,"流水已加载")
+  compose.waitUntil(30_000){compose.onAllNodes(ready).fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()}
+ }
  private fun shared(){await("transaction-details");for(tag in listOf("transaction-copy","transaction-edit","transaction-delete"))compose.onNodeWithTag(tag).assertHasClickAction();compose.waitUntil(30_000){compose.onAllNodesWithContentDescription("交易图片附件").fetchSemanticsNodes(atLeastOneRootRequired=false).isNotEmpty()}}
  @Test fun calendarAndBothReportRoutesShareDetailsAndPreserveContextAfterCancelAndDelete(){
   assumeTrue(BuildConfig.DEBUG&&BuildConfig.API_BASE_URL=="http://127.0.0.1:18090")
@@ -43,19 +49,51 @@ class SharedDetailRoutesAcceptanceTest {
    scenario.onActivity{vm.reload()};idle();scenario.onActivity{vm.changeLedgerMonth(month)};idle()
    stage="calendar-shared-edit-cancel"
    stage="calendar-open";val calendarButton=compose.onNodeWithContentDescription("日历视图").fetchSemanticsNode();compose.onRoot().performTouchInput{click(calendarButton.boundsInRoot.center)};await("calendar-ledger");compose.onNodeWithTag("calendar-day-$day").performClick();compose.waitUntil(30_000){vm.ledgerDay==day&&!vm.busy};stage="calendar-detail";compose.onNodeWithTag("calendar-ledger").performScrollToNode(hasTestTag("calendar-transaction-$createdId"));compose.onNodeWithTag("calendar-transaction-$createdId").performClick();shared()
+   stage="calendar-category-statistics"
+   compose.onNodeWithTag("transaction-category-statistics").performClick();await("report-category-statistics")
+   compose.onNodeWithTag("category-statistics-period").assertTextContains("2026年",substring=true)
+   compose.onNodeWithTag("category-report-year").assertIsSelected()
+   awaitStatisticsRows()
+   compose.onNodeWithTag("category-statistics-list").performScrollToNode(hasTestTag("category-statistics-group-11月"))
+   InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+   compose.waitUntil(30_000){exists("calendar-ledger")&&!exists("report-category-statistics")};check(!exists("transaction-details"))
+   compose.onNodeWithTag("calendar-transaction-$createdId").performClick();shared()
    stage="calendar-edit";compose.onNodeWithTag("transaction-edit").performClick();compose.waitUntil(30_000){vm.showEditor&&!vm.busy};stage="calendar-edit-cancel";compose.onNodeWithContentDescription("取消记账").performClick();stage="calendar-return";await("calendar-ledger");assertEquals(day,vm.ledgerDay);assertEquals(month,vm.ledgerMonth)
    compose.onNodeWithContentDescription("返回流水").performClick();idle()
+   stage="ledger-category-statistics"
+   compose.onNodeWithTag("ledger-list").performScrollToNode(hasTestTag("transaction-$createdId"))
+   compose.onNodeWithTag("transaction-$createdId").assertHeightIsEqualTo(54.dp).performClick();shared()
+   compose.onNodeWithTag("transaction-category-statistics").performClick();await("report-category-statistics");awaitStatisticsRows()
+   compose.onNodeWithTag("category-report-year").assertIsSelected()
+   InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+   compose.waitUntil(30_000){exists("transaction-$createdId")&&!exists("report-category-statistics")&&!exists("transaction-details")}
+   stage="search-category-statistics"
+   compose.onNodeWithContentDescription("打开菜单").performClick()
+   compose.onNodeWithText("搜索",substring=false).performClick();await("search-results")
+   compose.onNodeWithTag("search-keyword").performTextInput("共享详情路由合成样本")
+   compose.onNodeWithContentDescription("搜索").performClick();await("search-transaction-$createdId")
+   compose.onNodeWithTag("search-transaction-$createdId").performClick();shared()
+   compose.onNodeWithTag("transaction-category-statistics").performClick();await("report-category-statistics")
+   compose.onNodeWithTag("category-report-year").assertIsSelected()
+   InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+   compose.waitUntil(30_000){exists("search-transaction-$createdId")&&!exists("report-category-statistics")&&!exists("transaction-details")}
+   compose.onNodeWithTag("search-keyword").assertTextContains("共享详情路由合成样本")
+   InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+   await("ledger-list")
    stage="report-open";compose.onNodeWithContentDescription("月报表").performClick();await("ledger-report");stage="report-filter";compose.onNodeWithTag("report-filter").performClick();compose.onNodeWithText(name,substring=false).performScrollTo().performClick();compose.onNodeWithText("应用",substring=false).performScrollTo().performClick();stage="report-loaded";await("report-list")
-   stage="report-category";compose.onNodeWithTag("report-list").performScrollToNode(hasTestTag("report-category-$category"));compose.onNodeWithTag("report-category-$category").performClick();await("report-category-sheet");await("report-category-row-$createdId");compose.onNodeWithTag("report-category-row-$createdId").performClick();shared()
+   stage="report-category";compose.onNodeWithTag("report-list").performScrollToNode(hasTestTag("report-category-$category"));compose.onNodeWithTag("report-category-$category").performClick();await("report-category-sheet");await("report-category-row-$createdId");compose.onNodeWithTag("report-category-row-$createdId").assertHeightIsEqualTo(54.dp).performClick();shared()
    InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);compose.waitUntil(15_000){!exists("transaction-details")};await("report-category-sheet")
+   stage="statistics-shared-open-row"
+   compose.onNodeWithTag("report-category-sheet-statistics").performClick();await("report-category-statistics");awaitStatisticsRows();compose.onNodeWithTag("category-statistics-list").performScrollToNode(hasTestTag("category-statistics-row-$createdId"));compose.onNodeWithTag("category-statistics-row-$createdId").assertHeightIsEqualTo(54.dp).performClick();shared()
    stage="statistics-shared-delete-refresh"
-   compose.onNodeWithText("统计",substring=false).performClick();await("report-category-statistics");await("category-statistics-row-$createdId");compose.onNodeWithTag("category-statistics-list").performScrollToNode(hasTestTag("category-statistics-row-$createdId"));compose.onNodeWithTag("category-statistics-row-$createdId").performClick();shared()
-   compose.onNodeWithTag("transaction-delete").performClick();compose.onNodeWithTag("confirm-transaction-delete").performClick();compose.waitUntil(30_000){!vm.busy&&!exists("transaction-details")};await("report-category-statistics");compose.waitUntil(30_000){!exists("category-statistics-row-$createdId")};compose.onNodeWithTag("category-report-month-11").assertExists()
+   compose.onNodeWithTag("transaction-delete").performClick();compose.onNodeWithTag("confirm-transaction-delete").performClick();compose.waitUntil(30_000){!vm.busy&&!exists("transaction-details")};await("report-category-statistics");awaitStatisticsRows();compose.waitUntil(30_000){!exists("category-statistics-row-$createdId")};compose.onNodeWithTag("category-report-month-11").assertExists()
    runBlocking{assertEquals("0",vm.api.accounts().single{it.id()==account}.optString("balance"));assertEquals(0L,vm.api.reportCategoryPage(ReportPeriod(YearMonth.parse(month)),category,vm.accounts,1,ReportFilter(setOf(account))).second)};tx=null
-   compose.onNodeWithContentDescription("返回明细").performClick();await("report-category-sheet");compose.waitUntil(30_000){!exists("report-category-row-$createdId")};compose.onNode(hasText("关闭") and hasClickAction()).performClick();await("ledger-report")
+   compose.onNodeWithContentDescription("返回明细").performClick();await("report-category-sheet");compose.waitUntil(30_000){!exists("report-category-row-$createdId")}
+   InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+   compose.waitUntil(30_000){exists("ledger-report")&&!exists("report-category-sheet")}
    compose.onNodeWithTag("report-filter").performClick();compose.onNodeWithText(name,substring=false).assertExists();compose.onNodeWithText("取消",substring=false).performScrollTo().performClick();compose.onNodeWithContentDescription("返回",substring=false).performClick()
    File(context.filesDir,"shared-detail-routes-result.json").writeText(JSONObject().put("syntheticOnly",true).put("calendarSharedEditCancelKeepsDay",true).put("reportListSharedBackKeepsFilter",true).put("statisticsSharedDeleteKeepsMonth",true).put("authenticatedPngInAllThreeRoutes",true).put("deletedOnlySyntheticTwoFenAndBalanceZero",true).put("productionAccess",false).toString())
-  }catch(e:Throwable){runCatching{val image=InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot();File(context.filesDir,"shared-detail-failure-$stage.png").outputStream().use{image?.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)};image?.recycle()};throw AssertionError("Shared routes stage=$stage type=${e.javaClass.simpleName}")}
+  }catch(e:Throwable){runCatching{val image=InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot();File(context.filesDir,"shared-detail-failure-$stage.png").outputStream().use{image?.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)};image?.recycle()};throw AssertionError("Shared routes stage=$stage type=${e.javaClass.simpleName}",e)}
   finally{tx?.let{id->runBlocking{runCatching{deleteTransactionOrAlreadyAbsent(vm.api,id)}}};if(ownedSession&&::vm.isInitialized&&vm.token!=null){scenario.onActivity{vm.logout()};compose.waitUntil(30_000){!vm.busy}};scenario.close()}
  }
 }

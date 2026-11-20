@@ -81,6 +81,68 @@ class ReportDataTest {
         assertEquals(period, query.period())
         assertEquals(filter, query.filter())
     }
+    @Test fun parentRankingIncludesPriorOnlyChildrenAndItsDirectEntries() {
+        val catalog = listOf(
+            JSONObject("""{"id":"30","name":"饮食","type":2}"""),
+            JSONObject("""{"id":"31","parentId":"30","type":2}"""),
+            JSONObject("""{"id":"32","parentId":"30","type":2}"""),
+            JSONObject("""{"id":"33","parentId":"30","type":2}"""),
+            JSONObject("""{"id":"40","type":2}"""),
+        )
+        fun amount(id:String, value:Int, account:String="1")=
+            JSONObject().put("accountId",account).put("categoryId",id).put("amount",value.toString())
+        val period=ReportPeriod(YearMonth.of(2026,11))
+        val current=listOf(amount("30",100),amount("31",650),amount("31",-50),amount("32",200),amount("31",99,"2"))
+        val prior=listOf(amount("31",700),amount("33",50),amount("40",300))
+        val parent=reportCategoryScope("30",catalog,ReportCategoryScope.All)
+        assertEquals(ReportCategoryScope.Only(setOf("30","31","32","33")),parent)
+        assertEquals(ReportCategoryScope.Only(setOf("32")),reportCategoryScope("30",catalog,ReportCategoryScope.Only(setOf("32","40"))))
+        assertEquals(ReportCategoryScope.Empty,reportCategoryScope("30",catalog,ReportCategoryScope.Only(setOf("40"))))
+        val report=reportSnapshot(period,emptyList(),current,prior,accounts,catalog)
+        val rank=report.parentRanking(2,catalog).single()
+        assertEquals("30",rank.category.id())
+        assertEquals(BigInteger("900"),rank.amount)
+        assertEquals(BigInteger("750"),rank.previous)
+        assertEquals(listOf("31","32","30"),report.ranking(2).map{it.category.id()})
+        assertEquals(BigInteger.ZERO,report.ranking(2)[1].previous)
+        assertEquals(ReportCategoryScope.Only(setOf("32")),report.detailCategoryScope("32"))
+        assertEquals(ReportCategoryScope.Empty,report.detailCategoryScope("33"))
+        val empty=reportSnapshot(period,listOf(JSONObject().put("date",period.first.toString()).put("amounts",org.json.JSONArray().put(
+            JSONObject().put("currency","CNY").put("expenseAmount","900")))),current,prior,accounts,catalog,scope=ReportCategoryScope.Empty)
+        assertEquals(BigInteger.ZERO,empty.expense)
+        assertTrue(empty.categories.isEmpty())
+    }
+    @Test fun legacyParentDetailsUseTheExactScopeAndEmptyScopeMakesNoRequests() = runBlocking {
+        MockWebServer().use { server ->
+            val api=BooksApi("http://127.0.0.1:${server.port}"){"synthetic"}
+            val period=ReportPeriod(YearMonth.of(2026,11))
+            api.report(period,accounts,categories,scope=ReportCategoryScope.Empty)
+            assertEquals(0L,api.reportCategoryPage(period,ReportCategoryScope.Empty,accounts,1,ReportFilter()).second)
+            assertEquals(0,server.requestCount)
+            server.enqueue(MockResponse().setBody("""{"success":true,"result":{"totalCount":4,"items":[
+                {"id":"101","type":3,"categoryId":"30"},{"id":"102","type":3,"categoryId":"31"},
+                {"id":"103","type":3,"categoryId":"32"},{"id":"104","type":4,"categoryId":"30"}]}}"""))
+            val (rows,total)=api.reportCategoryPage(period,ReportCategoryScope.Only(setOf("30","31")),accounts,1,
+                ReportFilter(setOf("1"),tagIds=setOf("20")),setOf("30"))
+            assertEquals(listOf("101","102"),rows.map{it.id()})
+            assertEquals(2L,total)
+            val query=server.takeRequest().requestUrl!!
+            assertNull(query.queryParameter("category_ids"))
+            assertEquals("1",query.queryParameter("account_ids"))
+            assertEquals("0:20",query.queryParameter("tag_filter"))
+        }
+    }
+    @Test fun billStatisticsUsesShanghaiYearAndKeepsReportOrigin() {
+        val time=java.time.Instant.parse("2025-12-31T16:05:00Z").epochSecond
+        val bill=JSONObject().put("type",3).put("time",time).put("categoryId","10")
+        val route=transactionCategoryStatistics(bill,categories,null)!!
+        assertEquals("10",route.categoryId)
+        assertEquals(ReportPeriod(YearMonth.of(2026,1),yearly=true),route.query.period())
+        val query=ReportQuery(ReportPeriod(YearMonth.of(2025,12)),ReportFilter(setOf("1"),tagIds=setOf("20")))
+        assertEquals(query,transactionCategoryStatistics(bill,categories,query)?.query)
+        assertNull(transactionCategoryStatistics(JSONObject().put("type",4).put("categoryId","10"),categories,null))
+        assertNull(transactionCategoryStatistics(bill.put("categoryId","0"),categories,null))
+    }
     @Test fun monthlyMeanIncludesIncomeOnlyMonthsAndUsesSymmetricDecimalHalfEven(){
         val period=ReportPeriod(YearMonth.of(2025,11),true)
         val data=reportSnapshot(period,listOf(

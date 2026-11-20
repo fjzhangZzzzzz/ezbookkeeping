@@ -22,7 +22,7 @@ class DetailSheetInteractionTest {
         val busy=mutableStateOf(false);val shown=mutableStateOf(true)
         val item=JSONObject().put("id","1").put("type",3).put("sourceAmount",-1).put("editable",true).put("time",1).put("sourceAccount",JSONObject().put("name","合成账户").put("currency","CNY"))
         compose.setContent{FamilyTheme{if(shown.value)LedgerTransactionDetailContent(item,busy.value,"",emptyList(),{shown.value=false},{},{},{}){Box(Modifier.fillMaxWidth().height(280.dp).background(Color.Blue)){Text("合成图片布局，不代表认证附件")}}}}
-        compose.onNodeWithTag("transaction-details").assertIsDisplayed();compose.onNodeWithText("+0.01 CNY").assertExists()
+        compose.onNodeWithTag("transaction-details").assertIsDisplayed();compose.onNodeWithText("+0.01").assertExists()
         compose.runOnIdle{busy.value=true};compose.waitForIdle()
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
         compose.waitForIdle();compose.onNodeWithTag("transaction-details").assertIsDisplayed();compose.runOnIdle{assertTrue(shown.value);busy.value=false}

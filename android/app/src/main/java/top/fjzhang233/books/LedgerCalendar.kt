@@ -83,7 +83,7 @@ internal fun calendarLunarLabel(date:LocalDate):String {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun LedgerCalendar(vm:BooksModel,dismiss:()->Unit){
+@Composable internal fun LedgerCalendar(vm:BooksModel,openStatistics:(CategoryStatisticsPage)->Unit,dismiss:()->Unit){
     val month=YearMonth.parse(vm.ledgerMonth);val today=LocalDate.now(ZoneId.of("Asia/Shanghai"))
     var dayNumber by rememberSaveable{mutableIntStateOf(vm.ledgerDay?.let{LocalDate.parse(it).dayOfMonth}?:today.dayOfMonth)}
     val selected=month.atDay(dayNumber.coerceAtMost(month.lengthOfMonth()))
@@ -109,7 +109,11 @@ internal fun calendarLunarLabel(date:LocalDate):String {
                     item{CalendarMonthCard(month,snapshot,selected,firstDay,mode,!vm.busy,{mode=it},::choose,::shift)}
                     if(vm.ledgerDay==selected.toString()&&!vm.busy&&vm.transactions.isNotEmpty()){
                         item{Spacer(Modifier.height(12.dp));CalendarDayHeader(selected,snapshot.days[selected]?:CalendarAmounts(),today)}
-                        itemsIndexed(vm.transactions,key={_,row->row.id()}){index,row->CalendarTransactionRow(row,index==0){detail=row}}
+                        itemsIndexed(vm.transactions,key={_,row->row.id()}){index,row->
+                            Box(Modifier.padding(horizontal=12.dp)){
+                                LedgerTransactionRow(row,index==0,Modifier.testTag("calendar-transaction-${row.id()}")){detail=row}
+                            }
+                        }
                         if(vm.hasMoreTransactions)item{TextButton(onClick=vm::loadMore,modifier=Modifier.fillMaxWidth()){Text("加载更多")}}
                     }
                 }
@@ -117,7 +121,7 @@ internal fun calendarLunarLabel(date:LocalDate):String {
             }
         }
         if(weekPicker)Dialog(onDismissRequest={weekPicker=false}){Surface(shape=RoundedCornerShape(4.dp),color=ledgerColors.surface){Column(Modifier.padding(vertical=8.dp)){Text("选择每周第一天",Modifier.padding(horizontal=24.dp,vertical=12.dp),fontSize=14.sp);listOf(1 to "星期一",6 to "星期六",7 to "星期日").forEach{(value,label)->TextButton(onClick={firstDay=value;prefs.edit().putInt("firstDay",value).apply();weekPicker=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){Text(label)}}}}}
-        detail?.let{row->LedgerTransactionDetails(vm,row){detail=null}}
+        detail?.let{row->LedgerTransactionDetails(vm,row,openStatistics){detail=null}}
     if (monthPicker) LedgerMonthPicker(vm.ledgerMonth, { monthPicker = false }) {
         vm.changeLedgerMonth(it)
         monthPicker = false
@@ -187,20 +191,4 @@ private fun calendarCellBackground(mode:CalendarAmountMode,amount:CalendarAmount
 }
 @Composable private fun CalendarDayHeader(date:LocalDate,amount:CalendarAmounts,today:LocalDate){
     Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp),color=ledgerColors.surface,shape=RoundedCornerShape(topStart=8.dp,topEnd=8.dp)){Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=10.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.toString().substring(5).replace('-','.')+when(date){today->" 今天";today.minusDays(1)->" 昨天";else->""},fontSize=14.sp,fontWeight=FontWeight.Bold);Text(ledgerDaySummary(amount.income,amount.expense),fontSize=12.sp,fontWeight=FontWeight.Bold)}}
-}
-@Composable private fun CalendarTransactionRow(row:JSONObject,first:Boolean,open:()->Unit){
-    val type=row.optInt("type");val color=when(type){2->ledgerColors.income;3->ledgerColors.expense;else->ledgerColors.muted}
-    Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp),color=ledgerColors.surface){
-        Column {
-            if(!first) LedgerTransactionDivider()
-            Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("calendar-transaction-${row.id()}").clickable(onClick=open).padding(12.dp),verticalAlignment=Alignment.CenterVertically){
-                Box(Modifier.size(4.dp).background(color,CircleShape))
-                Column(Modifier.weight(1f).padding(horizontal=12.dp)){
-                    Text(transactionLabel(row),fontSize=14.sp)
-                    if(row.optString("comment").isNotBlank()) Text(row.optString("comment"),fontSize=11.sp,color=ledgerColors.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
-                }
-                Text(ledgerTransactionAmount(row),fontSize=16.sp,color=color)
-            }
-        }
-    }
 }
