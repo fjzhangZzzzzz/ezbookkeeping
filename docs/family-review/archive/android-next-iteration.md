@@ -1,5 +1,7 @@
 # Android 下一轮需求与改进清单
 
+> 历史待办快照。当前范围和验收标准见[实施状态](../implementation-status.md)与 [Android README](../../../android/README.md)。
+
 本清单基于已提交的 Android 搜索、设置、家庭总览和性能改造整理。它区分
 “代码已实现”和“发布前证据已完成”，避免把本地构建通过误认为 Android 模拟器验收。
 

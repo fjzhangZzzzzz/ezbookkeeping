@@ -1,12 +1,8 @@
 # 实施状态
 
-## 当前发布
+## 正式发布查询
 
-- 产品：`ezbookkeeping-family`。
-- Webapp：`webapp-v0.1.10`，源码提交、镜像 digest 和构建结果以对应 Release metadata 为准。
-- Android：[`android-v0.1.11`](releases/android-v0.1.11.md)，versionCode `13`，与 Webapp 独立发布、独立签名和独立版本递增。
-- Webapp 镜像不内嵌 Android APK；Android 使用独立 APK、`update.json` 和 `SHA256SUMS` 工件。
-- Webapp Release 的准确来源、镜像 digest、构建结果和 Android 关联状态以对应 Release metadata 为准。
+Webapp 和 Android 的正式版本与工件查询方式见[发布规范](release-policy.md#查询正式发布)。
 
 ## 当前功能状态
 
@@ -20,7 +16,7 @@
 
 - Go 测试、前端测试、类型检查、构建和发布镜像 smoke 已按对应 CI 记录执行。
 - Android release workflow 校验 Gradle、签名、包名、versionCode、APK metadata 和完整性清单。
-- 独立 QA 记录了真实浏览器视口、重试幂等、共享字典、成员停用、附件、登录边界和 Android 关键流程；详细证据见 [independent-qa.md](independent-qa.md)。
+- 独立 QA 记录了真实浏览器视口、重试幂等、共享字典、成员停用、附件、登录边界和 Android 关键流程；详细证据见 [independent-qa.md](archive/independent-qa.md)。
 
 ## 未完成或不应推导的范围
 
@@ -30,4 +26,4 @@
 
 ## 历史资料
 
-历史需求、有限安全审计、上游核验、依赖清单、UID 清单和 ADR 仅用于理解产品决策与技术依据，不是当前发布入口。旧 `family-v*` Release 说明已随退役发布线删除；当前发布只使用 `webapp-v*` 和 `android-v*`。
+初始需求、尽调附录和早期验证见[历史评审与验证资料](archive/README.md)。各版本的交付与验收范围见[发布说明](releases/)。

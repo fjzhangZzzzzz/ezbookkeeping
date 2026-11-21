@@ -4,19 +4,18 @@ on:
   pull_request:
     paths:
       - 'android/**'
-      - 'scripts/release/android*.py'
+      - 'docs/family-review/android-release.md'
+      - 'scripts/release/*android*.py'
       - 'scripts/release/android*.ps1'
-      - 'scripts/release/validate_android_update.py'
       - '.github/workflows/android-*.yml'
   push:
     branches:
       - main
-      - 'android/**'
     paths:
       - 'android/**'
-      - 'scripts/release/android*.py'
+      - 'docs/family-review/android-release.md'
+      - 'scripts/release/*android*.py'
       - 'scripts/release/android*.ps1'
-      - 'scripts/release/validate_android_update.py'
       - '.github/workflows/android-*.yml'
 
 permissions:
@@ -34,14 +33,62 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Select checks and validate documentation diff
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          build=false
+          release=false
+          if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git diff --check "$BASE_SHA" HEAD -- ':(glob)android/**/*.md' docs/family-review/android-release.md
+            changes="$RUNNER_TEMP/android-ci-changes"
+            git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$changes"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                android/*.md) ;;
+                android/*) build=true ;;
+                scripts/release/*android*.py|scripts/release/android*.ps1) release=true ;;
+                .github/workflows/android-*.yml) build=true; release=true ;;
+              esac
+            done < "$changes"
+          else
+            git show --format= --check HEAD -- ':(glob)android/**/*.md' docs/family-review/android-release.md
+            build=true
+            release=true
+          fi
+          printf 'build=%s\nrelease=%s\n' "$build" "$release" >> "$GITHUB_OUTPUT"
+
+      - name: Check release scripts and update protocol
+        if: steps.scope.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/release/*android*.py
+          pwsh -NoProfile -NonInteractive -Command '
+            foreach ($script in Get-ChildItem -LiteralPath scripts/release -Filter "android*.ps1" -File) {
+              $parseErrors = $null
+              $tokens = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                $script.FullName, [ref]$tokens, [ref]$parseErrors)
+              if ($parseErrors) { $parseErrors | Out-String | Write-Error; exit 1 }
+            }
+          '
+          python3 -B -m unittest discover -s scripts/release -p 'test_android_release.py'
 
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        if: steps.scope.outputs.build == 'true'
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
 
       - name: Verify pinned Gradle wrapper
+        if: steps.scope.outputs.build == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -49,6 +96,7 @@ jobs:
           grep -Fx 'distributionSha256Sum=20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78' android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Install exact Android SDK
+        if: steps.scope.outputs.build == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -57,5 +105,6 @@ jobs:
           "$SDK_MANAGER" --sdk_root="$ANDROID_HOME" 'platforms;android-36' 'build-tools;36.0.0'
 
       - name: Run Android unit tests, lint and debug build
+        if: steps.scope.outputs.build == 'true'
         working-directory: android
         run: ./gradlew --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug

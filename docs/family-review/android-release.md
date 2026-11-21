@@ -1,6 +1,8 @@
 # Android 签名、发布与更新
 
-Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjzhang233.books`，首个公开版为 `0.1.0` / versionCode `2`；`0.1.1` / code `3` 开始从自部署环境检查与下载更新，`minSdk=26`。版本唯一来源为 Android Gradle 配置，升级必须增加 versionCode 并保持包名及同一 release 签名身份。各自的不可变 tag、Release 和附件不因另一产品发布而覆盖或重打。
+Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjzhang233.books`，最低 API 为 `26`。首个公开版为 `0.1.0` / versionCode `2`，从 `0.1.1` / code `3` 起支持自部署环境更新。源码构建版本以 Android Gradle 配置为准。升级保持包名、release 签名身份，并递增 versionCode。两个发布单元各自的 tag、Release 和附件均保持不可变。
+
+Android 正式版本和工件查询见[发布规范](release-policy.md#查询正式发布)。
 
 本地早期签名验证包 `0.1.0` / code `1` 从未公开发布，仅保留于 ignored `output/android-upgrade-fixture/` 作为合成旧版本输入。旧 GitHub OTA 完整演练未完成，不能称已验证发现、下载及系统安装闭环，也不能转用于现行自托管渠道。已公开的 `android-v0.1.0` / code `2` 工件不改写；其内置检查地址不会随服务端变更，应由用户从自家 HTTPS 地址手动安装同签名 `0.1.1` / code `3` 一次，之后使用自托管更新。保留登录会话和真实用户数据须另行实际验证，不从同签名推导已验收。
 
@@ -16,7 +18,7 @@ Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjz
 
 ## 构建及发布
 
-当前发布流程约束：Android CI 与 Release 分离。`.github/workflows/android-ci.yml` 仅在 Android 相关路径变更时运行不读取 Secrets 的 debug 单测、lint 和组装；`.github/workflows/android-release.yml` 只响应新的 `android-vX.Y.Z` tag，执行签名构建、协议门禁和独立 Release 发布。两者都不在 GitHub 托管 runner 上运行 Android 模拟器；需要设备或安装升级回归时使用本地固定 AVD 脚本完成。发布 job 只构建 Android 必要工件，不构建后端或其他平台。
+Android CI 与 Release 分离。Android Markdown 变更执行文档差异检查。源码、资源和 Gradle 变更执行 debug 单测、Lint 和组装。Android 发布脚本变更执行语法和合成工件协议检查。混合变更执行对应的各项检查。新的 `android-vX.Y.Z` tag 触发签名构建、实际 APK 校验与独立 Release 发布。设备和安装升级回归使用本地固定 AVD 脚本。
 
 本地脚本 `scripts/release/android_local_preflight.ps1` 在 SDK、ADB 和选定 AVD 可用时执行必要的 debug smoke；涉及更新器或安装升级的变更，再使用本地真实签名工件执行完整升级回归。缺少必要依赖时必须先确认，不自动安装或静默跳过。
 
@@ -56,6 +58,8 @@ update.json 和 SHA256SUMS 是来源描述及完整性清单，**不是签名信
 
 自托管实际系统安装已在专用模拟器验证：内部 `0.1.1-internal-selfhost` / code2 → 官方 `0.1.1` / code3，正常界面检测、用户确认下载、客户端校验、系统来源许可、PackageInstaller Update 与安装成功；实际升级不使用 adb install。读回已安装 APK 完整 SHA256 与正式 CI 原件一致，唯一 signer 匹配固定 pin，重开应用并再次检查显示当前兼容最新版。初始内部旧包为独立获准准备，不是旧公开 0.1.0 客户端；该测试未输入凭据，不证明真实用户登录跨升级保持。
 
-发布前检查本地构建、正式签名/指纹、metadata 与 APK 一致、更新筛选和拒绝错误包；Actions 构建和 Release 发布分别记录结果。当前 Android 0.1.6 的实体手机自托管更新、密码及原 Pocket ID 同 UID、CNY 资金账户记账/附图、关闭重开保持登录、退出重登和桌面撤销手机会话已由用户确认；“资金账户”没有新登录账密，不创建额外 CLI 用户。真实已登录跨版本保持和部署侧恢复不由客户端测试推导通过。
+发布前检查本地构建、正式签名和指纹、metadata 与 APK 一致性、更新筛选及错误包拒绝。Actions 构建和 Release 发布分别记录结果。
+
+历史验收使用 Android `0.1.6`。用户在实体手机上确认了自托管更新、密码及原 Pocket ID 同 UID、CNY 资金账户记账和附图、关闭重开保持登录、退出重登及桌面撤销手机会话。尚需独立验证真实已登录跨版本保持和部署侧恢复。
 
 参考：[GitHub Secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)、[GitHub CLI stdin](https://cli.github.com/manual/gh_secret_set)、[keytool 密码环境变量](https://docs.oracle.com/en/java/javase/21/docs/specs/man/keytool.html)。

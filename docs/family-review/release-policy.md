@@ -13,6 +13,12 @@
 
 产品名可以出现在镜像、metadata 和 APK 文件名前缀中；发布单元名负责区分后端/Web 与 Android 生命周期。
 
+## 查询正式发布
+
+正式发布版本和工件以 [GitHub Releases](https://github.com/fjzhangZzzzzz/ezbookkeeping/releases) 为准。按 `webapp-v*` 和 `android-v*` 分别查询两个发布单元。源码构建版本以对应构建配置为准。仓库的发布说明记录每个版本的变更和验收范围。
+
+家庭版维护 GitHub Actions 发布流程。
+
 ## Webapp
 
 Webapp Release 包含 Go 后端、桌面 Web、移动 Web 和 PWA。发布前必须满足：

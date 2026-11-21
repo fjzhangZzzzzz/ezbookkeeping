@@ -57,14 +57,14 @@ Chrome 中登录后进入桌面家庭页，切换至移动入口仍保持登录�
 
 CLI stdin 修改密码后，使用新密码真实登录成功；故意对不存在用户修改密码得到非零退出码，捕获日志不包含密码或完整 argv。
 
-证据（均不含凭据）：
+以下脱敏证据仅在原验收工作区留存。
 
-- [桌面家庭页](../../output/playwright/family-desktop.png)
-- [移动视口家庭页](../../output/playwright/family-mobile.png)
-- [响应丢失后的保留表单](../../output/playwright/mobile-save-response-lost.png)
-- [失败提示摘录](../../output/playwright/mobile-save-failure.txt)
-- [实际网络请求摘录](../../output/playwright/mobile-save-network.txt)
-- [浏览器下载的汇总 CSV](../../output/playwright/family-2026-11.csv)
+- 桌面家庭页（本地文件 `output/playwright/family-desktop.png`）
+- 移动视口家庭页（本地文件 `output/playwright/family-mobile.png`）
+- 响应丢失后的保留表单（本地文件 `output/playwright/mobile-save-response-lost.png`）
+- 失败提示摘录（本地文件 `output/playwright/mobile-save-failure.txt`）
+- 实际网络请求摘录（本地文件 `output/playwright/mobile-save-network.txt`）
+- 浏览器下载的汇总 CSV（本地文件 `output/playwright/family-2026-11.csv`）
 
 ## 独立发现及修复状态
 
