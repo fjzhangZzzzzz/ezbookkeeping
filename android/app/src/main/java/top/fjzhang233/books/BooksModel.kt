@@ -62,6 +62,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var accounts by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var accountRefreshFailed by mutableStateOf(false); private set
     var categories by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var categoryRefreshFailed by mutableStateOf(false); private set
     var categoryRevision by mutableStateOf<String?>(null); private set
     var categoryReviewRequired by mutableStateOf(false); private set
     var categoryReviewReady by mutableStateOf(false); private set
@@ -78,6 +79,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private suspend fun loadCategories(force:Boolean=true) {
         if(!force && categories.isNotEmpty() && System.currentTimeMillis()-categoriesRefreshedAt<60_000)return
         val (rows,revision)=api.categorySnapshot(); categories=rows; categoryRevision=revision
+        categoryRefreshFailed = false
         categoriesRefreshedAt=System.currentTimeMillis()
     }
     fun refreshCategories() { if(token!=null && !busy) act { loadCategories() } }
@@ -297,6 +299,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         val(loadedAccounts,loadedCategories)=coroutineScope{val accountRequest=async(Dispatchers.IO){api.accounts()};val categoryRequest=async(Dispatchers.IO){api.categorySnapshot()};accountRequest.await() to categoryRequest.await()}
         accounts=loadedAccounts;categories=loadedCategories.first;categoryRevision=loadedCategories.second;categoriesRefreshedAt=System.currentTimeMillis()
         accountRefreshFailed = false
+        categoryRefreshFailed = false
         diagnostics.record("startup.critical_data",SystemClock.elapsedRealtime()-criticalStarted)
         if(accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation && transactionSubmission.hasPendingCandidate()){
             transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
@@ -527,6 +530,13 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
                         refreshAfterAccountWrite("已保存")
                         done()
                     }
+                    path.startsWith("/api/v1/transaction/categories/") -> {
+                        categoryRefreshFailed = !tryRefreshSavedData { loadCategories() }
+                        if (!categoryRefreshFailed) notice = "已保存"
+                        invalidateSearchCache()
+                        scheduleBackgroundRefresh()
+                        done()
+                    }
                     else -> {
                         done();notice="已保存";invalidateSearchCache();scheduleBackgroundRefresh()
                     }
@@ -549,6 +559,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private fun localLogout(clearFlow: Boolean = true) {
         backgroundRefreshFailed=false
         accountRefreshFailed = false
+        categoryRefreshFailed = false
         cacheGeneration.incrementAndGet()
         pendingCheckReady=false;categoryReviewRequired=false;categoryReviewReady=false
         entityWrites.detachForLogout();entityReviewOpen=false

@@ -40,6 +40,12 @@ import java.util.UUID
     LaunchedEffect(Unit) { vm.refreshCategoriesIfStale() }
     Column {
         EntityWriteWarning(vm)
+        if (vm.categoryRefreshFailed) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("已保存，分类列表刷新失败", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = vm::refreshCategories, enabled = !vm.busy) { Text("重试刷新分类") }
+            }
+        }
         TabRow(selectedTabIndex = section) {
             listOf("分类", "标签", "标签组").forEachIndexed { index, text ->
                 LedgerControl(Modifier.fillMaxWidth(), selected = section == index, enabled = !vm.busy,
