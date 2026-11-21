@@ -95,7 +95,18 @@ internal val accountPresetGroups=listOf(
 internal fun accountPreset(key:String)=accountPresetGroups.asSequence().flatMap{it.presets.asSequence()}.firstOrNull{it.key==key}
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun LedgerAccountPicker(accounts:List<JSONObject>,selectedId:String,destination:Boolean=false,dismiss:()->Unit,choose:(String)->Unit,create:()->Unit,enabled:Boolean=true,createEnabled:Boolean=enabled,defaultId:String=""){
+@Composable internal fun LedgerAccountPicker(
+    accounts: List<JSONObject>,
+    selectedId: String,
+    destination: Boolean = false,
+    dismiss: () -> Unit,
+    choose: (String) -> Unit,
+    create: () -> Unit,
+    enabled: Boolean = true,
+    createEnabled: Boolean = enabled,
+    defaultId: String = "",
+    refreshNotice: @Composable () -> Unit = {},
+) {
     val visible=sortAccountsForDisplay(accounts).filter{!it.optBoolean("hidden")}
     val rows=(visible.size+1+4)/5
     val height=(56+rows*88+64).coerceIn(208,440).dp
@@ -107,6 +118,7 @@ internal fun accountPreset(key:String)=accountPresetGroups.asSequence().flatMap{
                     Box(Modifier.size(32.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.onSurface),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Add,"新建账户",Modifier.size(26.dp),tint=MaterialTheme.colorScheme.surface)}
                 }
             }
+            refreshNotice()
             LazyVerticalGrid(columns=GridCells.Fixed(5),modifier=Modifier.fillMaxWidth().weight(1f).testTag("entry-account-grid").selectableGroup(),contentPadding=PaddingValues(horizontal=4.dp,vertical=8.dp)){
                 item(key="none"){AccountChoiceTile("不选择账户",selectedId.isEmpty(),"entry-account-none",null,enabled){choose("")}}
                 items(visible,key={it.id()}){item->AccountChoiceTile(item.optString("name")+(if(item.id()==defaultId)" · 默认" else ""),selectedId==item.id(),"entry-account-${item.id()}",item,enabled){choose(item.id())}}

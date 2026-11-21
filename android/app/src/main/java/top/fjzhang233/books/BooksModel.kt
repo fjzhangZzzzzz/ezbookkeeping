@@ -60,6 +60,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     /** Server-synchronised account preference; never inferred from account list order alone. */
     var defaultAccountId by mutableStateOf(""); private set
     var accounts by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var accountRefreshFailed by mutableStateOf(false); private set
     var categories by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var categoryRevision by mutableStateOf<String?>(null); private set
     var categoryReviewRequired by mutableStateOf(false); private set
@@ -295,6 +296,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         refreshSession()
         val(loadedAccounts,loadedCategories)=coroutineScope{val accountRequest=async(Dispatchers.IO){api.accounts()};val categoryRequest=async(Dispatchers.IO){api.categorySnapshot()};accountRequest.await() to categoryRequest.await()}
         accounts=loadedAccounts;categories=loadedCategories.first;categoryRevision=loadedCategories.second;categoriesRefreshedAt=System.currentTimeMillis()
+        accountRefreshFailed = false
         diagnostics.record("startup.critical_data",SystemClock.elapsedRealtime()-criticalStarted)
         if(accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation && transactionSubmission.hasPendingCandidate()){
             transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
@@ -463,7 +465,31 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun refreshAfterAccountWrite(successNotice: String) {
-        invalidateSearchCache();notice=successNotice;scheduleBackgroundRefresh()
+        invalidateSearchCache()
+        refreshAccountList()
+        if (!accountRefreshFailed) notice = successNotice
+        scheduleBackgroundRefresh()
+    }
+
+    private suspend fun refreshAccountList() {
+        accountRefreshFailed = !tryRefreshSavedData { accounts = api.accounts() }
+    }
+
+    private suspend fun tryRefreshSavedData(refresh: suspend () -> Unit): Boolean {
+        try {
+            refresh()
+            return true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (error is ApiFailure && error.sessionExpired) throw error
+            return false
+        }
+    }
+
+    fun retryAccountRefresh() = act {
+        refreshAccountList()
+        if (!accountRefreshFailed) invalidateSearchCache()
     }
 
     fun deleteOrArchiveAccount(accountId: String, onResult: (String) -> Unit = {}) = act {
@@ -476,7 +502,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         val path = if (subAccount) "/api/v1/accounts/sub_account/delete.json" else "/api/v1/accounts/delete.json"
         val result = entityWrites.submit(path, JSONObject().put("id", accountId))
         val action = accountDeleteAction(result)
-        invalidateSearchCache();notice=if(action=="archived")"账户已归档" else "账户已删除";scheduleBackgroundRefresh()
+        refreshAfterAccountWrite(if (action == "archived") "账户已归档" else "账户已删除")
         onResult(action)
     }
     fun refreshTransactionConfirmation()=act {
@@ -496,7 +522,15 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
                 if(path.contains("/categories/"))details.put("parentName",if(payload.id("parentId")=="0")"作为大类" else categories.firstOrNull{it.id()==payload.id("parentId")}?.optString("name")?:"原大类当前不可见")
                 if(path.contains("/tags/")&&!path.contains("/tags/groups/"))details.put("groupName",if(payload.id("groupId")=="0")"不分组" else tagGroups.firstOrNull{it.id()==payload.id("groupId")}?.optString("name")?:"原标签组当前不可见")
                 entityWrites.submit(path,payload,details)
-                done();notice="已保存";invalidateSearchCache();scheduleBackgroundRefresh()
+                when {
+                    path.startsWith("/api/v1/accounts/") -> {
+                        refreshAfterAccountWrite("已保存")
+                        done()
+                    }
+                    else -> {
+                        done();notice="已保存";invalidateSearchCache();scheduleBackgroundRefresh()
+                    }
+                }
             }catch(error:CancellationException){throw error}catch(error:Exception){
                 if(error is ApiFailure&&error.sessionExpired)throw error
                 if(entityWrites.blocked)throw IllegalArgumentException("资料保存结果待核实；客户端不会重发，请先核对实际列表")
@@ -514,6 +548,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun forgetLocal() { localLogout(); notice = "已清除此设备会话；离线退出不会撤销服务器会话" }
     private fun localLogout(clearFlow: Boolean = true) {
         backgroundRefreshFailed=false
+        accountRefreshFailed = false
         cacheGeneration.incrementAndGet()
         pendingCheckReady=false;categoryReviewRequired=false;categoryReviewReady=false
         entityWrites.detachForLogout();entityReviewOpen=false

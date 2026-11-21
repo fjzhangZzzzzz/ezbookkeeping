@@ -296,7 +296,21 @@ import androidx.compose.ui.focus.onFocusChanged
             when {
                 preset!=null -> key(preset.key){AccountEditor(vm,null,close={accountPresetKey=""},preset=preset)}
                 accountAssetPicker -> LedgerAssetPresetPicker(dismiss={accountAssetPicker=false},choose={accountPresetKey=it.key;accountAssetPicker=false},enabled=!editLocked&&!vm.entityBlocked)
-                else -> LedgerAccountPicker(vm.accounts.filter{!pickingDestination||it.id()!=account},if(pickingDestination)destination else account,pickingDestination,dismiss={sheet=""},choose={id->if(pickingDestination)destination=id else account=id;sheet=""},create={accountAssetPicker=true},enabled=!editLocked,createEnabled=!editLocked&&!vm.entityBlocked,defaultId=vm.defaultAccountId)
+                else -> LedgerAccountPicker(
+                    accounts = vm.accounts.filter { !pickingDestination || it.id() != account },
+                    selectedId = if (pickingDestination) destination else account,
+                    destination = pickingDestination,
+                    dismiss = { sheet = "" },
+                    choose = { id ->
+                        if (pickingDestination) destination = id else account = id
+                        sheet = ""
+                    },
+                    create = { accountAssetPicker = true },
+                    enabled = !editLocked,
+                    createEnabled = !editLocked && !vm.entityBlocked,
+                    defaultId = vm.defaultAccountId,
+                    refreshNotice = { if (vm.accountRefreshFailed) AccountRefreshNotice(vm) },
+                )
             }
         }
 

@@ -30,7 +30,9 @@ import java.util.UUID
     val visible=orderedAccounts.filter { !it.optBoolean("hidden") }
     val hidden=orderedAccounts.filter { it.optBoolean("hidden") }
     LazyColumn(Modifier.testTag("accounts-list"),contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { EntityWriteWarning(vm) };item { Button(onClick = { editingId = ""; open = true }, enabled = !vm.busy&&!vm.entityBlocked) { Icon(Icons.Outlined.Add, null); Text("新建账户") } }
+        item { EntityWriteWarning(vm) }
+        if (vm.accountRefreshFailed) item { AccountRefreshNotice(vm) }
+        item { Button(onClick = { editingId = ""; open = true }, enabled = !vm.busy&&!vm.entityBlocked) { Icon(Icons.Outlined.Add, null); Text("新建账户") } }
         if (vm.accounts.isEmpty()) item { EmptyState("创建你的账户", "例如现金、银行卡。只管理自己的账户。") }
         item { Text("新记账会自动使用默认账户；点击账户按钮仍可切换。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(visible, key = { it.id() }) { item ->
@@ -75,6 +77,16 @@ import java.util.UUID
             },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } }
         )
+    }
+}
+
+@Composable internal fun AccountRefreshNotice(vm: BooksModel) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("已保存，账户列表刷新失败", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+        TextButton(onClick = vm::retryAccountRefresh, enabled = !vm.busy) { Text("重试刷新账户") }
     }
 }
 
