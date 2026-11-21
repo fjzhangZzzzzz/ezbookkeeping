@@ -26,6 +26,12 @@ Gradle Wrapper 固定 8.13，执行前核对官方 wrapper JAR SHA256，properti
 
 新 Release 包含 `ezbookkeeping-android-X.Y.Z.apk`、`update.json`、`SHA256SUMS`。GitHub 自动源码归档不属于可安装 APK。工作流在生成真实清单后使用 `scripts/release/validate_android_update.py` 按客户端同一文件名、路径、摘要和清单规则复核，并在发布 job 再次复核；工作流只使用免费公开 runner，不启用付费 runner、托管模拟器或额外服务。
 
+### 本地 QA 清理
+
+- 人工验收期间保持本轮专用模拟器和隔离测试服务可用。收到清理指令后，按设备序列号和 AVD 名称、进程号和监听端口、文件的实际路径核对资源归属。
+- 关闭本轮模拟器、镜像窗口和测试服务后，删除本轮专用的临时 AVD、测试数据库、临时凭据文件、调试 APK 和下载残片。确认相关进程已退出、端口已释放，待清理路径已移除。
+- 保留可复核的脱敏截图、测试结果和评审记录，以及共用 SDK、可复用 AVD、正式发布工件和其他轮次的测试环境。
+
 ## 与 Webapp 发布协调
 
 Webapp 与 Android 仍是独立发布通道，不共用版本号、签名或镜像。Webapp Release 的 `release.json` 增加 `companion_artifacts.android`：工作流比较当前 Webapp 提交与最近 `android-v*` 标签之间的 `android/` 目录；无差异记为 `unchanged`，有差异但尚无新的 Android Release 记为 `pending`。该字段只描述源码相对关系，不代替 APK 的签名、摘要或自托管部署状态。
