@@ -1,6 +1,6 @@
 # Android 签名、发布与更新
 
-Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjzhang233.books`，最低 API 为 `26`。首个公开版为 `0.1.0` / versionCode `2`，从 `0.1.1` / code `3` 起支持自部署环境更新。源码构建版本以 Android Gradle 配置为准。升级保持包名、release 签名身份，并递增 versionCode。两个发布单元各自的 tag、Release 和附件均保持不可变。
+Android 原生客户端与服务端分别发行。正式包名固定为 `top.fjzhang233.books`，最低 API 为 `26`。首个公开版为 `0.1.0` / versionCode `2`，从 `0.1.1` / code `3` 起支持自部署环境更新。源码构建版本以 Android Gradle 配置为准。升级保持包名、release 签名身份，并递增 versionCode。已发布的 Git tag 和附件内容保持不变，旧 Release 按发布规范退役。
 
 Android 正式版本和工件查询见[发布规范](release-policy.md#查询正式发布)。
 
@@ -21,6 +21,8 @@ Android 正式版本和工件查询见[发布规范](release-policy.md#查询正
 Android CI 与 Release 分离。Android Markdown 变更执行文档差异检查。源码、资源和 Gradle 变更执行 debug 单测、Lint 和组装。Android 发布脚本变更执行语法和合成工件协议检查。混合变更执行对应的各项检查。新的 `android-vX.Y.Z` tag 触发签名构建、实际 APK 校验与独立 Release 发布。设备和安装升级回归使用本地固定 AVD 脚本。
 
 本地脚本 `scripts/release/android_local_preflight.ps1` 在 SDK、ADB 和选定 AVD 可用时执行必要的 debug smoke；涉及更新器或安装升级的变更，再使用本地真实签名工件执行完整升级回归。缺少必要依赖时必须先确认，不自动安装或静默跳过。
+
+执行升级回归时，从上一条正式 Android Release 下载 APK、`update.json` 和 `SHA256SUMS`，使用 `validate_android_update.py` 对照 tag 和源码提交校验工件。在干净的验收 AVD 上运行 `android_local_preflight.ps1 -Mode update -AvdName <AVD> -ArtifactDir <候选工件目录> -BaselineApk <上一正式版APK>`。基线 APK 旁保留原 `update.json`。脚本核对两个 APK 的签名、摘要、包名和 `versionCode`，用本地 HTTP 验证候选下载路径，再用 ADB 依次安装基线和候选。
 
 Android tag、Release 和附件均不可覆盖；发布命令使用 `--verify-tag`，遇到已存在的 Release 直接失败，不通过新版本号反复试错。
 

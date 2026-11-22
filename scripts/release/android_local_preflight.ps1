@@ -4,11 +4,18 @@ param(
     [string]$Mode = 'smoke',
     [string]$AvdName = 'ezbookkeeping_update_api35',
     [string]$ArtifactDir,
-    [string]$BaselineUrl = 'https://github.com/fjzhangZzzzzz/ezbookkeeping/releases/download/android-v0.1.8/ezbookkeeping-family-android-0.1.8.apk'
+    [string]$BaselineApk
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+if ($Mode -eq 'update') {
+    if ([string]::IsNullOrWhiteSpace($ArtifactDir)) { throw '-ArtifactDir is required in update mode.' }
+    if ([string]::IsNullOrWhiteSpace($BaselineApk)) { throw '-BaselineApk is required in update mode.' }
+    $ArtifactDir = (Resolve-Path -LiteralPath $ArtifactDir).Path
+    $BaselineApk = (Resolve-Path -LiteralPath $BaselineApk).Path
+}
 
 function Require-Command([string]$Name, [string]$Purpose) {
     $command = Get-Command $Name -ErrorAction SilentlyContinue
@@ -47,10 +54,14 @@ $stdoutLog = Join-Path $tempRoot 'emulator.stdout.log'
 $stderrLog = Join-Path $tempRoot 'emulator.stderr.log'
 
 try {
-    Push-Location (Join-Path $PSScriptRoot '..\..\android')
-    & .\gradlew.bat --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug
-    if ($LASTEXITCODE -ne 0) { throw "Android debug validation failed with exit code $LASTEXITCODE." }
-    Pop-Location
+    if ($Mode -eq 'smoke') {
+        Push-Location (Join-Path $PSScriptRoot '..\..\android')
+        try {
+            & .\gradlew.bat --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug
+            if ($LASTEXITCODE -ne 0) { throw "Android debug validation failed with exit code $LASTEXITCODE." }
+        }
+        finally { Pop-Location }
+    }
 
     $deviceLines = & $adb devices | Select-Object -Skip 1 | Where-Object { $_ -match '^emulator-\d+\s+device\s*$' }
     if (-not $deviceLines) {
@@ -96,13 +107,11 @@ try {
     }
 
     if ($Mode -eq 'update') {
-        if ([string]::IsNullOrWhiteSpace($ArtifactDir)) { throw '-ArtifactDir is required in update mode.' }
-        & $python (Join-Path $PSScriptRoot 'android_upgrade_regression.py') $ArtifactDir --baseline-url $BaselineUrl --aapt $aapt --apksigner $apksigner --adb $adb
+        & $python -B (Join-Path $PSScriptRoot 'android_upgrade_regression.py') $ArtifactDir --baseline-apk $BaselineApk --aapt $aapt --apksigner $apksigner --adb $adb
         if ($LASTEXITCODE -ne 0) { throw 'Android local upgrade regression failed.' }
     }
 }
 finally {
-    if (Get-Location | Where-Object { $_.Path -like '*\android' }) { Pop-Location }
     if ($startedByScript) { & $adb emu kill 2>$null | Out-Null }
     Remove-Item Env:\ANDROID_SERIAL -ErrorAction SilentlyContinue
 }

@@ -1,16 +1,45 @@
 """Exercise the Android release scripts together with synthetic build-tool output."""
 
+import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import android_upgrade_regression as upgrade
 import prepare_android_release as prepare
 import validate_android_update as validate
 
 
 class AndroidReleaseTest(unittest.TestCase):
+    def test_upgrade_rejects_candidate_with_the_same_code_as_explicit_baseline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for version in ("4.5.6", "4.5.7"):
+                artifact = directory / version
+                artifact.mkdir()
+                apk = artifact / f"ezbookkeeping-android-{version}.apk"
+                apk.write_bytes(version.encode())
+                (artifact / "update.json").write_text(json.dumps({
+                    "packageId": validate.PACKAGE,
+                    "versionCode": 52,
+                    "versionName": version,
+                    "apkAssetName": apk.name,
+                    "apkSha256": validate.sha256(apk),
+                }), encoding="utf-8")
+            arguments = [
+                "android_upgrade_regression.py", str(directory / "4.5.7"),
+                "--baseline-apk", str(directory / "4.5.6" / "ezbookkeeping-android-4.5.6.apk"),
+                "--aapt", "aapt", "--apksigner", "apksigner", "--adb", "adb",
+            ]
+            with patch.object(sys, "argv", arguments), patch.object(upgrade, "apk_info", side_effect=[
+                (validate.PACKAGE, 52, "4.5.7"), (validate.PACKAGE, 52, "4.5.6"),
+            ]), patch.object(upgrade, "install_apk") as install:
+                with self.assertRaisesRegex(SystemExit, "candidate versionCode 52 must be greater than baseline versionCode 52"):
+                    upgrade.main()
+                install.assert_not_called()
+
     def test_prepared_artifacts_follow_update_protocol(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

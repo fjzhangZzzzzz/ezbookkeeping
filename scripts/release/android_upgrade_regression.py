@@ -15,23 +15,11 @@ import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-
-PACKAGE = "top.fjzhang233.books"
-CERTIFICATE = "6fe857a17e79298dee70334a4900df8935312bf312ef9f9ad6a23897a9f3735d"
-BASELINE_VERSION = "0.1.8"
-BASELINE_CODE = 10
+from validate_android_update import CERTIFICATE, PACKAGE, VERSION_RE, sha256
 
 
 def run(command: list[str]) -> str:
     return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT)
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def apk_info(path: Path, aapt: Path, apksigner: Path) -> tuple[str, int, str]:
@@ -39,11 +27,27 @@ def apk_info(path: Path, aapt: Path, apksigner: Path) -> tuple[str, int, str]:
     match = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", badging, re.MULTILINE)
     if not match:
         raise SystemExit(f"could not read APK metadata: {path.name}")
+    if "application-debuggable" in badging:
+        raise SystemExit(f"APK is debuggable: {path.name}")
     signature = run([str(apksigner), "verify", "--verbose", "--print-certs", str(path)])
     certificate = re.search(r"^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)$", signature, re.MULTILINE)
     if not certificate or certificate.group(1).lower() != CERTIFICATE:
         raise SystemExit(f"APK signer mismatch: {path.name}")
     return match.group(1), int(match.group(2)), match.group(3)
+
+
+def verified_apk(path: Path, metadata: dict, aapt: Path, apksigner: Path) -> tuple[int, str]:
+    version = metadata.get("versionName")
+    if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
+        raise SystemExit(f"invalid release version in update.json: {path.name}")
+    if metadata.get("apkAssetName") != path.name or path.name != f"ezbookkeeping-android-{version}.apk":
+        raise SystemExit(f"APK filename does not match update.json: {path.name}")
+    if not path.is_file() or metadata.get("apkSha256") != sha256(path):
+        raise SystemExit(f"APK digest does not match update.json: {path.name}")
+    package, code, apk_version = apk_info(path, aapt, apksigner)
+    if package != PACKAGE or (package, code, apk_version) != (metadata.get("packageId"), metadata.get("versionCode"), version):
+        raise SystemExit(f"APK metadata does not match update.json: {path.name}")
+    return code, version
 
 
 def install_apk(adb: str, path: Path, slot: str) -> None:
@@ -91,6 +95,14 @@ def install_apk(adb: str, path: Path, slot: str) -> None:
         subprocess.run([adb, "shell", "rm", "-f", remote_path], check=False, timeout=60)
 
 
+def require_installed_version(adb: str, code: int, version: str) -> None:
+    package_dump = run([adb, "shell", "dumpsys", "package", PACKAGE])
+    if not re.search(rf"(?m)^\s*versionCode[=:]\s*{code}\b", package_dump) or not re.search(
+        rf"(?m)^\s*versionName={re.escape(version)}\s*$", package_dump
+    ):
+        raise SystemExit(f"Android emulator did not retain {version}/{code}")
+
+
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, _format: str, *_args: object) -> None:
         pass
@@ -99,7 +111,7 @@ class QuietHandler(SimpleHTTPRequestHandler):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("artifact_dir", type=Path)
-    parser.add_argument("--baseline-url", required=True)
+    parser.add_argument("--baseline-apk", required=True, type=Path, help="formal APK with its update.json alongside it")
     parser.add_argument("--aapt", type=Path, required=True)
     parser.add_argument("--apksigner", type=Path, required=True)
     parser.add_argument("--adb", type=Path, required=True)
@@ -108,21 +120,13 @@ def main() -> None:
     metadata = json.loads((args.artifact_dir / "update.json").read_text(encoding="utf-8"))
     candidate_name = metadata["apkAssetName"]
     candidate_path = args.artifact_dir / candidate_name
-    if not candidate_path.is_file() or metadata["apkSha256"] != sha256(candidate_path):
-        raise SystemExit("candidate APK does not match update.json")
-    candidate_package, candidate_code, candidate_version = apk_info(candidate_path, args.aapt, args.apksigner)
-    if candidate_package != PACKAGE or candidate_version != metadata["versionName"] or candidate_code != metadata["versionCode"]:
-        raise SystemExit("candidate APK metadata does not match update.json")
-    if candidate_code <= BASELINE_CODE:
-        raise SystemExit("candidate versionCode is not newer than Android 0.1.8")
+    candidate_code, candidate_version = verified_apk(candidate_path, metadata, args.aapt, args.apksigner)
+    baseline_metadata = json.loads(args.baseline_apk.with_name("update.json").read_text(encoding="utf-8"))
+    baseline_code, baseline_version = verified_apk(args.baseline_apk, baseline_metadata, args.aapt, args.apksigner)
+    if candidate_code <= baseline_code:
+        raise SystemExit(f"candidate versionCode {candidate_code} must be greater than baseline versionCode {baseline_code}")
 
     with tempfile.TemporaryDirectory(prefix="android-upgrade-") as temporary:
-        baseline_path = Path(temporary) / "android-v0.1.8.apk"
-        urllib.request.urlretrieve(args.baseline_url, baseline_path)
-        baseline_package, baseline_code, baseline_version = apk_info(baseline_path, args.aapt, args.apksigner)
-        if (baseline_package, baseline_code, baseline_version) != (PACKAGE, BASELINE_CODE, BASELINE_VERSION):
-            raise SystemExit("published Android 0.1.8 baseline metadata changed")
-
         root = Path(temporary) / "server"
         release_dir = root / "android" / "releases" / metadata["versionName"]
         release_dir.mkdir(parents=True)
@@ -147,16 +151,15 @@ def main() -> None:
 
             adb = str(args.adb)
             subprocess.run([adb, "wait-for-device"], check=True, timeout=120)
-            install_apk(adb, baseline_path, "baseline")
+            install_apk(adb, args.baseline_apk, "baseline")
+            require_installed_version(adb, baseline_code, baseline_version)
             install_apk(adb, candidate_path, "candidate")
-            package_dump = run([adb, "shell", "dumpsys", "package", PACKAGE])
-            if f"versionCode={candidate_code}" not in package_dump and f"versionCode: {candidate_code}" not in package_dump:
-                raise SystemExit("Android emulator did not retain the upgraded version")
+            require_installed_version(adb, candidate_code, candidate_version)
         finally:
             server.shutdown()
             thread.join(timeout=5)
 
-    print(f"Android upgrade regression passed: {BASELINE_VERSION}/{BASELINE_CODE} -> {candidate_version}/{candidate_code}")
+    print(f"Android upgrade regression passed: {baseline_version}/{baseline_code} -> {candidate_version}/{candidate_code}")
 
 
 if __name__ == "__main__":
