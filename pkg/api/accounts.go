@@ -913,10 +913,7 @@ func (a *AccountsApi) AccountDeleteHandler(c *core.WebContext) (any, *errs.Error
 			return nil, errs.ErrUserDefaultAccountIsInvalid
 		}
 
-		_, _, err = a.users.UpdateUser(c, &models.User{
-			Uid:              uid,
-			DefaultAccountId: fallbackDefaultAccountId,
-		}, false, false)
+		err = a.users.UpdateUserDefaultAccount(c, uid, fallbackDefaultAccountId)
 
 		if err != nil {
 			log.Errorf(c, "[accounts.AccountDeleteHandler] failed to update fallback default account for user \"uid:%d\", because %s", uid, err.Error())
@@ -999,10 +996,7 @@ func (a *AccountsApi) SubAccountDeleteHandler(c *core.WebContext) (any, *errs.Er
 			return nil, errs.ErrUserDefaultAccountIsInvalid
 		}
 
-		_, _, err = a.users.UpdateUser(c, &models.User{
-			Uid:              uid,
-			DefaultAccountId: fallbackDefaultAccountId,
-		}, false, false)
+		err = a.users.UpdateUserDefaultAccount(c, uid, fallbackDefaultAccountId)
 
 		if err != nil {
 			log.Errorf(c, "[accounts.SubAccountDeleteHandler] failed to update fallback default account for user \"uid:%d\", because %s", uid, err.Error())
@@ -1040,10 +1034,7 @@ func (a *AccountsApi) restoreDefaultAccountAfterRemovalFailure(c *core.WebContex
 		return
 	}
 
-	if _, _, err := a.users.UpdateUser(c, &models.User{
-		Uid:              uid,
-		DefaultAccountId: accountId,
-	}, false, false); err != nil {
+	if err := a.users.UpdateUserDefaultAccount(c, uid, accountId); err != nil {
 		log.Errorf(c, "[accounts.restoreDefaultAccountAfterRemovalFailure] failed to restore default account for user \"uid:%d\", because %s", uid, err.Error())
 	}
 }

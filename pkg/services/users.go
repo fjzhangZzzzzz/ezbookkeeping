@@ -387,6 +387,28 @@ func (s *UserService) UpdateUser(c core.Context, user *models.User, modifyUserLa
 	return keyProfileUpdated, emailSetToUnverified, nil
 }
 
+// UpdateUserDefaultAccount changes the default account without updating other profile preferences.
+func (s *UserService) UpdateUserDefaultAccount(c core.Context, uid int64, accountId int64) error {
+	if uid <= 0 {
+		return errs.ErrUserIdInvalid
+	}
+	if accountId <= 0 {
+		return errs.ErrUserDefaultAccountIsInvalid
+	}
+
+	user := &models.User{DefaultAccountId: accountId, UpdatedUnixTime: time.Now().Unix()}
+	return s.UserDB().DoTransaction(c, func(sess datastore.DatabaseSession) error {
+		updatedRows, err := sess.ID(uid).Cols("default_account_id", "updated_unix_time").Where("deleted=?", false).Update(user)
+		if err != nil {
+			return err
+		}
+		if updatedRows < 1 {
+			return errs.ErrUserNotFound
+		}
+		return nil
+	})
+}
+
 // UpdateUserPassword updates the password of specified user
 func (s *UserService) UpdateUserPassword(c core.Context, user *models.User) error {
 	if user.Uid <= 0 {
