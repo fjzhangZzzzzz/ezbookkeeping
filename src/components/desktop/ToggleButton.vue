@@ -30,7 +30,7 @@ function updateValue(value: boolean): void {
 }
 </script>
 
-<style scoped>
+<style>
 .segmented-button.v-btn-toggle {
     --v-theme-overlay-multiplier: 0;
     width: auto;

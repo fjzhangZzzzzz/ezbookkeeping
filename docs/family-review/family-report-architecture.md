@@ -2,12 +2,15 @@
 
 ## 状态
 
-已实现，随下一次独立 Android/Webapp 发布一起验收；旧家庭概览接口继续兼容。
+Android 和 Web 使用同一家庭报表数据契约。Web 的页面层级、跨端差异和验收要求见 [Web 家庭账本设计基线](webapp-family-design.md)。
 
 ## 数据边界
 
 - `GET /api/v1/family/report.json` 按月或自然年、成员范围在服务端聚合，返回收支总览、日序列、分类及上期分类值、成员和账户。
+- Web 使用报表分类的 `parent` 信息分组，`priorOnlyCategories` 补足只在上期有数据的分类。历史上直接记到一级分类的交易保留为「直接记账」。流水按实际记账分类 ID 下钻。
 - `GET /api/v1/family/report/transactions.json` 是报表点击后的只读明细源，支持成员、日期、分类、账户和稳定游标。
+- `GET /api/v1/family/transactions/list.json` 支持 `period`、`yearly` 和 `member_id`，返回完整家庭流水，游标绑定查询范围。旧 `month` 参数与旧游标格式继续兼容。
+- `GET /api/v1/family/report/export.csv` 按报表的期间和成员查询汇总，使用与报表相同的金额及外币排除口径。旧月度导出接口继续兼容。
 - 家庭报表只统计 CNY 的收入/支出，家庭内部转账不计入；外币只返回排除提示和笔数。
 - Android 使用与个人报表相同的图表、分类环图、表格和加载/错误状态组件；家庭明细只读，自己的交易仍从个人流水编辑。
 

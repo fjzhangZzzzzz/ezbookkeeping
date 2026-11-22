@@ -19,6 +19,8 @@ func TestFamilyEndpointsRejectNonInteractiveTokensQA(t *testing.T) {
 		require.NotNil(t, err)
 		_, _, err = Family.ExportHandler(c)
 		require.NotNil(t, err)
+		_, _, err = Family.ReportExportHandler(c)
+		require.NotNil(t, err)
 		_, _, err = Family.PictureHandler(c)
 		require.NotNil(t, err)
 	}

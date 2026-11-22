@@ -1,6 +1,7 @@
 <template>
     <f7-sheet swipe-to-close swipe-handler=".swipe-handler" class="month-selection-sheet" style="height:auto"
-              :opened="show" @sheet:open="onSheetOpen" @sheet:closed="onSheetClosed">
+              :opened="show" :container-el="containerEl" :backdrop="containerEl ? true : undefined"
+              role="dialog" :aria-label="title" @sheet:open="onSheetOpen" @sheet:closed="onSheetClosed">
         <div class="swipe-handler"></div>
         <f7-page-content>
             <div class="display-flex padding justify-content-space-between align-items-center">
@@ -9,9 +10,11 @@
             <div class="padding-horizontal padding-bottom">
                 <p class="no-margin-top" v-if="hint">{{ hint }}</p>
                 <slot></slot>
+                <slot name="picker-controls"></slot>
                 <month-picker month-picker-class="justify-content-center margin-bottom"
-                              :is-dark-mode="isDarkMode" v-model="monthValue"></month-picker>
-                <f7-button large fill
+                              :is-dark-mode="isDarkMode" :year-range="yearRange" :year-only="yearOnly"
+                              :model-value="monthValue" @update:model-value="selectPeriod"></month-picker>
+                <f7-button v-if="!yearOnly" large fill
                            :class="{ 'disabled': !monthValue }"
                            :text="tt('Apply')"
                            @click="confirm">
@@ -40,6 +43,9 @@ const props = defineProps<{
     title?: string;
     hint?: string;
     show: boolean;
+    yearOnly?: boolean;
+    yearRange?: [number, number];
+    containerEl?: HTMLElement;
 }>();
 
 const emit = defineEmits<{
@@ -62,6 +68,12 @@ function confirm(): void {
     }
 
     emit('update:modelValue', monthValue.value);
+}
+
+function selectPeriod(value: Year0BasedMonth | Year0BasedMonth[]): void {
+    if (Array.isArray(value)) return;
+    monthValue.value = value;
+    if (props.yearOnly) confirm();
 }
 
 function cancel(): void {

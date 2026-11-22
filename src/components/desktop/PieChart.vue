@@ -8,7 +8,7 @@
 import { ref, computed } from 'vue';
 import { useTheme } from 'vuetify';
 
-import type { ECElementEvent } from 'echarts/core';
+import { format, type ECElementEvent } from 'echarts/core';
 import type { CallbackDataParams } from 'echarts/types/dist/shared';
 
 import { type CommonPieChartDataItem, type CommonPieChartProps, usePieChartBase } from '@/components/base/PieChartBase.ts'
@@ -32,6 +32,8 @@ interface DesktopPieChartDataItem extends CommonPieChartDataItem {
 
 interface DesktopPieChartProps extends CommonPieChartProps {
     styleType?: PieChartStyleType;
+    compact?: boolean;
+    rotation?: number;
 }
 
 const props = defineProps<DesktopPieChartProps>();
@@ -50,7 +52,7 @@ const isDarkMode = computed<boolean>(() => theme.global.name.value === ThemeType
 
 const seriesRadius = computed<[number | string, string]>(() => {
     if (props.styleType === 'donut') {
-        return ['40%', '75%'];
+        return props.compact ? ['60%', '94%'] : ['40%', '75%'];
     }
 
     return [0, '75%'];
@@ -140,7 +142,7 @@ const chartOptions = computed<object>(() => {
                 let tooltip = `<div><span class="chart-pointer" style="background-color: ${params.color}"></span>`;
 
                 if (dataItem.displayName) {
-                    tooltip += `<div class="d-inline-flex">${dataItem.displayName}</div><br/>`;
+                    tooltip += `<div class="d-inline-flex">${format.encodeHTML(dataItem.displayName)}</div><br/>`;
                 }
 
                 const showValue = props.showValue;
@@ -160,6 +162,7 @@ const chartOptions = computed<object>(() => {
             }
         },
         legend: {
+            show: !props.compact,
             orient: 'horizontal',
             type: 'scroll',
             top: 0,
@@ -174,8 +177,8 @@ const chartOptions = computed<object>(() => {
             {
                 type: 'pie',
                 data: seriesData.value,
-                top: 50,
-                startAngle: -90 + firstItemAndHalfCurrentItemTotalPercent.value * 360,
+                top: props.compact ? 0 : 50,
+                startAngle: -90 + firstItemAndHalfCurrentItemTotalPercent.value * 360 - (props.rotation ?? 0),
                 radius: seriesRadius.value,
                 roseType: props.styleType === 'nightingaleRose' ? 'radius' : undefined,
                 emphasis: {
@@ -186,16 +189,17 @@ const chartOptions = computed<object>(() => {
                     }
                 },
                 label: {
+                    show: !props.compact,
                     color: isDarkMode.value ? '#eee' : '#333',
                     formatter: (params: CallbackDataParams) => {
                         const dataItem = params.data as DesktopPieChartDataItem;
                         return dataItem ? dataItem.displayName : '';
                     }
                 },
-                animation: !props.skeleton
+                animation: !props.compact && !props.skeleton
             }
         ],
-        media: [
+        media: props.compact ? [] : [
             {
                 query: {
                     minWidth: 600,
@@ -222,7 +226,7 @@ function clickItem(e: ECElementEvent): void {
         return;
     }
 
-    if (e.event && e.event.target && e.event.target.currentStates && e.event.target.currentStates[0] && e.event.target.currentStates[0] === 'emphasis') {
+    if (!props.compact && e.event && e.event.target && e.event.target.currentStates && e.event.target.currentStates[0] && e.event.target.currentStates[0] === 'emphasis') {
         selectedIndex.value = e.dataIndex;
         return;
     }

@@ -1,10 +1,10 @@
 <template>
-    <v-dialog class="month-selection-dialog" width="480" :persistent="!!persistent" v-model="showState">
+    <v-dialog class="month-selection-dialog" width="480" :persistent="!!persistent" :attach="containerEl" v-model="showState">
         <one-column-dialog-layout content-class="pa-0"
                                   :title="title" :cancel-button-title="tt('Cancel')"
                                   @cancel="cancel">
             <template #toolbar>
-                <v-btn class="mx-2" density="comfortable" variant="outlined"
+                <v-btn v-if="!yearOnly" class="mx-2" density="comfortable" variant="outlined"
                        :disabled="!monthValue" @click="confirm">{{ tt('Apply') }}</v-btn>
             </template>
 
@@ -13,9 +13,11 @@
                     <span>{{ hint }}</span>
                     <slot></slot>
                 </div>
+                <slot name="picker-controls"></slot>
                 <v-row>
                     <v-col>
-                        <month-picker :is-dark-mode="isDarkMode" v-model="monthValue"></month-picker>
+                        <month-picker :is-dark-mode="isDarkMode" :year-range="yearRange" :year-only="yearOnly"
+                                      :model-value="monthValue" @update:model-value="selectPeriod"></month-picker>
                     </v-col>
                 </v-row>
             </template>
@@ -40,6 +42,9 @@ const props = defineProps<{
     hint?: string;
     show: boolean;
     persistent?: boolean;
+    yearOnly?: boolean;
+    yearRange?: [number, number];
+    containerEl?: HTMLElement;
 }>();
 
 const emit = defineEmits<{
@@ -67,6 +72,12 @@ function confirm(): void {
     }
 
     emit('update:modelValue', monthValue.value);
+}
+
+function selectPeriod(value: Year0BasedMonth | Year0BasedMonth[]): void {
+    if (Array.isArray(value)) return;
+    monthValue.value = value;
+    if (props.yearOnly) confirm();
 }
 
 function cancel(): void {

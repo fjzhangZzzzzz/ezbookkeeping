@@ -80,34 +80,46 @@ type FamilyTransactionPage struct {
 }
 
 // FamilyReportCategory is the category projection consumed by the Android
-// report screen. Amounts are normalized to positive minor units for both
-// income and expense, matching the personal report contract.
+// report screen. Ordinary income and expense are positive minor units,
+// and refunds reduce those amounts.
+type FamilyReportCategoryParent struct {
+	Id   int64  `json:"id,string"`
+	Name string `json:"name"`
+	Icon int64  `json:"icon,string"`
+}
+
 type FamilyReportCategory struct {
-	Id                  int64  `json:"id,string"`
-	Name                string `json:"name"`
-	Type                int    `json:"type"`
-	Icon                int64  `json:"icon,string"`
-	IconType            int    `json:"iconType"`
-	Color               string `json:"color"`
-	AmountMinor         string `json:"amountMinor"`
-	PreviousAmountMinor string `json:"previousAmountMinor"`
+	Id                  int64                       `json:"id,string"`
+	Name                string                      `json:"name"`
+	Type                int                         `json:"type"`
+	Icon                int64                       `json:"icon,string"`
+	IconType            int                         `json:"iconType"`
+	Color               string                      `json:"color"`
+	AmountMinor         string                      `json:"amountMinor"`
+	PreviousAmountMinor string                      `json:"previousAmountMinor"`
+	Parent              *FamilyReportCategoryParent `json:"parent,omitempty"`
 }
 
 type FamilyReport struct {
-	Period                      string                 `json:"period"`
-	Yearly                      bool                   `json:"yearly"`
-	MemberId                    int64                  `json:"memberId,string"`
-	Timezone                    string                 `json:"timezone"`
-	Currency                    string                 `json:"currency"`
-	IncomeMinor                 string                 `json:"incomeMinor"`
-	ExpenseMinor                string                 `json:"expenseMinor"`
-	NetMinor                    string                 `json:"netMinor"`
-	AverageExpenseMinor         string                 `json:"averageExpenseMinor"`
-	Days                        []FamilyDaySummary     `json:"days"`
-	Categories                  []FamilyReportCategory `json:"categories"`
-	Members                     []FamilyMemberSummary  `json:"members"`
-	Accounts                    []FamilyAccount        `json:"accounts"`
-	HasExcludedForeignCurrency  bool                   `json:"hasExcludedForeignCurrency"`
-	ExcludedForeignTransactions int                    `json:"excludedForeignTransactions"`
-	ReadOnly                    bool                   `json:"readOnly"`
+	Period                              string                 `json:"period"`
+	Yearly                              bool                   `json:"yearly"`
+	MemberId                            int64                  `json:"memberId,string"`
+	Timezone                            string                 `json:"timezone"`
+	Currency                            string                 `json:"currency"`
+	IncomeMinor                         string                 `json:"incomeMinor"`
+	ExpenseMinor                        string                 `json:"expenseMinor"`
+	NetMinor                            string                 `json:"netMinor"`
+	AverageExpenseMinor                 string                 `json:"averageExpenseMinor"`
+	AverageIncomeMinor                  string                 `json:"averageIncomeMinor"`
+	AverageNetMinor                     string                 `json:"averageNetMinor"`
+	Days                                []FamilyDaySummary     `json:"days"`
+	Months                              []FamilyMonthSummary   `json:"months"`
+	Categories                          []FamilyReportCategory `json:"categories"`
+	PriorOnlyCategories                 []FamilyReportCategory `json:"priorOnlyCategories,omitempty"`
+	Members                             []FamilyMemberSummary  `json:"members"`
+	Accounts                            []FamilyAccount        `json:"accounts"`
+	HasExcludedForeignCurrency          bool                   `json:"hasExcludedForeignCurrency"`
+	ExcludedForeignTransactions         int                    `json:"excludedForeignTransactions"`
+	PreviousExcludedForeignTransactions int                    `json:"previousExcludedForeignTransactions"`
+	ReadOnly                            bool                   `json:"readOnly"`
 }

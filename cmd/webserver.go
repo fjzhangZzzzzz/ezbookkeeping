@@ -340,6 +340,7 @@ func startWebServer(c *core.CliContext) error {
 			apiV1Route.GET("/family/report.json", bindApi(api.Family.ReportHandler, config, core.USER_TOKEN_TYPE_NORMAL))
 			apiV1Route.GET("/family/report/transactions.json", bindApi(api.Family.ReportTransactionsHandler, config, core.USER_TOKEN_TYPE_NORMAL))
 			apiV1Route.GET("/family/export.csv", bindCsv(api.Family.ExportHandler, config))
+			apiV1Route.GET("/family/report/export.csv", bindCsv(api.Family.ReportExportHandler, config))
 			apiV1Route.GET("/family/pictures/:fileName", bindImage(api.Family.PictureHandler, config))
 
 			// Tokens

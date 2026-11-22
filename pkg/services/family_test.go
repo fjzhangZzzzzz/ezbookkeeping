@@ -1,12 +1,25 @@
 package services
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/mayswind/ezbookkeeping/pkg/models"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestFamilyReportAverageRoundsHalfToEven(t *testing.T) {
+	for _, test := range []struct {
+		amount int64
+		count  int
+		want   string
+	}{
+		{5, 2, "2"}, {7, 2, "4"}, {-5, 2, "-2"}, {-7, 2, "-4"}, {-8, 3, "-3"}, {7, 0, "0"},
+	} {
+		assert.Equal(t, test.want, familyReportAverage(big.NewInt(test.amount), test.count), "%d / %d", test.amount, test.count)
+	}
+}
 
 func TestFamilyMonthRangeShanghai(t *testing.T) {
 	start, end, err := familyMonthRange("2026-11")

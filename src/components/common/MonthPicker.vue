@@ -1,6 +1,6 @@
 <template>
     <vue-date-picker inline auto-apply
-                     month-picker
+                     :month-picker="!yearOnly" :year-picker="!!yearOnly"
                      :class="finalMonthPickerClass"
                      :config="{'modeHeight': 255}"
                      :input-attrs="{ clearable: !!clearable }"
@@ -47,6 +47,8 @@ const props = defineProps<{
     monthPickerClass?: string;
     isDarkMode: boolean;
     clearable?: boolean;
+    yearRange?: [number, number];
+    yearOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -59,7 +61,7 @@ const {
     getCalendarDisplayShortMonthFromDateTime
 } = useI18n();
 
-const yearRange = getAllowedYearRange();
+const yearRange = computed(() => props.yearRange ?? getAllowedYearRange());
 
 const isYearFirst = computed<boolean>(() => isLongDateMonthAfterYear());
 
@@ -73,17 +75,21 @@ const finalMonthPickerClass = computed<string>(() => {
     return classes;
 });
 
-const dateTime = computed<MonthSelectionValue | MonthSelectionValue[]>({
+const dateTime = computed<MonthSelectionValue | MonthSelectionValue[] | number>({
     get: () => {
         if (isArray(props.modelValue)) {
             return props.modelValue.map(item => getMonthSelectionValueFromYear0BasedMonth(item));
+        } else if (props.yearOnly) {
+            return props.modelValue.year;
         } else {
             return getMonthSelectionValueFromYear0BasedMonth(props.modelValue);
         }
     },
-    set: (value: MonthSelectionValue | MonthSelectionValue[]) => {
+    set: (value: MonthSelectionValue | MonthSelectionValue[] | number) => {
         if (isArray(value)) {
             emit('update:modelValue', value.map(item => getYear0BasedMonthFromMonthSelectionValue(item)));
+        } else if (typeof value === 'number') {
+            if (!isArray(props.modelValue)) emit('update:modelValue', { ...props.modelValue, year: value });
         } else {
             emit('update:modelValue', getYear0BasedMonthFromMonthSelectionValue(value));
         }
@@ -111,6 +117,7 @@ function getDisplayYear(year: number): string {
 }
 
 function getDisplayMonth(month: number): string {
+    if (typeof dateTime.value === 'number') return '';
     if (isArray(dateTime.value)) {
         return getCalendarDisplayShortMonthFromDateTime(getYearMonthDayDateTime(dateTime.value[0]!.year, month + 1, 1));
     } else {

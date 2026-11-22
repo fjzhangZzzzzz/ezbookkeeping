@@ -21,17 +21,17 @@
                     cx="0" cy="0"
                     stroke="#ddd"
                     :style="{ '--pie-chart-text-background': centerTextBackground ? centerTextBackground : '#7f2020' }"
-                    :r="diameter / 2.5"
+                    :r="centerRadius"
                     v-if="showCenterText"/>
 
             <circle cx="0" cy="0"
                     stroke="#ddd"
                     fill="transparent"
-                    :r="diameter / 2.5"
+                    :r="centerRadius"
                     v-if="showCenterText"/>
 
             <clipPath id="pie-chart-text-clip">
-                <rect :x="-diameter / 2.5 + 2" :y="-diameter / 2.5 + 2" :width="diameter / 1.25 - 4" :height="diameter / 1.25 -4 "/>
+                <rect :x="2 - centerRadius" :y="2 - centerRadius" :width="2 * centerRadius - 4" :height="2 * centerRadius - 4" />
             </clipPath>
 
             <g class="pie-chart-text-group" clip-path="url(#pie-chart-text-clip)" v-if="showCenterText">
@@ -93,6 +93,9 @@ interface MobilePieChartProps extends CommonPieChartProps {
     showCenterText?: boolean;
     showSelectedItemInfo?: boolean;
     centerTextBackground?: ColorStyleValue;
+    centerRadiusRatio?: number;
+    rotation?: number;
+    directSliceClick?: boolean;
 }
 
 const props = defineProps<MobilePieChartProps>();
@@ -106,6 +109,7 @@ const { selectedIndex, validItems } = usePieChartBase(props);
 
 const minPaintPercent = 0.0001; // 0.01%
 const diameter: number = 100;
+const centerRadius = computed(() => diameter * (props.centerRadiusRatio ?? 0.4));
 const circumference: number = diameter * Math.PI;
 
 const totalValidValue = computed<BigDecimal>(() => {
@@ -182,6 +186,7 @@ function getItemDashOffset(item: CommonPieChartDataItem, items: CommonPieChartDa
         offset = circumference / 4;
     }
 
+    offset -= circumference * (props.rotation ?? 0) / 360;
     if (allPreviousPercent <= 0) {
         return offset;
     }
@@ -205,6 +210,11 @@ const selectedItem = computed<CommonPieChartDataItem | null>(() => {
 });
 
 function switchSelectedIndex(index: number): void {
+    const item = validItems.value[index];
+    if (props.directSliceClick && props.enableClickItem && item) {
+        emit('click', item.sourceItem);
+        return;
+    }
     selectedIndex.value = index;
 }
 

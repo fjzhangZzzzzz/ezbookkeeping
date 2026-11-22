@@ -4,9 +4,11 @@
             <f7-nav-title :title="tt('global.app.title')"></f7-nav-title>
         </f7-navbar>
 
-        <overview-dashboard :layout="layout" :loading="loading" @navigate="onNavigate" />
+        <f7-list strong inset class="margin-top-half margin-bottom-half">
+            <f7-list-item link="/family" title="家庭账本"><template #media><f7-icon f7="person_2" aria-hidden="true" /></template></f7-list-item>
+        </f7-list>
 
-        <f7-block><f7-link href="/family">家庭账本 ›</f7-link></f7-block>
+        <overview-dashboard :layout="layout" :loading="loading" @navigate="onNavigate" />
 
         <f7-toolbar tabbar icons bottom class="main-tabbar">
             <f7-link class="link" href="/transaction/list" :aria-label="tt('Details')">

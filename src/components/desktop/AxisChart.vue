@@ -7,7 +7,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useTheme } from 'vuetify';
-import type { ECElementEvent } from 'echarts/core';
+import VChart from 'vue-echarts';
+import type { ECElementEvent, EChartsCoreOption, Payload } from 'echarts/core';
 import type { CallbackDataParams } from 'echarts/types/dist/shared';
 
 import { useI18n } from '@/locales/helpers.ts';
@@ -61,8 +62,9 @@ interface AxisChartTooltipItem extends SortableTransactionStatisticDataItem {
     readonly value: BigDecimal;
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     class?: string;
+    darkMode?: boolean;
     skeleton?: boolean;
     noAnimation?: boolean;
     type: AxisChartDisplayType;
@@ -92,13 +94,13 @@ const props = defineProps<{
     tooltipExtraColumnNames?: string[];
     tooltipExtraColumnTotalValues?: (categoryIndex: number, totalValue: BigDecimal, visibleSeriesIds: string[]) => string[];
     tooltipExtraColumnValues?: (seriesId: string, categoryIndex: number, currentValue: BigDecimal) => string[];
-}>();
+}>(), { darkMode: undefined });
 
 const emit = defineEmits<{
     (e: 'click', itemId: string, categoryIndex: number, item: AxisChartSourceDataItem): void;
 }>();
 
-const theme = useTheme();
+const theme = props.darkMode === undefined ? useTheme() : null;
 
 const {
     tt,
@@ -114,7 +116,7 @@ const settingsStore = useSettingsStore();
 const selectedLegends = ref<Record<string, boolean>>({});
 
 const textDirection = computed<TextDirection>(() => getCurrentLanguageTextDirection());
-const isDarkMode = computed<boolean>(() => theme.global.name.value === ThemeType.Dark);
+const isDarkMode = computed<boolean>(() => props.darkMode ?? theme?.global.name.value === ThemeType.Dark);
 const chartColors = computed<ColorValue[]>(() => settingsStore.chartColorList);
 
 const finalClass = computed<string>(() => {
@@ -276,7 +278,7 @@ const yAxisWidth = computed<number>(() => {
     return width;
 });
 
-const chartOptions = computed<object>(() => {
+const chartOptions = computed<EChartsCoreOption>(() => {
     return {
         tooltip: {
             trigger: 'axis',
@@ -564,8 +566,8 @@ function exportData(): { headers: string[], data: string[][] } {
     };
 }
 
-function onLegendSelectChanged(e: { selected: Record<string, boolean> }): void {
-    selectedLegends.value = e.selected;
+function onLegendSelectChanged(e: Payload): void {
+    selectedLegends.value = e['selected'] || {};
 }
 
 defineExpose({

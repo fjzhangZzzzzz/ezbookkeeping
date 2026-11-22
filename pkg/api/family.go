@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"encoding/csv"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/mayswind/ezbookkeeping/pkg/core"
@@ -43,6 +45,8 @@ func (a *FamilyApi) TransactionsHandler(c *core.WebContext) (any, *errs.Error) {
 	}
 	var request struct {
 		Month    string `form:"month"`
+		Period   string `form:"period"`
+		Yearly   bool   `form:"yearly"`
 		MemberID int64  `form:"member_id,string"`
 		Cursor   string `form:"cursor"`
 		Count    int    `form:"count,default=50" binding:"min=1,max=200"`
@@ -50,14 +54,20 @@ func (a *FamilyApi) TransactionsHandler(c *core.WebContext) (any, *errs.Error) {
 	if err := c.ShouldBindQuery(&request); err != nil {
 		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
 	}
-	result, err := services.Family.Transactions(c, uid, request.Month, request.MemberID, request.Cursor, request.Count)
+	var result *models.FamilyTransactionPage
+	var err error
+	if request.Period != "" || request.Yearly {
+		result, err = services.Family.TransactionsForPeriod(c, uid, request.Period, request.Yearly, request.MemberID, request.Cursor, request.Count)
+	} else {
+		result, err = services.Family.Transactions(c, uid, request.Month, request.MemberID, request.Cursor, request.Count)
+	}
 	if err != nil {
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
 	return result, nil
 }
 
-func (a *FamilyApi) ReportHandler(c *core.WebContext) (any, *errs.Error) {
+func familyReportForRequest(c *core.WebContext) (*models.FamilyReport, *errs.Error) {
 	uid, authErr := familySessionUID(c)
 	if authErr != nil {
 		return nil, authErr
@@ -76,6 +86,10 @@ func (a *FamilyApi) ReportHandler(c *core.WebContext) (any, *errs.Error) {
 		return nil, errs.Or(serviceErr, errs.ErrOperationFailed)
 	}
 	return result, nil
+}
+
+func (a *FamilyApi) ReportHandler(c *core.WebContext) (any, *errs.Error) {
+	return familyReportForRequest(c)
 }
 
 func (a *FamilyApi) ReportTransactionsHandler(c *core.WebContext) (any, *errs.Error) {
@@ -156,6 +170,77 @@ func (a *FamilyApi) ExportHandler(c *core.WebContext) ([]byte, string, *errs.Err
 	}
 	c.Header("Cache-Control", "no-store")
 	return data, "family-" + result.Month + ".csv", nil
+}
+
+func buildFamilyReportCSV(report *models.FamilyReport) ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.WriteString("\xef\xbb\xbf")
+	writer := csv.NewWriter(&buffer)
+	rows := [][]string{{"期间", "时区", "币种", "维度", "名称", "收入（分）", "支出（分）", "结余（分）", "上期分类金额（分）"}}
+	appendRow := func(dimension, name string, amounts models.FamilyAmounts, previous string) {
+		rows = append(rows, []string{report.Period, report.Timezone, report.Currency, dimension, familyCSVText(name), amounts.IncomeMinor, amounts.ExpenseMinor, amounts.NetMinor, previous})
+	}
+	scopeName := "全家"
+	for _, member := range report.Members {
+		if member.Id == report.MemberId {
+			scopeName = member.Nickname
+		}
+	}
+	appendRow("总计", scopeName, models.FamilyAmounts{IncomeMinor: report.IncomeMinor, ExpenseMinor: report.ExpenseMinor, NetMinor: report.NetMinor}, "")
+	if report.MemberId == 0 {
+		for _, member := range report.Members {
+			appendRow("成员", member.Nickname, member.FamilyAmounts, "")
+		}
+	}
+	for _, category := range slices.Concat(report.Categories, report.PriorOnlyCategories) {
+		var amounts models.FamilyAmounts
+		if category.Type == int(models.CATEGORY_TYPE_EXPENSE) {
+			amounts.ExpenseMinor = category.AmountMinor
+		} else {
+			amounts.IncomeMinor = category.AmountMinor
+		}
+		name := category.Name
+		if category.Parent != nil {
+			name = category.Parent.Name + " / " + name
+		}
+		appendRow("分类", name, amounts, category.PreviousAmountMinor)
+	}
+	if report.Yearly {
+		for _, month := range report.Months {
+			appendRow("逐月", month.Month, month.FamilyAmounts, "")
+		}
+		appendRow("平均", "月均", models.FamilyAmounts{IncomeMinor: report.AverageIncomeMinor, ExpenseMinor: report.AverageExpenseMinor, NetMinor: report.AverageNetMinor}, "")
+	} else {
+		for _, day := range report.Days {
+			if day.IncomeMinor != "0" || day.ExpenseMinor != "0" {
+				appendRow("逐日", day.Date, day.FamilyAmounts, "")
+			}
+		}
+		appendRow("平均", "日均支出", models.FamilyAmounts{ExpenseMinor: report.AverageExpenseMinor}, "")
+	}
+	if count := report.ExcludedForeignTransactions - report.PreviousExcludedForeignTransactions; count > 0 {
+		appendRow("提示", "本期未计入的外币交易："+strconv.Itoa(count)+" 笔", models.FamilyAmounts{}, "")
+	}
+	if count := report.PreviousExcludedForeignTransactions; count > 0 {
+		appendRow("提示", "上期未计入的外币交易："+strconv.Itoa(count)+" 笔", models.FamilyAmounts{}, "")
+	}
+	if err := writer.WriteAll(rows); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func (a *FamilyApi) ReportExportHandler(c *core.WebContext) ([]byte, string, *errs.Error) {
+	report, reportErr := familyReportForRequest(c)
+	if reportErr != nil {
+		return nil, "", reportErr
+	}
+	data, err := buildFamilyReportCSV(report)
+	if err != nil {
+		return nil, "", errs.Or(err, errs.ErrOperationFailed)
+	}
+	c.Header("Cache-Control", "no-store")
+	return data, "family-" + report.Period + ".csv", nil
 }
 
 func (a *FamilyApi) PictureHandler(c *core.WebContext) ([]byte, string, *errs.Error) {

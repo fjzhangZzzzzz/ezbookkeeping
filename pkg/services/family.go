@@ -115,25 +115,19 @@ func (a *familyAmountAccumulator) response() models.FamilyAmounts {
 	return models.FamilyAmounts{IncomeMinor: a.income.String(), ExpenseMinor: a.expense.String(), NetMinor: new(big.Int).Sub(&a.income, &a.expense).String()}
 }
 
-// familyReportAccumulator keeps expenses positive. The personal report uses
-// the same convention, which makes the shared Android report components
-// reusable without a family-only sign branch.
-type familyReportAccumulator struct {
-	income, expense big.Int
-}
-
-func (a *familyReportAccumulator) add(transactionType models.TransactionDbType, amount *big.Int) {
-	value := new(big.Int).Abs(amount)
-	if transactionType == models.TRANSACTION_DB_TYPE_INCOME {
-		a.income.Add(&a.income, value)
-	} else if transactionType == models.TRANSACTION_DB_TYPE_EXPENSE {
-		a.expense.Add(&a.expense, value)
+func familyReportAverage(amount *big.Int, count int) string {
+	if count <= 0 {
+		return "0"
 	}
-}
-
-func (a *familyReportAccumulator) response() models.FamilyAmounts {
-	net := new(big.Int).Sub(&a.income, &a.expense)
-	return models.FamilyAmounts{IncomeMinor: a.income.String(), ExpenseMinor: a.expense.String(), NetMinor: net.String()}
+	divisor := big.NewInt(int64(count))
+	quotient, remainder := new(big.Int), new(big.Int)
+	quotient.QuoRem(amount, divisor, remainder)
+	remainder.Abs(remainder).Lsh(remainder, 1)
+	comparison := remainder.Cmp(divisor)
+	if comparison > 0 || (comparison == 0 && quotient.Bit(0) == 1) {
+		quotient.Add(quotient, big.NewInt(int64(amount.Sign())))
+	}
+	return quotient.String()
 }
 
 func familyReportRange(period string, yearly bool) (time.Time, time.Time, error) {
@@ -179,7 +173,7 @@ func (s *FamilyService) familyReportRows(c core.Context, actorUID int64, scope *
 		return nil, false, 0, c.Err()
 	}
 	var rows []familyOverviewTransaction
-	dayBucketExpression := familyDayBucketExpression(database)
+	dayBucketExpression := familyReportDayBucketExpression(database, start, end)
 	err = database.NewSession(c).Table(&models.Transaction{}).Select(fmt.Sprintf("uid, type, category_id, account_id, %s AS day_bucket, SUM(amount) AS total_amount, COUNT(1) AS row_count", dayBucketExpression)).Where(condition).GroupBy("uid, type, category_id, account_id, day_bucket").Find(&rows)
 	if err != nil {
 		return nil, false, 0, err
@@ -234,44 +228,45 @@ func (s *FamilyService) Report(c core.Context, actorUID int64, period string, ye
 	if err != nil {
 		return nil, err
 	}
-	foreign = foreign || previousForeign
-	foreignCount += previousForeignCount
-
-	result := &models.FamilyReport{Period: start.Format("2006-01"), Yearly: yearly, MemberId: memberUID, Timezone: familyTimezoneName, Currency: "CNY", Days: []models.FamilyDaySummary{}, Categories: []models.FamilyReportCategory{}, Members: []models.FamilyMemberSummary{}, Accounts: []models.FamilyAccount{}, HasExcludedForeignCurrency: foreign, ExcludedForeignTransactions: foreignCount, ReadOnly: true}
+	result := &models.FamilyReport{
+		Period: start.Format("2006-01"), Yearly: yearly, MemberId: memberUID, Timezone: familyTimezoneName, Currency: "CNY", ReadOnly: true,
+		Days: []models.FamilyDaySummary{}, Months: []models.FamilyMonthSummary{}, Categories: []models.FamilyReportCategory{}, Members: []models.FamilyMemberSummary{}, Accounts: []models.FamilyAccount{},
+		HasExcludedForeignCurrency: foreign || previousForeign, ExcludedForeignTransactions: foreignCount + previousForeignCount, PreviousExcludedForeignTransactions: previousForeignCount,
+	}
 	if yearly {
 		result.Period = start.Format("2006")
 	}
-	var total familyReportAccumulator
-	daily := make(map[string]*familyReportAccumulator)
-	memberAmounts := make(map[int64]*familyReportAccumulator)
-	categoryAmounts := make(map[int64]*familyReportAccumulator)
-	previousCategories := make(map[int64]*familyReportAccumulator)
+	var total familyAmountAccumulator
+	daily := make(map[string]*familyAmountAccumulator)
+	memberAmounts := make(map[int64]*familyAmountAccumulator)
+	categoryAmounts := make(map[int64]*familyAmountAccumulator)
+	previousCategories := make(map[int64]*familyAmountAccumulator)
 	for _, member := range scope.members {
-		memberAmounts[member.Uid] = &familyReportAccumulator{}
+		memberAmounts[member.Uid] = &familyAmountAccumulator{}
 	}
-	accumulate := func(rows []familyOverviewTransaction, destination *familyReportAccumulator, byDay map[string]*familyReportAccumulator, byMember map[int64]*familyReportAccumulator, byCategory map[int64]*familyReportAccumulator) error {
+	accumulate := func(rows []familyOverviewTransaction, destination *familyAmountAccumulator, byDay map[string]*familyAmountAccumulator, byMember map[int64]*familyAmountAccumulator, byCategory map[int64]*familyAmountAccumulator) error {
 		for i := range rows {
 			row := &rows[i]
 			amount := new(big.Int)
 			if _, ok := amount.SetString(row.TotalAmount, 10); !ok {
 				return fmt.Errorf("invalid aggregated family amount %q", row.TotalAmount)
 			}
-			destination.add(row.Type, amount)
+			destination.addBigValues(row.Type, amount)
 			if byDay != nil {
-				day := time.Unix(row.DayBucket*86400-28800, 0).In(start.Location()).Format("2006-01-02")
+				day := time.Unix(row.DayBucket*86400, 0).UTC().Format("2006-01-02")
 				if byDay[day] == nil {
-					byDay[day] = &familyReportAccumulator{}
+					byDay[day] = &familyAmountAccumulator{}
 				}
-				byDay[day].add(row.Type, amount)
+				byDay[day].addBigValues(row.Type, amount)
 			}
 			if byMember != nil {
-				byMember[row.Uid].add(row.Type, amount)
+				byMember[row.Uid].addBigValues(row.Type, amount)
 			}
 			if byCategory != nil {
 				if byCategory[row.CategoryId] == nil {
-					byCategory[row.CategoryId] = &familyReportAccumulator{}
+					byCategory[row.CategoryId] = &familyAmountAccumulator{}
 				}
-				byCategory[row.CategoryId].add(row.Type, amount)
+				byCategory[row.CategoryId].addBigValues(row.Type, amount)
 			}
 		}
 		return nil
@@ -279,51 +274,73 @@ func (s *FamilyService) Report(c core.Context, actorUID int64, period string, ye
 	if err := accumulate(currentRows, &total, daily, memberAmounts, categoryAmounts); err != nil {
 		return nil, err
 	}
-	previousTotal := &familyReportAccumulator{}
+	previousTotal := &familyAmountAccumulator{}
 	if err := accumulate(previousRows, previousTotal, nil, nil, previousCategories); err != nil {
 		return nil, err
 	}
-	result.IncomeMinor = total.response().IncomeMinor
-	result.ExpenseMinor = total.response().ExpenseMinor
-	result.NetMinor = total.response().NetMinor
-	result.AverageExpenseMinor = total.expense.String()
+	totals := total.response()
+	result.IncomeMinor, result.ExpenseMinor, result.NetMinor = totals.IncomeMinor, totals.ExpenseMinor, totals.NetMinor
+	averageDivisor := time.Date(start.Year(), start.Month()+1, 0, 0, 0, 0, 0, start.Location()).Day()
 	if yearly {
-		activeMonths := map[string]bool{}
-		for day := range daily {
-			activeMonths[day[:7]] = true
+		activeMonths := make(map[string]*familyAmountAccumulator)
+		for day, amount := range daily {
+			if amount.income.Sign() != 0 || amount.expense.Sign() != 0 {
+				month := day[:7]
+				if activeMonths[month] == nil {
+					activeMonths[month] = &familyAmountAccumulator{}
+				}
+				activeMonths[month].income.Add(&activeMonths[month].income, &amount.income)
+				activeMonths[month].expense.Add(&activeMonths[month].expense, &amount.expense)
+			}
 		}
-		if len(activeMonths) > 0 {
-			result.AverageExpenseMinor = new(big.Int).Quo(&total.expense, big.NewInt(int64(len(activeMonths)))).String()
+		for month, amount := range activeMonths {
+			result.Months = append(result.Months, models.FamilyMonthSummary{Month: month, FamilyAmounts: amount.response()})
 		}
-	} else if days := int(end.Sub(start).Hours() / 24); days > 0 {
-		result.AverageExpenseMinor = new(big.Int).Quo(&total.expense, big.NewInt(int64(days))).String()
+		sort.Slice(result.Months, func(i, j int) bool { return result.Months[i].Month < result.Months[j].Month })
+		averageDivisor = len(activeMonths)
 	}
+	result.AverageExpenseMinor = familyReportAverage(&total.expense, averageDivisor)
+	result.AverageIncomeMinor = familyReportAverage(&total.income, averageDivisor)
+	result.AverageNetMinor = familyReportAverage(new(big.Int).Sub(&total.income, &total.expense), averageDivisor)
 	for day, amount := range daily {
 		response := amount.response()
 		result.Days = append(result.Days, models.FamilyDaySummary{Date: day, FamilyAmounts: response})
 	}
 	sort.Slice(result.Days, func(i, j int) bool { return result.Days[i].Date < result.Days[j].Date })
-	for categoryID, amount := range categoryAmounts {
+	projectCategory := func(categoryID int64, amount *familyAmountAccumulator) (models.FamilyReportCategory, bool) {
 		category := scope.categories[categoryID]
 		if category == nil {
-			continue
+			return models.FamilyReportCategory{}, false
 		}
-		result.Categories = append(result.Categories, models.FamilyReportCategory{Id: categoryID, Name: familyReportCategoryName(scope, categoryID), Type: int(category.Type), Icon: category.Icon, IconType: int(category.IconType), Color: category.Color, AmountMinor: func() string {
+		getAmount := func(amount *familyAmountAccumulator) string {
+			if amount == nil {
+				return "0"
+			}
 			if category.Type == models.CATEGORY_TYPE_EXPENSE {
 				return amount.expense.String()
 			}
 			return amount.income.String()
-		}(), PreviousAmountMinor: func() string {
-			if previous := previousCategories[categoryID]; previous != nil {
-				if category.Type == models.CATEGORY_TYPE_EXPENSE {
-					return previous.expense.String()
-				}
-				return previous.income.String()
+		}
+		entry := models.FamilyReportCategory{Id: categoryID, Name: familyReportCategoryName(scope, categoryID), Type: int(category.Type), Icon: category.Icon, IconType: int(category.IconType), Color: category.Color, AmountMinor: getAmount(amount), PreviousAmountMinor: getAmount(previousCategories[categoryID])}
+		if parent := scope.categories[category.ParentCategoryId]; parent != nil && parent.Type == category.Type {
+			entry.Parent = &models.FamilyReportCategoryParent{Id: parent.CategoryId, Name: parent.Name, Icon: parent.Icon}
+		}
+		return entry, true
+	}
+	for categoryID, amount := range categoryAmounts {
+		if category, ok := projectCategory(categoryID, amount); ok {
+			result.Categories = append(result.Categories, category)
+		}
+	}
+	for categoryID := range previousCategories {
+		if _, exists := categoryAmounts[categoryID]; !exists {
+			if category, ok := projectCategory(categoryID, nil); ok && category.PreviousAmountMinor != "0" {
+				result.PriorOnlyCategories = append(result.PriorOnlyCategories, category)
 			}
-			return "0"
-		}()})
+		}
 	}
 	sort.Slice(result.Categories, func(i, j int) bool { return result.Categories[i].Id < result.Categories[j].Id })
+	sort.Slice(result.PriorOnlyCategories, func(i, j int) bool { return result.PriorOnlyCategories[i].Id < result.PriorOnlyCategories[j].Id })
 	for _, member := range scope.members {
 		response := memberAmounts[member.Uid].response()
 		result.Members = append(result.Members, models.FamilyMemberSummary{Id: member.Uid, Nickname: member.Nickname, FamilyAmounts: response})
@@ -366,14 +383,33 @@ type familyOverviewTransaction struct {
 	RowCount    int64                    `xorm:"row_count"`
 }
 
-func familyDayBucketExpression(db datastore.Database) string {
-	// Family statistics use Asia/Shanghai, which has a fixed UTC+08:00 offset.
+func familyDayBucketExpression(db datastore.Database, offset int) string {
 	// SQLite and PostgreSQL perform integer division for integer operands. MySQL
 	// needs FLOOR because / returns a decimal expression.
 	if xormDatabase, ok := db.(*datastore.XOrmDatabase); ok && xormDatabase.IsMySQL() {
-		return "FLOOR((transaction_time / 1000 + 28800) / 86400)"
+		return fmt.Sprintf("FLOOR((transaction_time / 1000 + %d) / 86400)", offset)
 	}
-	return "((transaction_time / 1000 + 28800) / 86400)"
+	return fmt.Sprintf("((transaction_time / 1000 + %d) / 86400)", offset)
+}
+
+// For historical periods with Shanghai daylight saving time, use the offset
+// in effect for each transaction while keeping the aggregation in SQL.
+func familyReportDayBucketExpression(db datastore.Database, start, end time.Time) string {
+	var branches []string
+	for instant := start; instant.Before(end); {
+		_, offset := instant.Zone()
+		_, next := instant.ZoneBounds()
+		bucket := familyDayBucketExpression(db, offset)
+		if next.IsZero() || !next.Before(end) {
+			if len(branches) == 0 {
+				return bucket
+			}
+			return "CASE " + strings.Join(branches, " ") + " ELSE " + bucket + " END"
+		}
+		branches = append(branches, fmt.Sprintf("WHEN transaction_time < %d THEN %s", utils.GetMinTransactionTimeFromUnixTime(next.Unix()), bucket))
+		instant = next.In(start.Location())
+	}
+	return familyDayBucketExpression(db, 8*60*60)
 }
 
 // Overview loads only the projected columns needed for aggregation. It never
@@ -406,7 +442,7 @@ func (s *FamilyService) Overview(c core.Context, actorUID int64, month string) (
 		return nil, c.Err()
 	}
 	var rows []familyOverviewTransaction
-	dayBucketExpression := familyDayBucketExpression(database)
+	dayBucketExpression := familyDayBucketExpression(database, 8*60*60)
 	err = database.NewSession(c).Table(&models.Transaction{}).Select(fmt.Sprintf("uid, type, category_id, account_id, %s AS day_bucket, SUM(amount) AS total_amount, COUNT(1) AS row_count", dayBucketExpression)).Where(condition).GroupBy("uid, type, category_id, account_id, day_bucket").Find(&rows)
 	if err != nil {
 		return nil, err
@@ -481,7 +517,15 @@ func (s *FamilyService) Overview(c core.Context, actorUID int64, month string) (
 }
 
 func (s *FamilyService) Transactions(c core.Context, actorUID int64, month string, memberUID int64, cursor string, count int) (*models.FamilyTransactionPage, error) {
-	start, end, err := familyMonthRange(month)
+	return s.transactions(c, actorUID, month, false, false, memberUID, cursor, count)
+}
+
+func (s *FamilyService) TransactionsForPeriod(c core.Context, actorUID int64, period string, yearly bool, memberUID int64, cursor string, count int) (*models.FamilyTransactionPage, error) {
+	return s.transactions(c, actorUID, period, yearly, true, memberUID, cursor, count)
+}
+
+func (s *FamilyService) transactions(c core.Context, actorUID int64, period string, yearly, scopedCursor bool, memberUID int64, cursor string, count int) (*models.FamilyTransactionPage, error) {
+	start, end, err := familyReportRange(period, yearly)
 	if err != nil {
 		return nil, err
 	}
@@ -492,15 +536,20 @@ func (s *FamilyService) Transactions(c core.Context, actorUID int64, month strin
 	if err != nil {
 		return nil, err
 	}
-	condition := familyTransactionCondition(scope, start, end)
-	if memberUID != 0 {
-		if _, exists := scope.names[memberUID]; !exists {
-			return nil, errs.ErrNotPermittedToPerformThisAction
-		}
-		condition = builder.And(condition, builder.Eq{"uid": memberUID})
+	memberCondition, err := familyReportMemberCondition(scope, memberUID)
+	if err != nil {
+		return nil, err
+	}
+	condition := builder.And(familyTransactionCondition(scope, start, end), memberCondition)
+	cursorPrefix := ""
+	if scopedCursor {
+		cursorPrefix = fmt.Sprintf("%s:%t:%d:", start.Format("2006-01"), yearly, memberUID)
 	}
 	if cursor != "" {
-		parts := strings.Split(cursor, ":")
+		if !strings.HasPrefix(cursor, cursorPrefix) {
+			return nil, errs.ErrFamilyCursorInvalid
+		}
+		parts := strings.Split(strings.TrimPrefix(cursor, cursorPrefix), ":")
 		if len(parts) != 2 {
 			return nil, errs.ErrFamilyCursorInvalid
 		}
@@ -520,7 +569,7 @@ func (s *FamilyService) Transactions(c core.Context, actorUID int64, month strin
 	if len(rows) > count {
 		rows = rows[:count]
 		last := rows[len(rows)-1]
-		result.NextCursor = fmt.Sprintf("%d:%d", last.TransactionTime, last.TransactionId)
+		result.NextCursor = fmt.Sprintf("%s%d:%d", cursorPrefix, last.TransactionTime, last.TransactionId)
 	}
 	ids := make([]int64, 0, len(rows))
 	for _, row := range rows {
@@ -585,7 +634,7 @@ func (s *FamilyService) ReportTransactions(c core.Context, actorUID int64, perio
 		condition = builder.And(condition, builder.Eq{"account_id": accountID})
 	}
 	if date != "" {
-		day, parseErr := time.ParseInLocation("2006-01-02", date, time.FixedZone(familyTimezoneName, 8*60*60))
+		day, parseErr := time.ParseInLocation("2006-01-02", date, start.Location())
 		if parseErr != nil || day.Before(start) || !day.Before(end) {
 			return nil, errs.ErrFamilyMonthInvalid
 		}

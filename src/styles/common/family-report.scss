@@ -1,0 +1,175 @@
+.family-page,
+.family-dialog {
+    --family-paper: var(--f7-card-bg-color, rgb(var(--v-theme-surface)));
+    --family-text: var(--f7-text-color, rgb(var(--v-theme-on-surface)));
+    --family-accent: var(--f7-theme-color, rgb(var(--v-theme-primary)));
+    --family-line: color-mix(in srgb, var(--family-text) 16%, transparent);
+    --family-tint: color-mix(in srgb, var(--family-accent) 16%, transparent);
+    --family-muted: color-mix(in srgb, var(--family-text) 76%, var(--family-paper));
+    color: var(--family-text);
+    font-variant-numeric: tabular-nums;
+
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 1.75rem; line-height: 1.3; }
+    h2 { font-size: 1.1rem; line-height: 1.45; }
+    h3 { font-size: .9rem; }
+    small { color: var(--family-muted); }
+    button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible {
+        outline: 2px solid var(--family-accent);
+        outline-offset: 2px;
+    }
+}
+
+.family-page { max-width: 1240px; margin: auto; padding: 12px 0 24px; }
+.family-page.family-mobile { padding: 10px 12px 24px; }
+.family-heading, .family-card-title, .family-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.family-heading { margin-bottom: 12px; }
+.family-actions, .family-period { display: flex; align-items: center; gap: 3px; }
+.family-actions { flex-wrap: wrap; }
+.family-actions > *, .family-period > * { flex: 0 0 auto; width: auto; }
+.family-actions-menu-content { display: grid; padding: 7px; gap: 3px; }
+.family-actions-menu-content > .button { min-height: 44px; }
+.family-period {
+    padding: 2px;
+    border: 1px solid var(--family-line);
+    border-radius: 8px;
+    width: fit-content;
+    white-space: nowrap;
+}
+.family-trend-series { margin-bottom: 16px; width: fit-content; max-width: 100%; }
+.family-period [aria-label] { font-size: 1.15rem; }
+.family-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.family-member-select { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.family-member-select .v-select { width: clamp(135px, 16vw, 205px); }
+.family-member-options { padding-block: 6px; }
+.family-year-jump { display: flex; align-items: center; gap: 8px; max-width: 280px; margin: 8px auto; }
+.family-year-jump > :first-child { flex: 1; min-width: 0; }
+.family-year-jump > .input-outline { --f7-input-height: 44px; }
+.family-year-jump > .input-outline input { height: var(--f7-input-height); width: 100%; }
+.family-year-jump > .button { width: auto; flex: 0 0 auto; }
+.family-page .family-card {
+    margin: 0 0 14px;
+    padding: 16px 18px;
+    min-width: 0;
+    color: var(--family-text);
+}
+.family-card-title { margin-bottom: 8px; }
+.family-loading { display: flex; min-height: 130px; align-items: center; justify-content: center; gap: 10px; }
+.family-note, .family-empty, .family-notice { color: var(--family-muted); font-size: .86rem; }
+.family-empty, .family-notice { padding-top: 10px; }
+.family-error { margin-bottom: 10px; padding: 10px; border: 1px solid var(--family-line); border-radius: 7px; }
+.family-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.family-metrics > div { min-width: 0; }
+.family-metrics > div + div { border-inline-start: 1px solid var(--family-line); padding-inline-start: 14px; }
+.family-metrics span { display: block; color: var(--family-muted); font-size: .88rem; }
+.family-metrics strong { font-size: clamp(1.15rem, 2vw, 1.65rem); overflow-wrap: anywhere; }
+.family-support-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.family-support-grid:has(> :only-child) { grid-template-columns: 1fr; }
+.family-page .family-category-layout { max-inline-size: 760px; margin-inline: auto; }
+.family-category-figure { margin-bottom: 12px; text-align: center; }
+.family-pie-area { position: relative; width: min(168px, 100%); aspect-ratio: 1; margin: 0 auto 6px; touch-action: pan-y; cursor: grab; }
+.family-pie-area:active { cursor: grabbing; }
+.family-category-layout .family-pie-area .family-pie { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; }
+.family-category-layout .family-pie .pie-chart { display: block; width: 100%; height: 100%; margin: 0; }
+.family-pie-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+.family-pie-center > * { max-width: 105px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.family-category-net { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-block-end: 1px solid var(--family-line); }
+.family-category-more { min-height: 44px; padding: 4px 8px; background: none; border: 0; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.family-remainder-swatch { display: inline-block; width: .7em; height: .7em; margin-inline-end: .4em; border-radius: 50%; background: #8c8c8c; }
+.family-list-row {
+    display: flex;
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 2px;
+    gap: 8px;
+    justify-content: space-between;
+    align-items: center;
+    border: 0;
+    border-bottom: 1px solid var(--family-line);
+    text-align: start;
+    overflow-wrap: anywhere;
+}
+.family-list-row:last-child { border-bottom: 0; }
+button.family-list-row, button.family-date-link { background: none; color: inherit; font: inherit; cursor: pointer; }
+button.family-list-row:hover, button.family-date-link:hover { background: var(--family-tint); }
+.family-row-amount, .family-table td { text-align: end; }
+.family-row-amount { min-width: 0; }
+.family-category-name { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.family-category-comparison { display: block; }
+.family-category-name .item-icon, .family-category-name .icon { flex: none; font-size: 1.1rem; }
+.family-table { width: 100%; border-collapse: collapse; margin-top: 7px; }
+.family-table th, .family-table td { padding: 6px 3px; border-bottom: 1px solid var(--family-line); text-align: end; }
+.family-table th:first-child { text-align: start; }
+.family-table thead th { font-size: .85rem; color: var(--family-muted); }
+.family-table .family-date-link { padding: 4px 0; color: inherit; border: 0; text-decoration: underline; text-underline-offset: 3px; }
+.family-account-group { padding-top: 11px; }
+.family-account-group h3 { color: var(--family-muted); }
+
+.family-dialog {
+    box-sizing: border-box;
+    position: fixed;
+    background: var(--family-paper);
+    border: 1px solid var(--family-line);
+    border-radius: 10px;
+    margin: auto;
+    padding: 0;
+    max-width: calc(100% - 24px);
+    max-height: 85dvh;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+.family-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.family-picker { width: min(340px, calc(100% - 24px)); }
+.family-chart-dialog { width: min(1000px, calc(100% - 24px)); }
+.family-detail-dialog { inset: 0 0 0 auto; margin: 0; height: 100dvh; max-height: 100dvh; width: min(500px, 100vw); border-radius: 0; }
+.family-detail-mobile { inset: auto 0 0; width: 100%; max-width: 100%; height: auto; max-height: 86dvh; border-radius: 14px 14px 0 0; }
+.family-dialog-header { position: sticky; top: 0; z-index: 1; padding: 12px 16px; background: var(--family-paper); border-bottom: 1px solid var(--family-line); }
+.family-dialog-header > div { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.family-dialog-header > .button { flex: 0 0 auto; width: auto; }
+.family-dialog-header > .family-dialog-icon.button { width: 44px; min-height: 44px; }
+.family-dialog-body { padding: 12px 16px max(16px, env(safe-area-inset-bottom)); }
+.family-attachments { display: flex; gap: 8px; align-items: center; }
+.family-attachments { flex-wrap: wrap; margin: 10px 0; }
+.family-attachments :is(a, button[data-family-picture]) { display: grid; min-width: 64px; justify-items: center; gap: 4px; padding: 4px 6px; border: 1px solid var(--family-line); border-radius: 6px; color: inherit; background: transparent; font: inherit; font-size: .8rem; cursor: pointer; }
+.family-attachments img { display: block; min-width: 36px; min-height: 36px; max-width: 100px; max-height: 100px; object-fit: contain; border-radius: 4px; }
+.family-dialog .family-transactions { margin: 0; padding: 0; list-style: none; }
+.family-transactions li + li { border-top: 1px solid var(--family-line); }
+.family-transaction small { display: block; }
+.family-transaction .item-after { height: auto; max-height: none; }
+.family-transaction .family-row-amount { min-width: max-content; }
+.family-detail-amount { font-size: 1.65rem; font-weight: 700; }
+.family-detail-fields { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; }
+.family-detail-fields dt { color: var(--family-muted); }
+.family-detail-fields dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
+.family-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px !important; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
+
+@media (max-width: 850px) {
+    .family-support-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+    .family-scope { gap: 7px; }
+    .family-scope .family-period { margin-inline-start: auto; }
+    .family-member-select { width: 100%; }
+    .family-member-select > .v-select, .family-member-select > .button { flex: 1; min-width: 0; }
+    .family-member-select > .button { min-height: 44px; }
+    .family-page .family-card { padding: 12px; margin-bottom: 10px; }
+    .family-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .family-metrics > div:nth-child(odd) { padding-inline-start: 0; border-inline-start: 0; }
+    .family-metrics strong { font-size: 1.35rem; }
+    .family-pie-area { width: min(148px, 100%); }
+    .family-pie-center { font-size: .8rem; }
+    .family-pie-center > * { max-width: 84px; }
+    .family-row-amount small { font-size: .75rem; }
+    .family-table th, .family-table td { font-size: .84rem; overflow-wrap: anywhere; }
+    .family-table .family-date-link, .family-page .button, .family-dialog .button, .family-list-row { min-height: 44px; }
+    .family-heading { justify-content: flex-end; }
+}
+
+.family-mobile .family-trend { height: 210px; }
