@@ -1,5 +1,7 @@
 package top.fjzhang233.books
 
+import android.os.SystemClock
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -36,7 +38,20 @@ class AccountPickerFlowAcceptanceTest {
         File(context.filesDir,"qa-account-flow-$mode-owner.json").writeText(JSONObject().put("marker",marker).put("createdId","").toString())
         var createdId:String?=null
         try{
-            compose.onNodeWithTag("add-transaction",useUnmergedTree=true).performClick();compose.onNodeWithTag("entry-key-1").performClick();compose.onNodeWithTag("entry-comment").performTextInput(marker);compose.onNodeWithTag("entry-comment").performImeAction()
+            compose.onNodeWithTag("add-transaction",useUnmergedTree=true).performClick()
+            val key = compose.onNodeWithTag("entry-key-1")
+            val idle = key.captureToImage().toPixelMap()
+            key.performTouchInput { down(center) }
+            SystemClock.sleep(450)
+            val pressed = key.captureToImage().toPixelMap()
+            for (x in listOf(2, idle.width / 2, idle.width - 3)) {
+                for (y in listOf(2, idle.height - 3)) assertEquals(idle[x, y], pressed[x, y])
+            }
+            assertTrue((idle.width / 4..idle.width * 3 / 4).any { x ->
+                idle[x, idle.height / 2] != pressed[x, idle.height / 2]
+            })
+            key.performTouchInput { up() }
+            compose.onNodeWithTag("entry-comment").performTextInput(marker);compose.onNodeWithTag("entry-comment").performImeAction()
             compose.onNodeWithTag("entry-account").performClick();compose.onNodeWithTag("entry-account-picker").assertIsDisplayed();capture("$mode-accounts")
             compose.onNodeWithTag("entry-account-none").performClick();compose.onNodeWithTag("entry-key-保存").performClick();compose.onNodeWithText("请选择账户和分类").assertIsDisplayed();capture("$mode-clear-required")
             compose.runOnIdle{assertTrue(vm.showEditor);assertFalse(vm.busy)}

@@ -75,7 +75,6 @@ internal fun reportPercent(value:BigInteger,total:BigInteger)=when {
     var snapshot by remember{mutableStateOf<ReportSnapshot?>(null)}
     var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var reload by remember{mutableIntStateOf(0)}
     var chartType by rememberSaveable{mutableIntStateOf(2)};var categoryType by rememberSaveable{mutableIntStateOf(2)}
-    var groupByParent by rememberSaveable{mutableStateOf(false)}
     var lines by rememberSaveable{mutableStateOf(false)}
     var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedChild by rememberSaveable { mutableStateOf<String?>(null) }
@@ -115,12 +114,11 @@ internal fun reportPercent(value:BigInteger,total:BigInteger)=when {
                     ReportChart(data,chartType,lines)
                     Row(Modifier.fillMaxWidth().padding(top=8.dp),horizontalArrangement=Arrangement.Center){ReportSegments(if(yearly)listOf("支出","收入","结余","全部") else listOf("支出","收入","全部"),chartType-2,"trend"){chartType=it+2}}}}
                 item{ReportCard("分类报表"){
-                    val ranked=if(groupByParent)data.parentRanking(categoryType,vm.categories) else data.ranking(categoryType)
+                    val ranked=data.parentRanking(categoryType,vm.categories)
                     val colors=rememberReportCategoryPalette(categoryType)
                     ReportDonut(ranked,if(categoryType==2)"支出比例" else "收入比例",categoryColors=colors)
-                    FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp,Alignment.CenterHorizontally)){
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){
                         ReportSegments(listOf("支出","收入"),if(categoryType==2)0 else 1,"category"){categoryType=if(it==0)2 else 1}
-                        ReportSegments(listOf("明细分类","一级分类"),if(groupByParent)1 else 0,"category-level",92.dp){groupByParent=it==1}
                     }
                     ReportCategoryRanking(ranked,period,"report-category",colors) { row -> selectedCategory=row.category.id() }
                     if(ranked.isEmpty())Text("所选期间没有${if(categoryType==2)"支出" else "收入"}",Modifier.padding(16.dp),color=reportMuted)}}
@@ -143,7 +141,7 @@ internal fun reportPercent(value:BigInteger,total:BigInteger)=when {
         val category=vm.categories.firstOrNull { it.id()==selectedCategory }
         if(category!=null) {
             val type=category.optInt("type")
-            val breakdown=groupByParent && category.id("parentId")=="0"
+            val breakdown=category.id("parentId")=="0"
             if(breakdown) {
                 val scope=reportCategoryScope(category.id(),vm.categories,filter.categoryScope)
                 val children=snapshot?.ranking(type).orEmpty().filter { scope.accepts(it.category.id()) }

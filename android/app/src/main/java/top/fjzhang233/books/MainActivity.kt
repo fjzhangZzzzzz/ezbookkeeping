@@ -295,9 +295,11 @@ private fun BooksScaffold(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                     expandedHeight = 56.dp,
                     title = {
-                        if (home) Row(Modifier.clickable { monthPicker = true }, verticalAlignment = Alignment.CenterVertically) {
-                            Text(vm.ledgerMonth, fontSize = 18.sp)
-                            Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
+                        if (home) LedgerControl(Modifier.testTag("ledger-month-picker"), onClick = { monthPicker = true }) { interactions ->
+                            Row(Modifier.ledgerControlFocus(interactions).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(vm.ledgerMonth, fontSize = 18.sp)
+                                Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
+                            }
                         } else Text(title)
                     },
                     navigationIcon = {
@@ -426,7 +428,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
 }
 @Composable internal fun LedgerMonthPicker(value:String,dismiss:()->Unit,select:(String)->Unit){
     val current=java.time.YearMonth.parse(value);var year by rememberSaveable{mutableIntStateOf(current.year)}
-    AlertDialog(onDismissRequest=dismiss,containerColor=ledgerColors.surface,shape=androidx.compose.foundation.shape.RoundedCornerShape(4.dp),text={Row(Modifier.fillMaxWidth().height(300.dp)){
+    AlertDialog(onDismissRequest=dismiss,modifier=Modifier.testTag("ledger-month-dialog"),containerColor=ledgerColors.surface,shape=androidx.compose.foundation.shape.RoundedCornerShape(4.dp),text={Row(Modifier.fillMaxWidth().height(300.dp)){
         LazyColumn(Modifier.width(96.dp),state=androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex=0)){items((current.year+3 downTo current.year-20).toList()){item->TextButton(onClick={year=item},modifier=Modifier.fillMaxWidth(),shape=androidx.compose.foundation.shape.CircleShape,colors=ButtonDefaults.textButtonColors(containerColor=if(item==year)MaterialTheme.colorScheme.primary else Color.Transparent,contentColor=if(item==year)MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)){Text("${item}年")}}}
         androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),Modifier.weight(1f)){items(12){index->TextButton(onClick={select(java.time.YearMonth.of(year,index+1).toString())}){Text("${index+1}月",color=if(year==current.year&&index+1==current.monthValue)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)}}}
     }},confirmButton={})

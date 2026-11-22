@@ -81,7 +81,13 @@ class SharedDetailRoutesAcceptanceTest {
    InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
    await("ledger-list")
    stage="report-open";compose.onNodeWithContentDescription("月报表").performClick();await("ledger-report");stage="report-filter";compose.onNodeWithTag("report-filter").performClick();compose.onNodeWithText(name,substring=false).performScrollTo().performClick();compose.onNodeWithText("应用",substring=false).performScrollTo().performClick();stage="report-loaded";await("report-list")
-   stage="report-category";compose.onNodeWithTag("report-list").performScrollToNode(hasTestTag("report-category-$category"));compose.onNodeWithTag("report-category-$category").performClick();await("report-category-sheet");await("report-category-row-$createdId");compose.onNodeWithTag("report-category-row-$createdId").assertHeightIsEqualTo(54.dp).performClick();shared()
+   stage="report-category"
+   val parent=vm.categories.single{it.id()==category}.id("parentId")
+   compose.onNodeWithTag("report-list").performScrollToNode(hasTestTag("report-category-$parent"))
+   compose.onNodeWithTag("report-category-$parent").performClick()
+   await("report-parent-category-sheet")
+   compose.onNodeWithTag("report-child-category-$category").performClick()
+   await("report-category-sheet");await("report-category-row-$createdId");compose.onNodeWithTag("report-category-row-$createdId").assertHeightIsEqualTo(54.dp).performClick();shared()
    InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);compose.waitUntil(15_000){!exists("transaction-details")};await("report-category-sheet")
    stage="statistics-shared-open-row"
    compose.onNodeWithTag("report-category-sheet-statistics").performClick();await("report-category-statistics");awaitStatisticsRows();compose.onNodeWithTag("category-statistics-list").performScrollToNode(hasTestTag("category-statistics-row-$createdId"));compose.onNodeWithTag("category-statistics-row-$createdId").assertHeightIsEqualTo(54.dp).performClick();shared()
@@ -89,6 +95,8 @@ class SharedDetailRoutesAcceptanceTest {
    compose.onNodeWithTag("transaction-delete").performClick();compose.onNodeWithTag("confirm-transaction-delete").performClick();compose.waitUntil(30_000){!vm.busy&&!exists("transaction-details")};await("report-category-statistics");awaitStatisticsRows();compose.waitUntil(30_000){!exists("category-statistics-row-$createdId")};compose.onNodeWithTag("category-report-month-11").assertExists()
    runBlocking{assertEquals("0",vm.api.accounts().single{it.id()==account}.optString("balance"));assertEquals(0L,vm.api.reportCategoryPage(ReportPeriod(YearMonth.parse(month)),category,vm.accounts,1,ReportFilter(setOf(account))).second)};tx=null
    compose.onNodeWithContentDescription("返回明细").performClick();await("report-category-sheet");compose.waitUntil(30_000){!exists("report-category-row-$createdId")}
+   InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+   await("report-parent-category-sheet")
    InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
    compose.waitUntil(30_000){exists("ledger-report")&&!exists("report-category-sheet")}
    compose.onNodeWithTag("report-filter").performClick();compose.onNodeWithText(name,substring=false).assertExists();compose.onNodeWithText("取消",substring=false).performScrollTo().performClick();compose.onNodeWithContentDescription("返回",substring=false).performClick()

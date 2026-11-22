@@ -1,5 +1,7 @@
 package top.fjzhang233.books
 
+import android.os.SystemClock
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -86,16 +88,20 @@ class ReportAcceptanceTest {
                 val year=vm.api.report(p.copy(yearly=true),vm.accounts,vm.categories,filter);check(year.activeMonths==5&&year.expense==BigInteger.valueOf(606)&&year.income==BigInteger.valueOf(6010));check(reportAverage(year.expense,5)=="1.21")
             }
             stage="report-month"
+            val monthPicker = compose.onNodeWithTag("ledger-month-picker")
+            val idleTitle = monthPicker.captureToImage().toPixelMap()
+            monthPicker.performTouchInput { down(center) }
+            SystemClock.sleep(450)
+            val pressedTitle = monthPicker.captureToImage().toPixelMap()
+            check((0 until idleTitle.height).all { y ->
+                (0 until idleTitle.width).all { x -> idleTitle[x, y] == pressedTitle[x, y] }
+            }) { "Month picker draws a pressed background" }
+            monthPicker.performTouchInput { up() }
+            compose.onNodeWithTag("ledger-month-dialog").assertIsDisplayed()
+            back()
             compose.onNodeWithContentDescription("月报表").performClick();compose.waitUntil(30_000){exists("ledger-report")};stage="report-overview";awaitText("收支总览");stage="report-filter"
             compose.onNodeWithTag("report-filter").performClick();compose.onNodeWithText(name,substring=false).performScrollTo().performClick();compose.onNodeWithText("应用",substring=false).performScrollTo().performClick();stage="report-filter-total";awaitText("0.06");capture("01-month")
             scroll("report-segment-trend-1");compose.onNodeWithTag("report-segment-trend-1").performClick();compose.onNodeWithTag("report-chart-toggle").performScrollTo().performClick();capture("02-income-line")
-            scroll("report-category-$snack")
-            compose.onNodeWithContentDescription("较上月增加 0.05",useUnmergedTree=true).assertExists()
-            capture("03-ranking")
-            compose.onNodeWithTag("report-category-$snack").performClick();awaitText(transactionSignedAmount(3,"5"));capture("04-category-sheet")
-            compose.onNodeWithTag("report-category-sheet-statistics").performClick();compose.waitUntil(30_000){exists("report-category-statistics")};awaitText("0.05");capture("05-category-statistics");compose.onNodeWithContentDescription("返回明细").performClick()
-            compose.waitUntil(30_000){exists("report-category-sheet")&&!exists("report-category-statistics")}
-            back();compose.waitUntil(30_000){!exists("report-category-sheet")}
             stage="interactive-chart"
             scroll("report-interactive-chart")
             compose.onNodeWithTag("report-interactive-chart").performTouchInput{click(androidx.compose.ui.geometry.Offset(width*.47f,height*.65f))}
@@ -103,16 +109,21 @@ class ReportAcceptanceTest {
             stage="interactive-donut"
             scroll("report-interactive-donut")
             compose.onNodeWithTag("report-interactive-donut").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick){check(it())}
-            compose.onNodeWithTag("report-interactive-donut").assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription,"统计零食-$suffix，0.05"));capture("10-selected-sector")
+            compose.onNodeWithTag("report-interactive-donut").assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription,"统计支出-$suffix，0.06"));capture("10-selected-sector")
             stage="parent-category-slice"
             val parent=vm.categories.single{it.id()==snack}.id("parentId")
-            scroll("report-segment-category-level-1");compose.onNodeWithTag("report-segment-category-level-1").performClick()
-            scroll("report-category-$parent");compose.onNodeWithTag("report-category-$parent").performClick()
+            scroll("report-category-$parent")
+            compose.onNodeWithText("明细分类", substring = false).assertDoesNotExist()
+            compose.onNodeWithText("一级分类", substring = false).assertDoesNotExist()
+            compose.onNodeWithTag("report-category-$snack").assertDoesNotExist()
+            capture("03-ranking")
+            compose.onNodeWithTag("report-category-$parent").performClick()
             compose.waitUntil(30_000){exists("report-parent-category-sheet")}
             compose.onNodeWithTag("report-parent-category-chart").assertIsDisplayed()
             compose.onNodeWithTag("report-parent-category-statistics").assertHasClickAction()
             compose.onNodeWithTag("report-child-category-$snack").assertTextContains("83.33%")
             compose.onNodeWithTag("report-child-category-$food").assertTextContains("16.67%")
+            compose.onNodeWithContentDescription("较上月增加 0.05",useUnmergedTree=true).assertExists()
             compose.onNodeWithTag("report-category-sheet").assertDoesNotExist()
             compose.onAllNodesWithText("关闭",substring=false).assertCountEquals(0)
             capture("12-parent-breakdown")

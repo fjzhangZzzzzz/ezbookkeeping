@@ -274,8 +274,20 @@ import androidx.compose.ui.focus.onFocusChanged
                 Column(Modifier.fillMaxWidth().padding(start=8.dp,end=8.dp,top=0.dp,bottom=4.dp)) { keys.forEach { row -> Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) { row.forEach { key ->
                     val saveKey=key=="保存"||key=="再记"
                     val enabled=if(saveKey) usable&&(key!="再记"||original==null) else !editLocked
-                    Box(Modifier.weight(1f).height(52.dp).testTag("entry-key-$key").clickable(enabled=enabled){when(key){"保存"->save(false);"再记"->save(true);else->{amount=entryKey(amount,key);localError=""}}},contentAlignment=Alignment.Center) {
-                        Box(Modifier.fillMaxWidth().height(43.dp).clip(RoundedCornerShape(8.dp)).background(if(key=="保存") accent else ledgerColors.controlSurface),contentAlignment=Alignment.Center){if(key=="⌫") Icon(Icons.Outlined.Backspace,"删除",Modifier.size(20.dp),tint=ledgerColors.text) else Text(key,Modifier.offset(y=(-1).dp),fontSize=if(saveKey) 14.sp else 20.sp,color=if(key=="保存") ledgerColors.onAccent else ledgerColors.text)}
+                    LedgerControl(
+                        Modifier.weight(1f).height(52.dp).testTag("entry-key-$key"), enabled = enabled,
+                        onClick = { when(key){"保存"->save(false);"再记"->save(true);else->{amount=entryKey(amount,key);localError=""}} },
+                    ) { interactions ->
+                        Box(
+                            Modifier.fillMaxWidth().height(43.dp)
+                                .ledgerControlFeedback(interactions, RoundedCornerShape(8.dp))
+                                .background(if (key == "保存") accent else ledgerColors.controlSurface),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (key == "⌫") Icon(Icons.Outlined.Backspace, "删除", Modifier.size(20.dp), tint = ledgerColors.text)
+                            else Text(key, Modifier.offset(y = (-1).dp), fontSize = if (saveKey) 14.sp else 20.sp,
+                                color = if (key == "保存") ledgerColors.onAccent else ledgerColors.text)
+                        }
                     }
                 } } } }
 

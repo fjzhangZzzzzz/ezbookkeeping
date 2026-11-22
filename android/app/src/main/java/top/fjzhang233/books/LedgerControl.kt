@@ -46,8 +46,11 @@ internal fun LedgerControl(
 private val controlRipple = ripple(bounded = false)
 
 @Composable
-internal fun Modifier.ledgerControlFeedback(interactions: InteractionSource, shape: Shape = CircleShape): Modifier {
+internal fun Modifier.ledgerControlFocus(interactions: InteractionSource, shape: Shape = CircleShape): Modifier {
     val focused by interactions.collectIsFocusedAsState()
-    return clip(shape).indication(interactions, controlRipple)
-        .then(if (focused) Modifier.border(2.dp, ledgerColors.accent, shape) else Modifier)
+    return if (focused) border(2.dp, ledgerColors.accent, shape) else this
 }
+
+@Composable
+internal fun Modifier.ledgerControlFeedback(interactions: InteractionSource, shape: Shape = CircleShape): Modifier =
+    clip(shape).indication(interactions, controlRipple).ledgerControlFocus(interactions, shape)

@@ -38,7 +38,14 @@ class TransactionCategoryConflictAcceptanceTest {
             scenario=ActivityScenario.launch(MainActivity::class.java)
             compose.waitUntil(45000){var done=false;model{done=!it.busy && it.accounts.any{a->a.id()==account} && it.categoryRevision!=null};done}
             model{it.newTransaction()};compose.waitUntil(45000){compose.onAllNodesWithTag("entry-categories").fetchSemanticsNodes().isNotEmpty()}
-            compose.onNodeWithTag("entry-categories").performScrollToNode(hasTestTag("entry-category-$child"));compose.onNodeWithTag("entry-category-$child").performClick()
+            val categoryGrid=compose.onNodeWithTag("entry-category-grid")
+            categoryGrid.performScrollToNode(hasTestTag("entry-category-$parent"))
+            compose.onNodeWithTag("entry-category-$parent").performClick()
+            categoryGrid.performScrollToNode(hasTestTag("entry-category-$child"))
+            compose.onNodeWithTag("entry-category-$child").performClick()
+            compose.onNodeWithTag("entry-account").performClick()
+            compose.onNodeWithTag("entry-account-grid").performScrollToNode(hasTestTag("entry-account-$account"))
+            compose.onNodeWithTag("entry-account-$account").performClick()
             compose.onNodeWithTag("entry-key-1").performClick()
             compose.onNodeWithTag("entry-comment").performTextReplacement("QA分类竞态-$suffix")
             compose.onNodeWithTag("entry-comment").performImeAction();compose.waitForIdle()
