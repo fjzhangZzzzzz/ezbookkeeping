@@ -6,4 +6,6 @@ Android 使用 Jetpack Navigation 3 管理应用内整页返回栈。Android 16 
 
 目的地使用可序列化的导航键。登录和退出登录使返回栈回到入口。记账编辑器、编辑器内分类管理和分类统计仍覆盖来源页面，以保留草稿、分类明细和报表筛选。全屏图表只在导航键中保存查询条件和图表选项，旋转时复用当前数据，进程重建时按同样的条件重新查询。
 
+共享 `NavDisplay` 必须同时显式设置普通进入、普通返回和预测返回的过渡；当前产品三者统一使用 `EnterTransition.None togetherWith ExitTransition.None`。不能省略 `predictivePopTransitionSpec` 依赖 Navigation 3 默认动画，否则 Android 边缘返回会与左上角返回按钮产生不同的缩放/退出效果。
+
 返回回归验证覆盖 Android 16 流水 → 月报表 → 边缘滑动返回。应在后续任何触摸之前确认屏幕已显示流水；仅检查无障碍节点无法发现窗口残留旧画面的问题。

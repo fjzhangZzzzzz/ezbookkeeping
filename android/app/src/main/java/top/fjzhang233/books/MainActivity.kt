@@ -180,6 +180,7 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
             sceneStrategies = listOf(dialogStrategy),
             transitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
             popTransitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
+            predictivePopTransitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
             onBack = {
                 when (current) {
                     EntryPage -> if (!vm.busy && !vm.transactionNeedsConfirmation) vm.closeTransaction()
