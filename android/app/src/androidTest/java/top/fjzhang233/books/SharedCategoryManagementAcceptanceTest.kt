@@ -45,22 +45,26 @@ class SharedCategoryManagementAcceptanceTest {
             compose.waitUntil(45000){var done=false;model{done=!it.busy && it.categories.isNotEmpty() && it.categoryRevision!=null};done}
             scenario!!.onActivity { activity -> val vm=ViewModelProvider(activity)[BooksModel::class.java]; activity.setContent { FamilyTheme { CatalogPage(vm) } } }
 
-            val parentTag = "catalog-parent-$parent"
-            val parentCard = hasAnyAncestor(hasTestTag(parentTag))
+            val parentTag = "catalog-row-$parent"
             fun scrollToParent() {
                 compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag(parentTag))
             }
             fun openParent() {
                 scrollToParent()
-                compose.onNode(hasContentDescription("编辑$parentName") and parentCard).performClick()
+                val expand = hasContentDescription("展开 $parentName")
+                if (compose.onAllNodes(expand).fetchSemanticsNodes().isNotEmpty()) compose.onNode(expand).performClick()
+                val actions = hasTestTag("catalog-actions-$parent")
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(actions)
+                compose.onNode(hasText("编辑大类") and hasAnyAncestor(actions)).performClick()
             }
             fun openChild() {
                 scrollToParent()
-                val expand = hasContentDescription("展开 $parentName") and parentCard
+                val expand = hasContentDescription("展开 $parentName")
                 if (compose.onAllNodes(expand).fetchSemanticsNodes().isNotEmpty()) {
                     compose.onNode(expand).performClick()
                 }
-                compose.onNode(hasTestTag("entry-category-$child") and parentCard).performScrollTo().performClick()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("catalog-row-$child"))
+                compose.onNodeWithTag("catalog-row-$child").performClick()
             }
             ready();stage="delete-referenced"
             openChild()
@@ -74,7 +78,8 @@ class SharedCategoryManagementAcceptanceTest {
             compose.onNodeWithText("确认",substring=false).performClick();ready()
             assertTrue(api.categories().first{it.id()==parent}.optBoolean("hidden"));assertFalse(api.categories().first{it.id()==child}.optBoolean("hidden"))
             stage="restore-parent"
-            compose.onNodeWithText("显示已停用", substring = false).performScrollTo().performClick()
+            compose.onNodeWithContentDescription("分类选项").performClick()
+            compose.onNodeWithText("显示已停用", substring = false).performClick()
             openParent()
             compose.onNodeWithText("恢复分类").performScrollTo().performClick();waitText("此分类涉及活跃家庭成员的 1 笔历史交易")
             compose.onNodeWithText("确认",substring=false).performClick();ready()

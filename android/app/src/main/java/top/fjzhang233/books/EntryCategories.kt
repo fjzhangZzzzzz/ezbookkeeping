@@ -37,8 +37,9 @@ import org.json.JSONObject
 /** Only a visible child of a visible parent may be newly selected. */
 internal fun entryVisibleCategories(categories: List<JSONObject>, transactionType: Int): List<JSONObject> {
     val type = when (transactionType) { 2 -> 1; 4 -> 3; else -> 2 }
-    val visibleParents = categories.filter { it.id("parentId") == "0" && !it.optBoolean("hidden") && it.optInt("type") == type }.map { it.id() }.toSet()
-    return categories.filter { !it.optBoolean("hidden") && it.id("parentId") in visibleParents && it.optInt("type") == type }
+    val ordered = sortCategoriesForDisplay(categories)
+    val visibleParents = ordered.filter { it.id("parentId") == "0" && !it.optBoolean("hidden") && it.optInt("type") == type }.map { it.id() }.toSet()
+    return ordered.filter { !it.optBoolean("hidden") && it.id("parentId") in visibleParents && it.optInt("type") == type }
 }
 
 /** An existing transaction can keep its original category even if it is no longer selectable. */
@@ -77,16 +78,17 @@ internal fun EntryCategoryPicker(
     onSelect: (JSONObject) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val visible = entryVisibleCategories(categories, transactionType)
+    val ordered = sortCategoriesForDisplay(categories)
+    val visible = entryVisibleCategories(ordered, transactionType)
     val parentById = remember(categories, transactionType) {
-        categories.filter { it.id("parentId") == "0" && !it.optBoolean("hidden") }
+        ordered.filter { it.id("parentId") == "0" && !it.optBoolean("hidden") }
             .filter { parent ->
                 val mappedType = when (transactionType) { 2 -> 1; 4 -> 3; else -> 2 }
                 parent.optInt("type") == mappedType && visible.any { it.id("parentId") == parent.id() }
             }
     }
     val childrenByParent = remember(visible) { visible.groupBy { it.id("parentId") } }
-    val selectedParent = categories.firstOrNull { it.id() == selectedId }?.id("parentId")
+    val selectedParent = ordered.firstOrNull { it.id() == selectedId }?.id("parentId")
         ?.takeIf { id -> parentById.any { it.id() == id } }
     var expandedParentId by rememberSaveable(transactionType) { mutableStateOf(selectedParent ?: parentById.firstOrNull()?.id().orEmpty()) }
     LaunchedEffect(selectedParent, parentById) {
@@ -158,7 +160,7 @@ internal fun CategoryChildrenPanel(
     notchColumn: Int,
     onSelect: (JSONObject) -> Unit,
     modifier: Modifier = Modifier,
-    footer: (@Composable () -> Unit)? = null
+
 ) {
     val rows = entryCategoryRows(children)
     val panelColor = if (MaterialTheme.colorScheme.surfaceVariant == Color.Transparent) ledgerColors.controlSurface else MaterialTheme.colorScheme.surfaceVariant
@@ -174,18 +176,21 @@ internal fun CategoryChildrenPanel(
             rows.forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                     row.forEach { child ->
-                        CategoryTile(
-                            item = child,
-                            selected = child.id() == selectedId,
-                            enabled = enabled,
-                            onClick = { onSelect(child) },
-                            modifier = Modifier.weight(1f)
-                        )
+                        Box(Modifier.weight(1f)) {
+                            CategoryTile(
+                                item = child,
+                                selected = child.id() == selectedId,
+                                enabled = enabled,
+                                onClick = { onSelect(child) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                        }
                     }
                     repeat(CATEGORY_COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
-            footer?.invoke()
+
         }
     }
 }

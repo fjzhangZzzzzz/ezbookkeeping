@@ -79,6 +79,7 @@ internal class EntityWriteState(
                 // This exact response guarantees the category mutation was rejected before writing.
                 // Network failures and all other responses retain the pending intent.
                 if ((path.contains("/categories/") && error.httpStatus==409 && error.code==206013) ||
+                    (path=="/api/v1/transaction/categories/move.json" && error.httpStatus==404) ||
                     (path=="/api/v1/transaction/categories/delete.json" && error.httpStatus==400 && error.code==206006)) {
                     storage.clear();pending=null;verifiedUid=null;blocked=false
                 }
@@ -108,7 +109,7 @@ internal class EntityWriteState(
 internal fun isEntityWritePath(path:String):Boolean = path in setOf(
     "/api/v1/accounts/add.json","/api/v1/accounts/modify.json","/api/v1/accounts/delete.json","/api/v1/accounts/sub_account/delete.json","/api/v1/accounts/hide.json","/api/v1/accounts/move.json","/api/v1/users/profile/update.json",
     "/api/v1/transaction/categories/add.json","/api/v1/transaction/categories/modify.json",
-    "/api/v1/transaction/categories/hide.json","/api/v1/transaction/categories/delete.json",
+    "/api/v1/transaction/categories/hide.json","/api/v1/transaction/categories/delete.json","/api/v1/transaction/categories/move.json",
     "/api/v1/transaction/tags/add.json","/api/v1/transaction/tags/modify.json",
     "/api/v1/transaction/tags/groups/add.json","/api/v1/transaction/tags/groups/modify.json"
 )

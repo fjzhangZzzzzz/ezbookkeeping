@@ -95,7 +95,7 @@ class EditorDraftRestorationTest {
         compose.onNodeWithTag("entry-comment").performTextInput("虚构未提交草稿")
         compose.onNode(hasText("#") and hasClickAction()).performClick()
         compose.onNodeWithText("管理").performClick()
-        compose.onNodeWithText("新建标签").assertIsDisplayed()
+        compose.onNodeWithContentDescription("新建标签").assertIsDisplayed()
         compose.onNodeWithContentDescription("返回记账").performClick()
         compose.onNodeWithTag("entry-comment").assertTextEquals("虚构未提交草稿")
         compose.onNodeWithTag("transaction-amount").assertTextEquals("1")

@@ -43,4 +43,11 @@ class EntryCategoriesTest {
         assertEquals("p6", rows[1].first().id())
         assertEquals("p11", rows[2].single().id())
     }
+
+    @Test fun defaultCategoryFollowsSavedSiblingOrder() {
+        val parent = category("10", "0")
+        val later = category("12", "10").put("displayOrder", 2)
+        val first = category("11", "10").put("displayOrder", 1)
+        assertEquals("11", entryDefaultCategory(entryVisibleCategories(listOf(parent, later, first), 3)))
+    }
 }

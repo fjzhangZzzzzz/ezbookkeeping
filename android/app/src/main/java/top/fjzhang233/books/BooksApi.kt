@@ -57,6 +57,7 @@ class BooksApi(private val base: String, private val onTiming:(String,Long)->Uni
     }
     private fun parseResponse(path:String,response:okhttp3.Response,auth:Boolean,overrideToken:String?):Any {
             if (response.code == 404 && path.contains("native")) throw ApiFailure(404, "服务端尚未支持原生 Pocket ID 登录，请先使用本地密码或升级服务端")
+            if (response.code == 404 && path.endsWith("/transaction/categories/move.json")) throw ApiFailure(404, "服务端尚未支持分类排序，请先升级服务端", httpStatus = 404)
             val obj = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrElse { throw ApiFailure(response.code, "服务响应异常，请稍后重试",httpStatus=response.code) }
             if (!response.isSuccessful || !obj.optBoolean("success")) {
                 val code = obj.optInt("errorCode", response.code)
@@ -126,9 +127,10 @@ class BooksApi(private val base: String, private val onTiming:(String,Long)->Uni
     suspend fun userProfile(): JSONObject = call("/api/v1/users/profile/get.json") as JSONObject
     suspend fun categories(): List<JSONObject> {
         val result = call("/api/v1/transaction/categories/list.json") as JSONObject
-        return result.keys().asSequence().flatMap { key -> result.array(key).asSequence() }.flatMap { parent ->
+        val rows = result.keys().asSequence().flatMap { key -> result.array(key).asSequence() }.flatMap { parent ->
             sequenceOf(parent) + parent.array("subCategories").asSequence()
         }.toList()
+        return sortCategoriesForDisplay(rows)
     }
     /** A category tree is usable for management only when surrounded by the same revision. */
     suspend fun categorySnapshot(): Pair<List<JSONObject>,String?> {

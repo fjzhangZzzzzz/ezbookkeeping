@@ -78,7 +78,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private var categoriesRefreshedAt=0L
     private suspend fun loadCategories(force:Boolean=true) {
         if(!force && categories.isNotEmpty() && System.currentTimeMillis()-categoriesRefreshedAt<60_000)return
-        val (rows,revision)=api.categorySnapshot(); categories=rows; categoryRevision=revision
+        val (rows,revision)=api.categorySnapshot(); categories=sortCategoriesForDisplay(rows); categoryRevision=revision
         categoryRefreshFailed = false
         categoriesRefreshedAt=System.currentTimeMillis()
     }
@@ -231,7 +231,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
 
     private fun restoreCriticalCache(){
         val value=criticalDataCache.read();diagnostics.record("startup.cache",0,if(value==null)"miss" else "hit");value?:return
-        accounts=value.accounts;categories=value.categories;categoryRevision=value.revision;categoriesRefreshedAt=System.currentTimeMillis();pendingCheckReady=accounts.isNotEmpty()&&!transactionSubmission.hasPendingCandidate()
+        accounts=value.accounts;categories=sortCategoriesForDisplay(value.categories);categoryRevision=value.revision;categoriesRefreshedAt=System.currentTimeMillis();pendingCheckReady=accounts.isNotEmpty()&&!transactionSubmission.hasPendingCandidate()
         if(instantEntry&&pendingCheckReady){showEditor=true;initialLoadHandled=true;cachedEditorShown=true}
     }
     private fun startInitialLoad(){
@@ -297,7 +297,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if(entityWrites.blocked)entityWrites.invalidateIdentity()
         refreshSession()
         val(loadedAccounts,loadedCategories)=coroutineScope{val accountRequest=async(Dispatchers.IO){api.accounts()};val categoryRequest=async(Dispatchers.IO){api.categorySnapshot()};accountRequest.await() to categoryRequest.await()}
-        accounts=loadedAccounts;categories=loadedCategories.first;categoryRevision=loadedCategories.second;categoriesRefreshedAt=System.currentTimeMillis()
+        accounts=loadedAccounts;categories=sortCategoriesForDisplay(loadedCategories.first);categoryRevision=loadedCategories.second;categoriesRefreshedAt=System.currentTimeMillis()
         accountRefreshFailed = false
         categoryRefreshFailed = false
         diagnostics.record("startup.critical_data",SystemClock.elapsedRealtime()-criticalStarted)

@@ -197,6 +197,7 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
                         )
                         AppPage.FAMILY -> FamilyReportPage(vm, { pop(page) }, ::openChart)
                         AppPage.CALENDAR -> LedgerCalendar(vm, ::push) { pop(page) }
+                        AppPage.CATALOG -> CatalogPage(vm, back = { pop(page) }, feedback = feedback)
                         else -> BooksScaffold(vm, page, feedback, { pop(page) }, { moveDrawer(DrawerValue.Open) }, ::push) {
                             when (page) {
                                 AppPage.ABOUT -> UpdatePage(updates)
@@ -207,7 +208,7 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
                                     if (destination == AppPage.SESSIONS) vm.getSessions()
                                 }
                                 AppPage.ACCOUNTS -> AccountsPage(vm)
-                                AppPage.CATALOG -> CatalogPage(vm)
+
                                 AppPage.SESSIONS -> SessionsPage(vm)
                                 AppPage.EXTERNAL_AUTH -> ExternalAuthPage(vm)
                                 else -> Unit

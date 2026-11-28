@@ -342,15 +342,7 @@ import androidx.compose.ui.focus.onFocusChanged
 
 @Composable
 internal fun EntryCatalogContent(vm: BooksModel, section: Int, back: () -> Unit) {
-    Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = back) { Icon(Icons.Outlined.ArrowBack, "返回记账") }
-                Text("分类与标签", style = MaterialTheme.typography.titleLarge)
-            }
-            CatalogPage(vm, initialSection = section)
-        }
-    }
+    CatalogPage(vm, initialSection = section, back = back, backLabel = "返回记账")
 }
 
 internal fun draftThumbnail(bytes:ByteArray):ByteArray {
