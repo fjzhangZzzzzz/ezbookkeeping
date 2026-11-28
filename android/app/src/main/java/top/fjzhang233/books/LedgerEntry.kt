@@ -306,7 +306,7 @@ import androidx.compose.ui.focus.onFocusChanged
             val pickingDestination=sheet=="destination"
             val preset=accountPreset(accountPresetKey)
             when {
-                preset!=null -> key(preset.key){AccountEditor(vm,null,close={accountPresetKey=""},preset=preset)}
+                preset!=null -> key(preset.key){AccountEditor(vm,null,close={accountPresetKey="";sheet=""},preset=preset)}
                 accountAssetPicker -> LedgerAssetPresetPicker(dismiss={accountAssetPicker=false},choose={accountPresetKey=it.key;accountAssetPicker=false},enabled=!editLocked&&!vm.entityBlocked)
                 else -> LedgerAccountPicker(
                     accounts = vm.accounts.filter { !pickingDestination || it.id() != account },

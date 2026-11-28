@@ -27,11 +27,13 @@ class AccountPickerFlowAcceptanceTest {
     @Test fun lightCreateReturnsToUnchangedDraftAndExplicitChoice()=flow("light")
     @Test fun darkCreateReturnsToUnchangedDraftAndExplicitChoice()=flow("dark")
     private fun flow(mode:String){
-        assumeTrue(BuildConfig.DEBUG&&BuildConfig.API_BASE_URL=="http://127.0.0.1:18090")
-        val privateFile=File(context.filesDir,"qa-config.json");check(privateFile.isFile){"Required isolated fixture missing"};val privateInput=JSONObject(privateFile.readText())
+        assumeTrue(signedInQaEnabled() || (BuildConfig.DEBUG && BuildConfig.API_BASE_URL=="http://127.0.0.1:18090"))
         oldTheme;check(preferences.edit().putString("theme",mode).commit())
         val vm=ViewModelProvider(compose.activity)[BooksModel::class.java]
-        if(vm.token==null)compose.runOnIdle{vm.login(privateInput.getString("username"),privateInput.getString("password"),"")}
+        if (vm.token == null) {
+            val privateInput = JSONObject(File(context.filesDir,"qa-config.json").readText())
+            compose.runOnIdle { vm.login(privateInput.getString("username"), privateInput.getString("password"), "") }
+        }
         compose.waitUntil(30_000){vm.token!=null&&!vm.busy&&vm.accounts.isNotEmpty()};check(!vm.entityBlocked&&!vm.transactionNeedsConfirmation)
         val marker="QA-account-flow-"+UUID.randomUUID().toString();val api=vm.api
         val baseline=runBlocking{api.completeSearch(LedgerSearchFilter()).items.map{it.id()}.toSet()}
@@ -61,7 +63,11 @@ class AccountPickerFlowAcceptanceTest {
             compose.onNodeWithText("保存账户").performClick();compose.waitUntil(30_000){!vm.busy&&vm.accounts.any{it.optString("name")==marker}}
             check(!vm.entityBlocked&&!vm.entityAwaitingReview){"Entity ACK required before continuing"}
             createdId=vm.accounts.single{it.optString("name")==marker}.id();File(context.filesDir,"qa-account-flow-$mode-owner.json").writeText(JSONObject().put("marker",marker).put("createdId",createdId).toString())
-            compose.onNodeWithTag("entry-account-picker").assertIsDisplayed();compose.onNodeWithTag("entry-account-none").assertIsSelected()
+            compose.onNodeWithTag("entry-account-picker").assertDoesNotExist()
+            compose.onNodeWithTag("entry-comment").assertTextEquals(marker)
+            compose.onNodeWithTag("transaction-amount").assertTextEquals("1")
+            compose.onNodeWithTag("entry-account").performClick()
+            compose.onNodeWithTag("entry-account-none").assertIsSelected()
             val account=runBlocking{api.accounts().single{it.id()==createdId}};assertEquals(1,account.optInt("category"));assertEquals("10",account.optString("icon"));assertEquals("0",account.optString("balance"))
             compose.onNodeWithTag("entry-account-grid").performScrollToNode(hasTestTag("entry-account-$createdId"));compose.onNodeWithTag("entry-account-$createdId").performClick()
             compose.onNodeWithTag("entry-comment").assertTextEquals(marker);compose.onNodeWithTag("transaction-amount").assertTextEquals("1");compose.onNodeWithTag("entry-account").assertTextContains(marker);capture("$mode-draft-return")

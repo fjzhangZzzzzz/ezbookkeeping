@@ -102,16 +102,16 @@ class EntityWriteProcessTest {
     @Test fun stage1UnknownAccountIsEncryptedAndBusyCannotEditOrDismiss()=runBlocking<Unit>{
         val input=fixture();check(!marker().exists());check(pendingStore().readChecked()==null)
         try{val direct=loginFirst(input);Proxy().use{proxy->
-            launch();accounts();compose.onNodeWithText("新建账户",substring=false).performClick()
+            launch();accounts();compose.onNodeWithContentDescription("新建账户").performClick()
             val name="实体重启账户-"+UUID.randomUUID();compose.onNodeWithText("账户名称").performTextInput(name);compose.onNodeWithText("初始余额（CNY）").performTextReplacement("0.01");hideIme()
             proxy.path="/api/v1/accounts/add.json";stage="account-busy-commit";compose.onNodeWithText("保存账户").performClick();check(proxy.prepared.await(15,TimeUnit.SECONDS))
-            compose.onNodeWithText("账户名称").assertIsNotEnabled();compose.onNodeWithText("币种代码").assertIsNotEnabled();compose.onNodeWithText("初始余额（CNY）").assertIsNotEnabled();compose.onNodeWithText("账户类型：现金").assertIsNotEnabled();compose.onNodeWithText("备注",substring=false).assertIsNotEnabled();compose.onNodeWithText("保存账户").assertIsNotEnabled();compose.onNodeWithText("取消",substring=false).assertIsNotEnabled()
+            compose.onNodeWithText("账户名称").assertIsNotEnabled();compose.onNodeWithText("币种：CNY").assertExists();compose.onNodeWithText("初始余额（CNY）").assertIsNotEnabled();compose.onNodeWithText("账户类型：现金").assertIsNotEnabled();compose.onNodeWithText("备注",substring=false).assertIsNotEnabled();compose.onNodeWithText("保存账户").assertIsNotEnabled();compose.onNodeWithText("取消",substring=false).assertIsNotEnabled()
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);outside();compose.onNodeWithText("账户名称").assertIsDisplayed();capture("account-busy")
             proxy.release.countDown();ready();tag("entity-pending-original");stage="account-unknown-original"
             compose.onNodeWithText("原名称：$name").assertIsDisplayed();compose.onNodeWithText("初始余额：0.01 CNY").assertIsDisplayed();compose.onAllNodes(hasSetTextAction()).assertCountEquals(0);capture("account-unknown-readonly")
             compose.onNodeWithTag("entity-recheck").performClick();ready();assertEquals(1,proxy.writes.get())
             val saved=checkNotNull(pendingStore().readChecked());val scope=hash(BuildConfig.API_BASE_URL.trimEnd('/'));val cipher=context.getSharedPreferences("pending-entity-$scope",0).getString("encrypted",null);check(!cipher.isNullOrBlank()&&!cipher.contains(name))
-            compose.onNodeWithTag("entity-view-list").performClick();compose.onNodeWithText("新建账户",substring=false).assertIsNotEnabled();assertEquals(saved,pendingStore().readChecked())
+            compose.onNodeWithTag("entity-view-list").performClick();compose.onNodeWithContentDescription("新建账户").assertIsNotEnabled();assertEquals(saved,pendingStore().readChecked())
             val actual=direct.accounts().filter{it.optString("name")==name};assertEquals(1,actual.size);assertEquals("1",actual.single().optString("balance"))
             marker().writeText(JSONObject().put("producerPid",android.os.Process.myPid()).put("pendingSha256",hash(saved)).toString())
             result(1,JSONObject().put("phase1ReadyForForceStop",true).put("realBackendCommittedBeforeUnknownResponse",true).put("busyNameSaveCancelBackAndOutsideLocked",true).put("unknownOriginalNameAmountReadonly",true).put("encryptedBeforeRestart",true).put("onePostAndOneOneFenAccount",true).put("newEntityBlockedAfterViewingList",true))

@@ -2,9 +2,19 @@ package top.fjzhang233.books
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class AccountSelectionTest {
+    @Test fun accountOrderMovesOnlyVisibleSiblingsAndRetainsArchivedSlots() {
+        fun account(id: String, group: Int, hidden: Boolean = false) =
+            JSONObject().put("id", id).put("category", group).put("hidden", hidden)
+        val accounts = listOf(account("a", 1), account("h", 1, true), account("b", 1), account("c", 2))
+        assertEquals(listOf("b" to 1, "h" to 2, "a" to 3), accountOrderChanges(accounts, listOf("b", "a", "c")))
+        assertThrows(IllegalArgumentException::class.java) { accountOrderChanges(accounts, listOf("c", "b", "a")) }
+        assertThrows(IllegalArgumentException::class.java) { accountOrderChanges(accounts, listOf("a", "a", "c")) }
+    }
+
     private fun account(id: String, order: Int, hidden: Boolean = false) = JSONObject()
         .put("id", id).put("displayOrder", order).put("hidden", hidden)
 

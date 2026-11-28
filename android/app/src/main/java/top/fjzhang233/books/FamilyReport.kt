@@ -20,8 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
@@ -60,13 +61,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
-import java.math.BigInteger
 import java.time.YearMonth
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,6 +74,8 @@ internal fun FamilyReportPage(
     vm: BooksModel,
     dismiss: () -> Unit,
     openChart: (FullscreenChartPage, ReportSnapshot) -> Unit,
+    openStatistics: (FamilyStatisticsPage) -> Unit,
+    showSheets: Boolean,
 ) {
     var selectedMonth by rememberSaveable { mutableStateOf(vm.month) }
     var yearly by rememberSaveable { mutableStateOf(false) }
@@ -89,7 +90,8 @@ internal fun FamilyReportPage(
     var categoryType by rememberSaveable { mutableIntStateOf(2) }
     var lines by rememberSaveable { mutableStateOf(false) }
     var selectedDay by remember { mutableStateOf<String?>(null) }
-    var selectedCategory by remember { mutableStateOf<ReportCategory?>(null) }
+    var parentId by rememberSaveable { mutableStateOf<String?>(null) }
+    var childId by rememberSaveable { mutableStateOf<String?>(null) }
     var chooseMember by remember { mutableStateOf(false) }
     val period = ReportPeriod(YearMonth.parse(selectedMonth), yearly)
     val scopeLabel = if (memberId == "0") "全家" else payload?.array("members")?.firstOrNull { it.id() == memberId }?.optString("nickname").orEmpty().ifBlank { "当前成员" }
@@ -97,7 +99,7 @@ internal fun FamilyReportPage(
     fun adopt(value: ReportPeriod) { selectedMonth = value.month.toString(); yearly = value.yearly }
 
     LaunchedEffect(period, memberId, reload, vm.token) {
-        loading = true; failure = ""
+        loading = true; failure = ""; payload = null; snapshot = null
         try {
             val result = vm.api.familyReport(period, memberId)
             payload = result
@@ -111,7 +113,7 @@ internal fun FamilyReportPage(
             Column(Modifier.fillMaxSize().background(ledgerColors.background).systemBarsPadding()) {
                 Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = dismiss) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
-                    Spacer(Modifier.weight(1f)); ReportSegments(listOf("月", "年"), if (yearly) 1 else 0, "family-period") { yearly = it == 1; chartType = 2 }; Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.weight(1f)); ReportSegments(listOf("月", "年"), if (yearly) 1 else 0, "family-period", period = true) { yearly = it == 1; chartType = 2 }; Spacer(Modifier.weight(1f))
                     Icon(Icons.Outlined.FilterAltOff, "家庭报表只读", tint = reportMuted)
                 }
                 Row(Modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
@@ -127,45 +129,35 @@ internal fun FamilyReportPage(
                         item { FamilyMemberScopeBar(scopeLabel, enabled = !loading) { chooseMember = true } }
                         snapshot?.let { report ->
                             item { FamilySummaryCard(report) }
-                            if (report.days.any { it.active }) item {
-                                ReportCard(if (yearly) "月度对比" else "每日统计", actions = {
-                                    IconButton(onClick = { openChart(FullscreenChartPage(ReportQuery(period), chartType, lines, memberId), report) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.Fullscreen, "全屏图表", tint = reportMuted) }
-                                    IconButton(onClick = { lines = !lines }, modifier = Modifier.size(36.dp).testTag("family-report-chart-toggle")) { Icon(if (lines) Icons.Outlined.BarChart else Icons.Outlined.ShowChart, if (lines) "切换柱状图" else "切换折线图", tint = reportMuted) }
-                                }) {
-                                    ReportChart(report, chartType, lines)
-                                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) { ReportSegments(if (yearly) listOf("支出", "收入", "结余", "全部") else listOf("支出", "收入", "全部"), chartType - 2, "family-trend") { chartType = it + 2 } }
-                                }
-                            }
-                            item {
-                                ReportCard("分类报表") {
-                                    val ranked = report.ranking(categoryType)
-                                    val total = ranked.fold(BigInteger.ZERO) { sum, row -> sum + row.amount.max(BigInteger.ZERO) }
-                                    val colors = rememberReportCategoryPalette(categoryType)
-                                    ReportDonut(ranked, if (categoryType == 2) "支出比例" else "收入比例", categoryColors = colors)
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { ReportSegments(listOf("支出", "收入"), if (categoryType == 2) 0 else 1, "family-category") { categoryType = if (it == 0) 2 else 1 } }
-                                    ranked.forEachIndexed { index, row ->
-                                        val color = colors[index]
-                                        Row(Modifier.fillMaxWidth().clickable { selectedCategory = row }.padding(vertical = 12.dp).testTag("family-report-category-${row.category.id()}"), verticalAlignment = Alignment.CenterVertically) {
-                                            Box(Modifier.size(36.dp).background(color.fill, CircleShape), contentAlignment = Alignment.Center) { BuiltinIcon(row.category, tint = color.onFill) }
-                                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(row.category.optString("name"), Modifier.weight(1f), fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(" ${reportPercentForFamily(row.amount, total)}", fontSize = 12.sp, color = reportMuted); Text(money(row.amount.toString()), fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                                val difference = row.amount - row.previous
-                                                Text("较${if (yearly) "上年" else "上月"} ${if (difference.signum() > 0) "+" else ""}${money(difference.toString())}", fontSize = 10.sp, color = reportMuted)
-                                                LinearProgressIndicator(progress = { reportRatio(row.amount, total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(3.dp), color = color.fill)
-                                            }
-                                        }
+                            if (report.days.any { it.active }) {
+                                item {
+                                    ReportCard(if (yearly) "月度对比" else "每日统计", actions = {
+                                        IconButton(onClick = { openChart(FullscreenChartPage(ReportQuery(period), chartType, lines, memberId), report) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.Fullscreen, "全屏图表", tint = reportMuted) }
+                                        IconButton(onClick = { lines = !lines }, modifier = Modifier.size(36.dp).testTag("family-report-chart-toggle")) { Icon(if (lines) Icons.Outlined.BarChart else Icons.Outlined.ShowChart, if (lines) "切换柱状图" else "切换折线图", tint = reportMuted) }
+                                    }) {
+                                        ReportChart(report, chartType, lines)
+                                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) { ReportSegments(if (yearly) listOf("支出", "收入", "结余", "全部") else listOf("支出", "收入", "全部"), chartType - 2, "family-trend") { chartType = it + 2 } }
                                     }
-                                    if (ranked.isEmpty()) Text("所选期间没有${if (categoryType == 2) "支出" else "收入"}", Modifier.padding(16.dp), color = reportMuted)
                                 }
-                            }
-                            item {
-                                ReportCard(if (yearly) "月报表" else "日报表") {
-                                    ReportTableRow("日期", "收入", "支出", "结余", true)
-                                    if (yearly) reportTableDays(report).forEach { (label, income, expense) -> ReportTableRow(label, money(income.toString()), money(expense.toString()), money((income - expense).toString())) }
-                                    else report.days.filter { it.active }.asReversed().forEach { day -> ReportTableRow(day.date.toString().substring(5), money(day.income.toString()), money(day.expense.toString()), money((day.income - day.expense).toString()), modifier = Modifier.testTag("family-report-day-${day.date}"), onClick = { selectedDay = day.date.toString() }) }
-                                    if (yearly) ReportTableRow("平均", reportAverage(report.income, report.activeMonths.toLong()), reportAverage(report.expense, report.activeMonths.toLong()), reportAverage(report.income - report.expense, report.activeMonths.toLong()))
+                                item {
+                                    ReportCard("分类报表") {
+                                        val ranked = report.parentRanking(categoryType, report.familyCatalog)
+                                        val colors = rememberReportCategoryPalette(categoryType)
+                                        if (ranked.isNotEmpty()) ReportDonut(ranked, if (categoryType == 2) "支出比例" else "收入比例", categoryColors = colors)
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { ReportSegments(listOf("支出", "收入"), if (categoryType == 2) 0 else 1, "family-category") { categoryType = if (it == 0) 2 else 1 } }
+                                        ReportCategoryRanking(ranked, period, "family-report-category", colors) { parentId = it.category.id() }
+                                        if (ranked.isEmpty()) Text("所选期间没有${if (categoryType == 2) "支出" else "收入"}", Modifier.padding(16.dp), color = reportMuted)
+                                    }
                                 }
-                            }
+                                item {
+                                    ReportCard(if (yearly) "月报表" else "日报表") {
+                                        ReportTableRow("日期", "收入", "支出", "结余", true)
+                                        if (yearly) reportTableDays(report).forEach { (label, income, expense) -> ReportTableRow(label, money(income.toString()), money(expense.toString()), money((income - expense).toString())) }
+                                        else report.days.filter { it.active }.asReversed().forEach { day -> ReportTableRow(day.date.toString().substring(5), money(day.income.toString()), money(day.expense.toString()), money((day.income - day.expense).toString()), modifier = Modifier.testTag("family-report-day-${day.date}"), onClick = { selectedDay = day.date.toString() }) }
+                                        if (yearly) ReportTableRow("平均", reportAverage(report.income, report.activeMonths.toLong()), reportAverage(report.expense, report.activeMonths.toLong()), reportAverage(report.income - report.expense, report.activeMonths.toLong()))
+                                    }
+                                }
+                            } else item { Text("暂无数据", Modifier.fillMaxWidth().padding(24.dp), color = reportMuted, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                         }
                         item { FamilyMembersAndAccounts(data) }
                     }
@@ -174,8 +166,23 @@ internal fun FamilyReportPage(
         }
     if (choosePeriod) ReportPeriodChooser(period, { choosePeriod = false }) { selectedMonth = it.toString(); choosePeriod = false; reload++ }
     if (chooseMember) FamilyMemberScopeSheet(payload?.array("members").orEmpty(), memberId, { chooseMember = false }) { value -> memberId = value; reload++ }
-    selectedDay?.let { date -> FamilyReportTransactionsSheet(vm, period, memberId, date, "", { selectedDay = null }) }
-    selectedCategory?.let { category -> FamilyReportTransactionsSheet(vm, period, memberId, "", category.category.id(), { selectedCategory = null }) }
+    selectedDay?.let { date -> FamilyReportTransactionsSheet(vm, period, memberId, date, "", date, dismiss = { selectedDay = null }) }
+    val report = snapshot
+    if (report != null && parentId != null) {
+        val parent = report.parentRanking(categoryType, report.familyCatalog).firstOrNull { it.category.id() == parentId }
+        if (parent != null) {
+            fun statistics(row: ReportCategory, group: Boolean) {
+                openStatistics(FamilyStatisticsPage(ReportQuery(period), memberId, scopeLabel, row.category.id(),
+                    row.category.optString("name"), categoryType, group))
+            }
+            val parts = report.familyCategoryParts(parent.category.id(), categoryType)
+            ReportCategoryBreakdown(parent.category, parts, period,
+                false, showSheets, { statistics(parent, true) }, { childId = it.category.id() }, { parentId = null })
+            val child = parts.firstOrNull { it.category.id() == childId }
+            if (child != null) FamilyReportTransactionsSheet(vm, period, memberId, "", child.category.id(),
+                child.category.optString("name"), visible = showSheets, statistics = { statistics(child, false) }, dismiss = { childId = null })
+        }
+    }
 }
 
 @Composable
@@ -231,6 +238,7 @@ private fun FamilyMemberScopeOption(id: String, label: String, supporting: Strin
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .selectable(selected = id == selected, role = Role.RadioButton, onClick = { choose(id) })
+            .testTag("family-scope-member-$id")
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -243,7 +251,6 @@ private fun FamilyMemberScopeOption(id: String, label: String, supporting: Strin
     }
 }
 
-private fun reportPercentForFamily(value: BigInteger, total: BigInteger): String = if (total.signum() <= 0) "0.00%" else value.toBigDecimal().multiply(java.math.BigDecimal(100)).divide(total.toBigDecimal(), 2, java.math.RoundingMode.HALF_UP).toPlainString() + "%"
 
 @Composable
 private fun FamilySummaryCard(report: ReportSnapshot) {
@@ -263,7 +270,8 @@ private fun FamilyMembersAndAccounts(payload: JSONObject) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FamilyReportTransactionsSheet(vm: BooksModel, period: ReportPeriod, memberId: String, date: String, categoryId: String, dismiss: () -> Unit) {
+internal fun FamilyReportTransactionsSheet(vm: BooksModel, period: ReportPeriod, memberId: String, date: String, categoryId: String,
+    title: String, visible: Boolean = true, statistics: (() -> Unit)? = null, dismiss: () -> Unit) {
     var rows by remember { mutableStateOf<List<JSONObject>>(emptyList()) }; var nextCursor by remember { mutableStateOf("") }; var page by remember { mutableIntStateOf(0) }; var loading by remember { mutableStateOf(true) }; var failure by remember { mutableStateOf("") }; var retry by remember { mutableIntStateOf(0) }; var selected by remember { mutableStateOf<JSONObject?>(null) }
     LaunchedEffect(period, memberId, date, categoryId, page, retry) {
         loading = true; failure = ""
@@ -276,16 +284,21 @@ private fun FamilyReportTransactionsSheet(vm: BooksModel, period: ReportPeriod, 
         catch (e: Exception) { failure = "家庭明细加载失败，请重试" }
         finally { loading = false }
     }
-    ModalBottomSheet(onDismissRequest = dismiss, containerColor = reportSurface, dragHandle = null) {
+    val listState = rememberLazyListState()
+    if (!visible) return
+    ModalBottomSheet(onDismissRequest = dismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = reportSurface, dragHandle = null) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().testTag("family-report-details")) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Text(if (categoryId.isBlank()) date else "分类明细", Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Bold); TextButton(onClick = dismiss) { Text("关闭") } }
+            if (statistics != null) Box(Modifier.padding(horizontal = 16.dp)) { ReportCategorySheetHeader(title, "family-category-sheet-statistics", statistics) }
+            else Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Text(title, Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Bold); TextButton(onClick = dismiss) { Text("关闭") } }
             Text("CNY · 上海时间 · 家庭只读", Modifier.padding(horizontal = 16.dp), fontSize = 11.sp, color = reportMuted)
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (failure.isNotEmpty()) Row(Modifier.padding(16.dp)) { Text(failure, color = reportRed); TextButton(onClick = { retry++ }) { Text("重试") } }
-            LazyColumn(Modifier.fillMaxWidth().height(420.dp)) {
-                items(rows, key = { it.id() }) { row ->
-                    val expense = row.optInt("type") == 3
-                    ListItem(headlineContent = { Text(row.optString("categoryName")) }, supportingContent = { Text(row.optString("ownerName") + " · " + row.optString("comment").ifBlank { row.optString("accountName") }) }, trailingContent = { Text(money(if (expense) row.optString("amountMinor").toBigInteger().abs().toString() else row.optString("amountMinor")), color = if (expense) reportRed else reportGreen) }, modifier = Modifier.clickable { selected = row })
+            LazyColumn(Modifier.fillMaxWidth().heightIn(min = 144.dp, max = 420.dp), state = listState) {
+                itemsIndexed(rows, key = { _, row -> row.id() }) { index, row ->
+                    val type = row.optInt("type")
+                    val description = listOf(shanghaiReportDate(row.optLong("time")).toString(), row.optString("comment")).filter { it.isNotBlank() }.joinToString(" · ")
+                    CompactTransactionRow(row.optString("categoryName"), row.optString("ownerName"), description,
+                        transactionSignedAmount(type, row.optString("amountMinor")), type, first = index == 0) { selected = row }
                 }
                 if (!loading && rows.isEmpty()) item { Text("暂无匹配的家庭流水", Modifier.padding(24.dp), color = reportMuted) }
                 if (!loading && nextCursor.isNotBlank()) item { TextButton(onClick = { page++ }) { Text("加载更多") } }

@@ -77,7 +77,7 @@ class NativeAcceptanceTest {
             runBlocking{var token:String?=null;val api=BooksApi(BuildConfig.API_BASE_URL){token};token=api.login(input.getString("username"),input.getString("password"),"").getString("token");api.call("/api/logout.json")}
             launch();if(!ledgerVisible())login(input)else ready()
             stage="drawer-back";compose.onNodeWithContentDescription("打开菜单").performClick();compose.waitForIdle();check(compose.onAllNodesWithTag("nav-流水",useUnmergedTree=true).fetchSemanticsNodes(atLeastOneRootRequired=false).isEmpty());scenario!!.onActivity{it.onBackPressedDispatcher.onBackPressed()};awaitLedger()
-            stage="account-create";navigate("账户");compose.onNodeWithText("新建账户").performClick()
+            stage="account-create";navigate("账户");compose.onNodeWithContentDescription("新建账户").performClick()
             val name="原生验收"+System.currentTimeMillis().toString().takeLast(7);val first=name+"第一笔";val second=name+"第二笔"
             compose.onNodeWithText("账户名称").performTextInput(name);compose.onNodeWithText("保存账户").performClick();compose.waitUntil(45_000){!exists("保存账户")};ready();compose.onNodeWithTag("accounts-list").performScrollToNode(hasText(name));compose.onNodeWithText(name).assertExists()
             stage="editor-open";awaitLedger();compose.onNodeWithTag("add-transaction",useUnmergedTree=true).performClick()

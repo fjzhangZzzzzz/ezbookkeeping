@@ -49,6 +49,7 @@ internal data class ReportCategory(val category:JSONObject,val amount:BigInteger
 internal data class ReportSnapshot(
     val period:ReportPeriod,val days:List<ReportDay>,val categories:List<ReportCategory>,val excludedForeign:Boolean,
     val previousAmounts: Map<String, BigInteger> = emptyMap(),
+    val familyCatalog: List<JSONObject> = emptyList(),
 ) {
     val activeMonths:Int get()=days.filter{it.active}.map{YearMonth.from(it.date)}.distinct().size
     val income:BigInteger get()=days.fold(BigInteger.ZERO){sum,row->sum+row.income}
@@ -70,6 +71,16 @@ internal fun ReportSnapshot.parentRanking(type: Int, catalog: List<JSONObject>):
             priorByParent[id] ?: BigInteger.ZERO)
     }.sortedByDescending { it.amount }
 }
+
+internal fun List<ReportCategory>.labelDirectEntries(parentId: String, hasChildren: Boolean): List<ReportCategory> =
+    if (!hasChildren) this else map { row ->
+        if (row.category.id() == parentId) row.copy(category = JSONObject(row.category.toString()).put("name", "直接记入"))
+        else row
+    }
+
+internal fun ReportSnapshot.familyCategoryParts(parentId: String, type: Int): List<ReportCategory> =
+    ranking(type).filter { it.category.id() == parentId || it.category.id("parentId") == parentId }
+        .labelDirectEntries(parentId, familyCatalog.any { it.id("parentId") == parentId })
 
 internal fun List<JSONObject>.reportParentIds(): Set<String> =
     map { it.id("parentId") }.filter(::isReportCategoryId).toSet()
@@ -132,21 +143,24 @@ internal suspend fun BooksApi.reportCategoryPage(
 }
 
 internal fun familyReportSnapshot(payload:JSONObject, period:ReportPeriod):ReportSnapshot {
-    val categories = payload.array("categories").map { row ->
-        JSONObject().put("id", row.id()).put("name", row.optString("name").ifBlank { "未分类" }).put("type", row.optInt("type")).put("icon", row.optString("icon", "1")).put("iconType", row.optInt("iconType")).put("color", row.optString("color"))
+    val current = payload.array("categories")
+    val all = current + payload.array("priorOnlyCategories")
+    val catalog = linkedMapOf<String, JSONObject>()
+    for (row in all) {
+        val parent = row.optJSONObject("parent")
+        if (parent != null) catalog.putIfAbsent(parent.id(), JSONObject(parent.toString()).put("type", row.optInt("type")))
+        catalog[row.id()] = JSONObject(row.toString()).put("parentId", parent?.id() ?: "0")
     }
-    val categoryById = categories.associateBy { it.id() }
-    val previous = payload.array("categories").associate { row -> row.id() to row.optString("previousAmountMinor", "0").toBigInteger() }
+    val previous = all.associate { it.id() to it.optString("previousAmountMinor", "0").toBigInteger() }
     val dayRows = payload.array("days").associateBy { java.time.LocalDate.parse(it.getString("date")) }
     val days = (0 until period.days).map { offset ->
         val date = period.first.plusDays(offset.toLong())
         val row = dayRows[date]
-        ReportDay(date, row?.optString("incomeMinor", "0")?.toBigInteger() ?: BigInteger.ZERO, row?.optString("expenseMinor", "0")?.toBigInteger() ?: BigInteger.ZERO)
+        ReportDay(date, row?.optString("incomeMinor", "0")?.toBigInteger() ?: BigInteger.ZERO, row?.optString("expenseMinor", "0")?.toBigInteger() ?: BigInteger.ZERO, active = row != null)
     }
-    return ReportSnapshot(period, days, payload.array("categories").mapNotNull { row ->
-        val category = categoryById[row.id()] ?: return@mapNotNull null
-        ReportCategory(category, row.optString("amountMinor", "0").toBigInteger(), previous[row.id()] ?: BigInteger.ZERO)
-    }, payload.optBoolean("hasExcludedForeignCurrency"))
+    return ReportSnapshot(period, days, current.map { row ->
+        ReportCategory(catalog.getValue(row.id()), row.optString("amountMinor", "0").toBigInteger(), previous.getValue(row.id()))
+    }, payload.optBoolean("hasExcludedForeignCurrency"), previous, catalog.values.toList())
 }
 /** Same CNY/Shanghai/account/category/tag scope as the clicked daily summary, with full server count. */
 internal suspend fun BooksApi.reportDayPage(

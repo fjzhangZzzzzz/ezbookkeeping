@@ -7,7 +7,8 @@ Android 和 Web 使用同一家庭报表数据契约。Web 的页面层级、跨
 ## 数据边界
 
 - `GET /api/v1/family/report.json` 按月或自然年、成员范围在服务端聚合，返回收支总览、日序列、分类及上期分类值、成员和账户。
-- Web 使用报表分类的 `parent` 信息分组，`priorOnlyCategories` 补足只在上期有数据的分类。历史上直接记到一级分类的交易保留为「直接记账」。流水按实际记账分类 ID 下钻。
+- Android 和 Web 使用报表分类的 `parent` 信息按一级分类分组，`priorOnlyCategories` 补足只在上期有数据的分类。历史上直接记到一级分类的交易作为独立分项保留。流水按实际记账分类 ID 下钻。
+- Android 分类抽屉展示二级分类环图和排行，再打开只读流水。两层的统计入口均继承来源期间和成员范围，返回时恢复原抽屉。服务端返回的统计日即使净额为零也保留；空期间仍可切换成员并查看账户。
 - `GET /api/v1/family/report/transactions.json` 是报表点击后的只读明细源，支持成员、日期、分类、账户和稳定游标。
 - `GET /api/v1/family/transactions/list.json` 支持 `period`、`yearly` 和 `member_id`，返回完整家庭流水，游标绑定查询范围。旧 `month` 参数与旧游标格式继续兼容。
 - `GET /api/v1/family/report/export.csv` 按报表的期间和成员查询汇总，使用与报表相同的金额及外币排除口径。旧月度导出接口继续兼容。

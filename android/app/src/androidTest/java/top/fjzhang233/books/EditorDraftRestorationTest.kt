@@ -20,6 +20,21 @@ import org.junit.Test
 /** Tests editor UI restoration and unknown-result retries without any backend or saved login. */
 class EditorDraftRestorationTest {
     @get:Rule val compose=createComposeRule()
+
+    @Test fun editedAccountConfirmsDiscardAndCanContinueEditing() {
+        val vm = model()
+        var closed = false
+        compose.setContent { FamilyTheme { AccountEditor(vm, null, close = { closed = true }) } }
+        compose.onNodeWithText("保存账户").assertIsNotEnabled()
+        compose.onNodeWithText("账户名称").performTextInput("临时账户")
+        compose.onNodeWithText("取消").performClick()
+        compose.onNodeWithText("继续编辑").performClick()
+        compose.onNodeWithText("临时账户").assertExists()
+        assertFalse(closed)
+        compose.onNodeWithText("取消").performClick()
+        compose.onNodeWithText("放弃", substring = false).performClick()
+        compose.runOnIdle { assertTrue(closed) }
+    }
     private class DraftApplication(context:Context):Application(){
         init{attachBaseContext(context)}
         override fun getSharedPreferences(name:String,mode:Int):SharedPreferences = super.getSharedPreferences("qa-editor-draft-$name",mode)

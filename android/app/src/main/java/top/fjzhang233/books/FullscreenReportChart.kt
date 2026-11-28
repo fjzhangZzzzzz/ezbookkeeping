@@ -92,12 +92,7 @@ internal fun FullscreenReportChartContent(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             val labels = if (data.period.yearly) listOf("支出", "收入", "结余", "全部")
                 else listOf("支出", "收入", "全部")
-            labels.forEachIndexed { index, label ->
-                val series = index + 2
-                TextButton(onClick = { type = series }) {
-                    Text(label, color = if (type == series) MaterialTheme.colorScheme.primary else ledgerColors.muted)
-                }
-            }
+            ReportSegments(labels, type - 2, "fullscreen") { type = it + 2 }
         }
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             ReportChart(data, type, lines, (maxHeight - 52.dp).coerceAtLeast(40.dp))

@@ -71,7 +71,7 @@ class AccountRefreshUiTest {
                     compose.onNodeWithContentDescription("打开菜单").performClick()
                     compose.onNodeWithTag("nav-设置").performClick()
                     compose.onNodeWithTag("settings-accounts").performClick()
-                    compose.onNodeWithText("新建账户", substring = false).performClick()
+                    compose.onNodeWithContentDescription("新建账户").performClick()
                     compose.onNodeWithText("账户名称").performTextInput("测试新账户")
                     compose.onNodeWithText("保存账户").performClick()
 

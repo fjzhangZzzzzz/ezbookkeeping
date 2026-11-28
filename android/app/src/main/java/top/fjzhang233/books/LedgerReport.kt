@@ -91,7 +91,7 @@ internal fun reportPercent(value:BigInteger,total:BigInteger)=when {
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface){Column(Modifier.fillMaxSize().background(ledgerColors.background).systemBarsPadding().testTag("ledger-report")){
             Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically){
                 IconButton(onClick=dismiss){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"返回")}
-                Spacer(Modifier.weight(1f));ReportSegments(listOf("月","年"),if(yearly)1 else 0,"period"){yearly=it==1;chartType=2;customFirst="";customLast=""};Spacer(Modifier.weight(1f));IconButton(onClick={filtering=true},modifier=Modifier.testTag("report-filter")){Icon(Icons.Outlined.FilterAlt,"筛选报表")}}
+                Spacer(Modifier.weight(1f));ReportSegments(listOf("月","年"),if(yearly)1 else 0,"period",period=true){yearly=it==1;chartType=2;customFirst="";customLast=""};Spacer(Modifier.weight(1f));IconButton(onClick={filtering=true},modifier=Modifier.testTag("report-filter")){Icon(Icons.Outlined.FilterAlt,"筛选报表")}}
             Row(Modifier.fillMaxWidth().height(56.dp),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){
                 IconButton(onClick={adopt(period.shift(-1))}){Icon(Icons.Outlined.ChevronLeft,"上一${if(yearly)"年" else "月"}")}
                 TextButton(onClick={choosePeriod=true}){Column(horizontalAlignment=Alignment.CenterHorizontally){Text(period.label,fontSize=if(period.custom)12.sp else 18.sp,lineHeight=22.sp,color=ledgerColors.text);Text("CNY · 上海时间 · "+(if(snapshot?.excludedForeign==true)"已排除外币" else "外币不合并")+(if(yearly&&!period.custom)" · 有账月份均值"else ""),fontSize=8.sp,lineHeight=10.sp,color=reportMuted,maxLines=1)};Icon(Icons.Outlined.ExpandMore,null)}
@@ -146,7 +146,7 @@ internal fun reportPercent(value:BigInteger,total:BigInteger)=when {
                 val scope=reportCategoryScope(category.id(),vm.categories,filter.categoryScope)
                 val children=snapshot?.ranking(type).orEmpty().filter { scope.accepts(it.category.id()) }
                 ReportCategoryBreakdown(
-                    category,children,period,category.id() in parentIds,loading,showReportSheets,
+                    category,children.labelDirectEntries(category.id(), category.id() in parentIds),period,loading,showReportSheets,
                     openStatistics={openStatistics(CategoryStatisticsPage(reportQuery,category.id(),category.optString("name"),type))},
                     openChild={selectedChild=it.category.id()},
                     dismiss={selectedChild=null;selectedCategory=null},
@@ -307,8 +307,7 @@ internal fun reportPercent(value:BigInteger,total:BigInteger)=when {
     }}
 }
 @Composable internal fun ReportMetric(label:String,value:String,modifier:Modifier){Column(modifier.padding(vertical=6.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(label,color=reportMuted,fontSize=14.sp,lineHeight=20.sp);Text(value,fontSize=16.sp,lineHeight=20.sp,fontWeight=FontWeight.Bold,color=ledgerColors.text)}}
-@Composable internal fun ReportSegments(labels:List<String>,selected:Int,group:String="generic",segmentWidth:Dp=52.dp,choose:(Int)->Unit){
-    val period = group == "period"
+@Composable internal fun ReportSegments(labels:List<String>,selected:Int,group:String="generic",segmentWidth:Dp=52.dp,period:Boolean=false,choose:(Int)->Unit){
     val trackShape = if (period) RoundedCornerShape(8.dp) else CircleShape
     val segmentShape = if (period) RoundedCornerShape(5.dp) else CircleShape
     Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {

@@ -21,8 +21,7 @@ class AccountManagementAcceptanceTest {
 
     @Test fun defaultOrderArchiveRestoreAndDeleteRefreshTheVisibleAccountList() {
         assumeTrue(BuildConfig.DEBUG && BuildConfig.API_BASE_URL == "http://127.0.0.1:18090")
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fixture = File(context.filesDir, "qa-config.json")
+        val fixture = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, "qa-config.json")
         assumeTrue(fixture.isFile)
         val login = JSONObject(fixture.readText())
         val model = ViewModelProvider(compose.activity)[BooksModel::class.java]
@@ -44,7 +43,15 @@ class AccountManagementAcceptanceTest {
         val list = compose.onNodeWithTag("accounts-list")
         fun scopedAction(id: String, action: String) {
             list.performScrollToNode(hasTestTag("account-row-$id"))
-            compose.onNodeWithTag("account-$action-$id", useUnmergedTree = true).performScrollTo().performClick()
+            if (action == "up" || action == "down") {
+                val label = if (action == "up") "上移" else "下移"
+                val actions = compose.onNodeWithTag("account-sort-handle-$id", useUnmergedTree = true).fetchSemanticsNode()
+                    .config[androidx.compose.ui.semantics.SemanticsActions.CustomActions]
+                compose.runOnIdle { assertTrue(actions.single { it.label == label }.action()) }
+                return
+            }
+            if (action != "restore") compose.onNodeWithTag("account-menu-$id").performClick()
+            compose.onNodeWithTag("account-$action-$id", useUnmergedTree = true).performClick()
         }
         fun waitForList(condition: () -> Boolean) {
             compose.waitUntil(30_000) { !model.busy && condition() }
@@ -69,9 +76,17 @@ class AccountManagementAcceptanceTest {
             val before = order()
             assertEquals(2, before.size)
             scopedAction(before.first(), "down")
+            assertEquals(before, order())
+            compose.onNodeWithText("取消").performClick()
+            compose.onNodeWithText("放弃", substring = false).performClick()
+            assertEquals(before, order())
+            scopedAction(before.first(), "down")
+            compose.onNodeWithText("保存排序").performClick()
             waitForList { order() == before.reversed() }
             scopedAction(before.first(), "up")
+            compose.onNodeWithText("保存排序").performClick()
             waitForList { order() == before }
+            assertEquals(first, model.defaultAccountId)
 
             confirmRemoval(archive)
             waitForList { model.accounts.any { it.id() == archive && it.optBoolean("hidden") } }

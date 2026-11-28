@@ -262,7 +262,10 @@ private fun typeName(type: Int) = when (type) { 1 -> "收入"; 2 -> "支出"; el
         section == 0 && original == null -> "新建一级分类"
         else -> (if (original == null) "新建" else "编辑") + label
     }
-    CatalogEditorContainer(section == 0, dismiss = { if (!locked) close() }, title = title, content = {
+    val modified = name != original?.optString("name").orEmpty() || type != (original?.optString("type") ?: initialType) ||
+        icon != (original?.optString("icon")?.ifBlank { "1" } ?: "1") || parent != (original?.id("parentId") ?: initialParentId) ||
+        group != (original?.id("groupId") ?: "0")
+    EntityEditorSheet(locked = locked, modified = modified, dismiss = close, title = title, content = {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (creatingChild) Text(typeName(type.toInt()) + " › " + (vm.categories.firstOrNull { it.id() == initialParentId }?.optString("name") ?: "原大类不可用"),
             color = ledgerColors.muted, style = MaterialTheme.typography.bodyMedium)
@@ -299,7 +302,7 @@ private fun typeName(type: Int) = when (type) { 1 -> "收入"; 2 -> "支出"; el
                 reviewCategoryAction("modify")
             } else submit("/api/v1/transaction/$path/add.json", body, close)
         } else submit("/api/v1/transaction/$path/${if(original == null) "add" else "modify"}.json", body, close)
-    }, enabled = !locked && name.trim().isNotBlank() && name.trim().length <= maxNameLength && (section!=0||openedRevision.isNotBlank()) && parentValid) { Text("保存${label}") } }, dismissButton = { TextButton(onClick = {if(!vm.busy&&!vm.entityBlocked)close()},enabled=!locked) { Text("取消") } })
+    }, enabled = !locked && name.trim().isNotBlank() && name.trim().length <= maxNameLength && (section!=0||openedRevision.isNotBlank()) && parentValid) { Text("保存${label}") } })
     impactCount?.let { count -> AlertDialog(onDismissRequest={impactCount=null},title={Text("确认共享分类变更")},text={Text("此分类涉及活跃家庭成员的 $count 笔历史交易。删除仅允许没有引用的分类；隐藏后保留历史记录。")},confirmButton={TextButton(onClick={
         val item=original!!
         val body=JSONObject().put("id",item.id()).put("expectedRevision",openedRevision)
@@ -309,28 +312,6 @@ private fun typeName(type: Int) = when (type) { 1 -> "收入"; 2 -> "支出"; el
         }
         val action=categoryAction;impactCount=null;submit("/api/v1/transaction/categories/$action.json",body,close)
     },enabled=!locked){Text("确认")}},dismissButton={TextButton(onClick={impactCount=null}){Text("取消")}}) }
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun CatalogEditorContainer(sheet: Boolean, dismiss: () -> Unit, title: String, content: @Composable () -> Unit,
-    confirmButton: @Composable () -> Unit, dismissButton: @Composable () -> Unit) {
-    if (!sheet) {
-        AlertDialog(onDismissRequest = dismiss, title = { Text(title) }, text = content, confirmButton = confirmButton, dismissButton = dismissButton)
-        return
-    }
-    ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
-        containerColor = ledgerColors.surface, dragHandle = null) {
-        Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Box(Modifier.fillMaxWidth().heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.align(Alignment.CenterStart)) { dismissButton() }
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Box(Modifier.align(Alignment.CenterEnd)) { confirmButton() }
-            }
-            content()
-        }
-    }
 }
 
 @Composable

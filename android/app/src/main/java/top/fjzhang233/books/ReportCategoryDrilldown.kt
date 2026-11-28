@@ -35,9 +35,8 @@ import java.time.YearMonth
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun ReportCategoryBreakdown(
     category:JSONObject,
-    ranked:List<ReportCategory>,
+    parts:List<ReportCategory>,
     period:ReportPeriod,
-    hasChildren:Boolean,
     loading:Boolean,
     visible:Boolean,
     openStatistics:()->Unit,
@@ -48,13 +47,6 @@ import java.time.YearMonth
     val listState=androidx.compose.foundation.lazy.rememberLazyListState()
     if(!visible) return
     val colors=rememberReportCategoryPalette(category.optInt("type"))
-    val parts=remember(ranked,hasChildren,category.id()) {
-        ranked.map { row ->
-            if(hasChildren && row.category.id()==category.id()){
-                row.copy(category=JSONObject(row.category.toString()).put("name","直接记入"))
-            } else row
-        }
-    }
     ModalBottomSheet(onDismissRequest=dismiss,sheetState=sheet,containerColor=reportSurface,dragHandle=null){
         Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).navigationBarsPadding().testTag("report-parent-category-sheet")){
             ReportCategorySheetHeader(category.optString("name"),"report-parent-category-statistics",openStatistics)
@@ -78,7 +70,7 @@ import java.time.YearMonth
     }
 }
 
-@Composable private fun ReportCategorySheetHeader(title:String,tag:String,openStatistics:()->Unit){
+@Composable internal fun ReportCategorySheetHeader(title:String,tag:String,openStatistics:()->Unit){
     Row(
         Modifier.fillMaxWidth().heightIn(min=56.dp).padding(vertical=4.dp),
         horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically,

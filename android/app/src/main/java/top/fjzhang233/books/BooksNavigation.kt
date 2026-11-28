@@ -60,6 +60,12 @@ internal data class CategoryStatisticsPage(
 
 /** The key stays small enough to save across rotation or process death. */
 @Serializable
+internal data class FamilyStatisticsPage(
+    val query: ReportQuery, val memberId: String, val memberName: String,
+    val categoryId: String, val categoryName: String, val categoryType: Int, val parent: Boolean,
+) : NavKey
+
+@Serializable
 internal data class FullscreenChartPage(
     val query: ReportQuery,
     val type: Int,

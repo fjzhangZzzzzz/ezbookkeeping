@@ -23,15 +23,22 @@ internal fun LedgerTransactionRow(
     enabled: Boolean = true,
     open: () -> Unit,
 ) {
-    val palette = ledgerColors
     val type = transaction.optInt("type")
-    val amountColor = when (type) { 2 -> palette.income; 3 -> palette.expense; else -> palette.text }
     val account = if (showAccount) transaction.optJSONObject("sourceAccount")?.optString("name").orEmpty() else ""
     val description = listOfNotNull(
         dateLabel,
         transaction.optString("comment").takeIf(String::isNotBlank),
         "图片".takeIf { transaction.array("pictures").isNotEmpty() },
     ).joinToString(" · ")
+    CompactTransactionRow(transactionLabel(transaction), account, description, ledgerTransactionAmount(transaction), type, first, modifier, enabled, open)
+}
+
+@Composable internal fun CompactTransactionRow(
+    title: String, account: String, description: String, amount: String, type: Int, first: Boolean,
+    modifier: Modifier = Modifier, enabled: Boolean = true, open: () -> Unit,
+) {
+    val palette = ledgerColors
+    val amountColor = when (type) { 2 -> palette.income; 3 -> palette.expense; else -> palette.text }
     val minHeight = if (description.isEmpty()) 48.dp else 54.dp
 
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
@@ -44,7 +51,7 @@ internal fun LedgerTransactionRow(
             Box(Modifier.size(4.dp).background(if (type in 2..3) amountColor else palette.muted, CircleShape))
             Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(transactionLabel(transaction),fontSize=14.sp,lineHeight=18.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text(title,fontSize=14.sp,lineHeight=18.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
                     if (account.isNotEmpty()) {
                         Text(" · $account",Modifier.weight(1f),fontSize=10.sp,lineHeight=14.sp,
                             color=palette.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -54,7 +61,7 @@ internal fun LedgerTransactionRow(
                     Text(description,fontSize=11.sp,lineHeight=15.sp,color=palette.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
             }
-            Text(ledgerTransactionAmount(transaction),fontSize=16.sp,lineHeight=20.sp,color=amountColor)
+            Text(amount,fontSize=16.sp,lineHeight=20.sp,color=amountColor)
         }
     }
 }

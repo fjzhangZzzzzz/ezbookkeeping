@@ -441,23 +441,17 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         refreshAfterAccountWrite(if (hidden) "账户已归档" else "账户已恢复")
     }
 
-    fun moveAccount(accountId: String, direction: Int) = act {
-        val selected = accounts.firstOrNull { it.id() == accountId } ?: error("账户不存在")
-        val category = selected.optInt("category", -1)
-        val parentId = selected.id("parentId")
-        require(!selected.optBoolean("hidden")) { "归档账户不能调整顺序" }
-        val group = accounts.filter { it.optInt("category", -1) == category && it.id("parentId") == parentId }
-            .sortedBy { it.optInt("displayOrder", Int.MAX_VALUE) }.toMutableList()
-        val ordered = group.filter { !it.optBoolean("hidden") }.toMutableList()
-        val index = ordered.indexOfFirst { it.id() == accountId }
-        val target = index + direction
-        require(index >= 0 && target in ordered.indices) { "账户已经在该方向的边界" }
-        val accountToMove = ordered.removeAt(index); ordered.add(target, accountToMove)
-        val visibleIterator = ordered.iterator()
-        val newOrder = group.mapIndexed { position, account ->
-            (if (account.optBoolean("hidden")) account else visibleIterator.next()).id() to position + 1
+    fun saveAccountOrder(baseline: List<String>, visibleOrder: List<String>, saved: () -> Unit) = act {
+        val accountsInOrder = sortAccountsForDisplay(accounts)
+        require(accountsInOrder.filterNot { it.optBoolean("hidden") }.map { it.id() } == baseline) { "账户列表已变更，请取消后重新排序" }
+        val changes = accountOrderChanges(accountsInOrder, visibleOrder)
+        require(changes.isNotEmpty()) { "账户顺序没有变化" }
+        require(entityWrites.submit("/api/v1/accounts/move.json", accountOrderPayload(changes)) == true) { "账户顺序更新未完成，请刷新后重试" }
+        val acknowledged = changes.toMap()
+        accounts = accounts.map { item ->
+            acknowledged[item.id()]?.let { JSONObject(item.toString()).put("displayOrder", it) } ?: item
         }
-        require(entityWrites.submit("/api/v1/accounts/move.json", accountOrderPayload(newOrder)) == true) { "账户顺序更新未完成，请刷新后重试" }
+        saved()
         refreshAfterAccountWrite("账户顺序已更新")
     }
 
@@ -651,6 +645,22 @@ internal fun sortAccountsForDisplay(accounts: List<JSONObject>): List<JSONObject
     }
     return groups.values.flatMap { group ->
         group.sortedWith(compareBy<JSONObject>({ it.optInt("displayOrder", Int.MAX_VALUE) }, { it.id() }))
+    }
+}
+
+internal fun accountOrderChanges(accounts: List<JSONObject>, visibleOrder: List<String>): List<Pair<String, Int>> {
+    val visible = accounts.filterNot { it.optBoolean("hidden") }
+    require(visibleOrder.size == visible.size && visibleOrder.toSet() == visible.map { it.id() }.toSet()) { "账户列表已变更" }
+    val byId = visible.associateBy { it.id() }
+    require(visibleOrder.map { accountDisplayGroupKey(byId.getValue(it)) } == visible.map(::accountDisplayGroupKey)) { "只能在同组内排序" }
+    val positions = visibleOrder.withIndex().associate { it.value to it.index }
+    return accounts.groupBy(::accountDisplayGroupKey).values.flatMap { group ->
+        val movable = group.filterNot { it.optBoolean("hidden") }
+        val sorted = movable.sortedBy { positions.getValue(it.id()) }
+        if (movable == sorted) emptyList() else {
+            val iterator = sorted.iterator()
+            group.mapIndexed { index, item -> (if (item.optBoolean("hidden")) item else iterator.next()).id() to index + 1 }
+        }
     }
 }
 

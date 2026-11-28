@@ -195,8 +195,9 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
                             showReportSheets = activeStack.none { it is CategoryStatisticsPage },
                             openStatistics = ::push,
                         )
-                        AppPage.FAMILY -> FamilyReportPage(vm, { pop(page) }, ::openChart)
+                        AppPage.FAMILY -> FamilyReportPage(vm, { pop(page) }, ::openChart, ::push, activeStack.none { it is FamilyStatisticsPage })
                         AppPage.CALENDAR -> LedgerCalendar(vm, ::push) { pop(page) }
+                        AppPage.ACCOUNTS -> AccountsPage(vm, { pop(page) }, feedback)
                         AppPage.CATALOG -> CatalogPage(vm, back = { pop(page) }, feedback = feedback)
                         else -> BooksScaffold(vm, page, feedback, { pop(page) }, { moveDrawer(DrawerValue.Open) }, ::push) {
                             when (page) {
@@ -207,7 +208,6 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
                                     push(destination)
                                     if (destination == AppPage.SESSIONS) vm.getSessions()
                                 }
-                                AppPage.ACCOUNTS -> AccountsPage(vm)
 
                                 AppPage.SESSIONS -> SessionsPage(vm)
                                 AppPage.EXTERNAL_AUTH -> ExternalAuthPage(vm)
@@ -227,6 +227,10 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
                 entry<CategoryStatisticsPage>(metadata = fullScreenDialog) { page ->
                     LedgerWindowAppearance()
                     ReportCategoryStatistics(vm, page) { pop(page) }
+                }
+                entry<FamilyStatisticsPage>(metadata = fullScreenDialog) { page ->
+                    LedgerWindowAppearance()
+                    FamilyCategoryStatistics(vm, page) { pop(page) }
                 }
                 entry<FullscreenChartPage> { page ->
                     FullscreenReportChart(vm, page) { pop(page) }
@@ -254,13 +258,14 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun BooksScaffold(
+internal fun BooksScaffold(
     vm: BooksModel,
     page: AppPage,
     feedback: SnackbarHostState,
     back: () -> Unit,
     openDrawer: () -> Unit,
     navigate: (AppPage) -> Unit,
+    actions: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val home = page == AppPage.LEDGER && vm.token != null
@@ -297,12 +302,7 @@ private fun BooksScaffold(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                     expandedHeight = 56.dp,
                     title = {
-                        if (home) LedgerControl(Modifier.testTag("ledger-month-picker"), onClick = { monthPicker = true }) { interactions ->
-                            Row(Modifier.ledgerControlFocus(interactions).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(vm.ledgerMonth, fontSize = 18.sp)
-                                Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
-                            }
-                        } else Text(title)
+                        if (home) LedgerMonthControl(vm.ledgerMonth, Modifier.testTag("ledger-month-picker")) { monthPicker = true } else Text(title)
                     },
                     navigationIcon = {
                         if (page != AppPage.LEDGER) IconButton(onClick = back) {
@@ -312,6 +312,7 @@ private fun BooksScaffold(
                         }
                     },
                     actions = {
+                        actions()
                         if (home) {
                             IconButton(onClick = { navigate(AppPage.CALENDAR) }) { Icon(Icons.Outlined.CalendarMonth, "日历视图") }
                             IconButton(onClick = { navigate(AppPage.REPORT) }) { Icon(Icons.Outlined.BarChart, "月报表") }
@@ -428,6 +429,15 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
     }
     selected?.let{item->LedgerTransactionDetails(vm,item,openStatistics){selected=null}}
 }
+@Composable internal fun LedgerMonthControl(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, open: () -> Unit) {
+    LedgerControl(modifier, enabled = enabled, onClick = open) { interactions ->
+        Row(Modifier.ledgerControlFocus(interactions).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 18.sp)
+            Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
+        }
+    }
+}
+
 @Composable internal fun LedgerMonthPicker(value:String,dismiss:()->Unit,select:(String)->Unit){
     val current=java.time.YearMonth.parse(value);var year by rememberSaveable{mutableIntStateOf(current.year)}
     AlertDialog(onDismissRequest=dismiss,modifier=Modifier.testTag("ledger-month-dialog"),containerColor=ledgerColors.surface,shape=androidx.compose.foundation.shape.RoundedCornerShape(4.dp),text={Row(Modifier.fillMaxWidth().height(300.dp)){

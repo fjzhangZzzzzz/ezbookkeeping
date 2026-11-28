@@ -12,6 +12,22 @@ import java.math.BigInteger
 import java.time.YearMonth
 
 class ReportDataTest {
+    @Test fun familyGroupingIncludesPriorOnlyAndDirectEntriesAndKeepsOffsettingDays() {
+        val payload = JSONObject("""{"categories":[
+            {"id":"1","type":2,"name":"日常","amountMinor":"10","previousAmountMinor":"9"},
+            {"id":"2","type":2,"name":"水费","parent":{"id":"1","name":"日常"},"amountMinor":"15","previousAmountMinor":"4"}],
+            "priorOnlyCategories":[{"id":"3","type":2,"parent":{"id":"1","name":"日常"},"previousAmountMinor":"20"}],
+            "days":[{"date":"2024-02-01","expenseMinor":"0","incomeMinor":"0"}]}""")
+        val report = familyReportSnapshot(payload, ReportPeriod(YearMonth.of(2024, 2)))
+        val parent = report.parentRanking(2, report.familyCatalog).single()
+        assertEquals(BigInteger("25"), parent.amount)
+        assertEquals(BigInteger("33"), parent.previous)
+        assertEquals(listOf("2", "1"), report.familyCategoryParts("1", 2).map { it.category.id() })
+        assertEquals(listOf("水费", "直接记入"), report.familyCategoryParts("1", 2).map { it.category.optString("name") })
+        assertEquals("日常", parent.category.optString("name"))
+        assertEquals(1, report.days.count { it.active })
+    }
+
     private val accounts=listOf(JSONObject("{\"id\":\"1\",\"currency\":\"CNY\"}"),JSONObject("{\"id\":\"2\",\"currency\":\"USD\"}"))
     private val categories=listOf(JSONObject("{\"id\":\"10\",\"type\":2}"),JSONObject("{\"id\":\"11\",\"type\":1}"),JSONObject("{\"id\":\"12\",\"type\":3}"))
     @Test fun periodUsesShanghaiBoundariesAndLeapYear(){
