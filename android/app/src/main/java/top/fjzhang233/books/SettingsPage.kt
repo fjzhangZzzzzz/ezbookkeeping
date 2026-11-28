@@ -364,19 +364,13 @@ internal fun ExternalAuthPage(vm: BooksModel) {
     }
     LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.testTag("external-auth-page")) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("第三方登录", style = MaterialTheme.typography.headlineSmall)
-                Text("使用 Pocket ID 登录同一个家庭账本。关联不会创建新的账本。", color = ledgerColors.muted)
-            }
-        }
-        item {
             SettingsSection("当前状态") {
                 if (vm.externalLinked) {
                     SettingsRow(Icons.Outlined.Link, "Pocket ID", supporting = "已关联，可用于登录此账本", trailing = { Text("已关联", color = MaterialTheme.colorScheme.primary) }, testTag = "external-auth-linked")
                     SettingsDivider()
                     SettingsRow(Icons.AutoMirrored.Outlined.Logout, "解除关联", supporting = "解除后仍可使用本地密码登录", onClick = { unlinkConfirm = true }, titleColor = MaterialTheme.colorScheme.error, iconTint = MaterialTheme.colorScheme.error, testTag = "external-auth-unlink")
                 } else {
-                    SettingsRow(Icons.Outlined.Link, "关联 Pocket ID", supporting = "可选的第三方登录方式", onClick = { vm.beginOidc(true) }, trailing = { SettingsChevron("关联 Pocket ID") }, testTag = "external-auth-link")
+                    SettingsRow(Icons.Outlined.Link, "关联 Pocket ID", supporting = "未关联，关联后可用于登录此账本", onClick = { vm.beginOidc(true) }, trailing = { SettingsChevron("关联 Pocket ID") }, testTag = "external-auth-link")
                 }
             }
         }

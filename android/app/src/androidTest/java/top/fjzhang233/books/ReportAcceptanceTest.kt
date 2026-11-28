@@ -176,7 +176,9 @@ class ReportAcceptanceTest {
             compose.onNodeWithTag("category-statistics-period").assertTextContains("2026-11",substring=true)
             awaitText("账户 1")
             androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
-            compose.waitUntil(30_000){exists("report-day-transactions")&&!exists("report-category-statistics")};androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            compose.waitUntil(30_000){exists("transaction-details")&&!exists("report-category-statistics")}
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            compose.waitUntil(30_000){exists("report-day-transactions")&&!exists("transaction-details")};androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
             compose.waitUntil(30_000){exists("ledger-report")};awaitText("0.06")
             stage="year"
             compose.onNodeWithTag("report-segment-period-1").performClick();awaitText("6.06");awaitText("1.21");capture("06-year")

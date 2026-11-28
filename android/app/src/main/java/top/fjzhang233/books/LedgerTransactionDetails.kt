@@ -36,6 +36,9 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+internal fun List<JSONObject>.selectedTransaction(id: String?): JSONObject? =
+    id?.let { selected -> firstOrNull { it.id() == selected } }
+
 /** One own-transaction detail surface shared by ledger, calendar, reports and search. */
 @Composable internal fun LedgerTransactionDetails(
     vm: BooksModel,
@@ -49,7 +52,7 @@ import java.time.format.DateTimeFormatter
         if(ids==null)emptyList() else (0 until ids.length()).mapNotNull{index->vm.tags.firstOrNull{it.id()==ids.getString(index)}?.optString("name")}
     }
     val showCategory = openStatistics?.let { open ->
-        transactionCategoryStatistics(item, vm.categories, reportQuery)?.let { route -> { dismiss(); open(route) } }
+        transactionCategoryStatistics(item, vm.categories, reportQuery)?.let { route -> { open(route) } }
     }
     LedgerTransactionDetailContent(item,vm.busy,vm.error,tagNames,dismiss,
         edit={dismiss();vm.openTransaction(item.id())},

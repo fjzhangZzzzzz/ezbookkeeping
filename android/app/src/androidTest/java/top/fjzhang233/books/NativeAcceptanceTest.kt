@@ -111,7 +111,7 @@ class NativeAcceptanceTest {
         var a:String?=null;var b:String?=null
         runBlocking{val api=BooksApi(BuildConfig.API_BASE_URL){null};a=api.login(input.getString("username"),input.getString("password"),"").getString("token");b=api.login(input.getString("username"),input.getString("password"),"").getString("token")}
         sessionStage="session-ui-revoke-others";navigate("登录设备");ready();compose.onNodeWithText("撤销其他所有会话").performClick();compose.onNodeWithText("确认撤销").performClick();ready();reject(a!!);reject(b!!);model{old=it.token};runBlocking{BooksApi(BuildConfig.API_BASE_URL){old}.accounts()}
-        sessionStage="session-ui-revoke-current";compose.onNodeWithTag("revoke-current-session").performClick();compose.onNodeWithText("确认撤销").performClick();await("用户名或邮箱");reject(old!!)
+        sessionStage="session-ui-revoke-current";compose.onNodeWithTag("session-current").performClick();compose.onNodeWithTag("revoke-current-session").performClick();compose.onNodeWithText("确认撤销").performClick();await("用户名或邮箱");reject(old!!)
         sessionStage="session-relogin";login(input)
         var familyPath="";model{vm->old=vm.token;val item=vm.transactions.single{it.id()==firstId};val picture=item.array("pictures").single();familyPath="/api/v1/family/pictures/${picture.id("pictureId")}."+android.net.Uri.parse(picture.optString("originalUrl")).path!!.substringAfterLast('.')}
         sessionStage="session-remote-revoke"

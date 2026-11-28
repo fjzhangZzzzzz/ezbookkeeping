@@ -139,7 +139,7 @@ internal fun FamilyReportPage(
                                         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) { ReportSegments(if (yearly) listOf("支出", "收入", "结余", "全部") else listOf("支出", "收入", "全部"), chartType - 2, "family-trend") { chartType = it + 2 } }
                                     }
                                 }
-                                item {
+                                item(key = "category-report") {
                                     ReportCard("分类报表") {
                                         val ranked = report.parentRanking(categoryType, report.familyCatalog)
                                         val colors = rememberReportCategoryPalette(categoryType)

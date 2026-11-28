@@ -84,7 +84,7 @@ internal fun calendarLunarLabel(date:LocalDate):String {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun LedgerCalendar(vm:BooksModel,openStatistics:(CategoryStatisticsPage)->Unit,dismiss:()->Unit){
+@Composable internal fun LedgerCalendar(vm:BooksModel,showTransactionSheets:Boolean,openStatistics:(CategoryStatisticsPage)->Unit,dismiss:()->Unit){
     val month=YearMonth.parse(vm.ledgerMonth);val today=LocalDate.now(ZoneId.of("Asia/Shanghai"))
     var dayNumber by rememberSaveable{mutableIntStateOf(vm.ledgerDay?.let{LocalDate.parse(it).dayOfMonth}?:today.dayOfMonth)}
     val selected=month.atDay(dayNumber.coerceAtMost(month.lengthOfMonth()))
@@ -94,7 +94,7 @@ internal fun calendarLunarLabel(date:LocalDate):String {
     var menu by remember{mutableStateOf(false)};var weekPicker by remember{mutableStateOf(false)}
     var monthPicker by rememberSaveable { mutableStateOf(false) }
     val pickMonth: () -> Unit = { monthPicker = true }
-    var detail by remember{mutableStateOf<JSONObject?>(null)}
+    var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     val snapshot=remember(vm.ledgerMonth,vm.dailyAmounts){calendarAmounts(month,vm.dailyAmounts)}
     LaunchedEffect(vm.ledgerMonth,dayNumber){if(vm.token!=null&&vm.ledgerDay!=selected.toString())vm.changeLedgerDay(selected.toString())}
     if(vm.token==null){LaunchedEffect(Unit){dismiss()};return}
@@ -112,7 +112,7 @@ internal fun calendarLunarLabel(date:LocalDate):String {
                         item{Spacer(Modifier.height(12.dp));CalendarDayHeader(selected,snapshot.days[selected]?:CalendarAmounts(),today)}
                         itemsIndexed(vm.transactions,key={_,row->row.id()}){index,row->
                             Box(Modifier.padding(horizontal=12.dp)){
-                                LedgerTransactionRow(row,index==0,Modifier.testTag("calendar-transaction-${row.id()}")){detail=row}
+                                LedgerTransactionRow(row,index==0,Modifier.testTag("calendar-transaction-${row.id()}")){detailId=row.id()}
                             }
                         }
                         if(vm.hasMoreTransactions)item{TextButton(onClick=vm::loadMore,modifier=Modifier.fillMaxWidth()){Text("加载更多")}}
@@ -122,7 +122,9 @@ internal fun calendarLunarLabel(date:LocalDate):String {
             }
         }
         if(weekPicker)Dialog(onDismissRequest={weekPicker=false}){Surface(shape=RoundedCornerShape(4.dp),color=ledgerColors.surface){Column(Modifier.padding(vertical=8.dp)){Text("选择每周第一天",Modifier.padding(horizontal=24.dp,vertical=12.dp),fontSize=14.sp);listOf(1 to "星期一",6 to "星期六",7 to "星期日").forEach{(value,label)->TextButton(onClick={firstDay=value;prefs.edit().putInt("firstDay",value).apply();weekPicker=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){Text(label)}}}}}
-        detail?.let{row->LedgerTransactionDetails(vm,row,openStatistics){detail=null}}
+        if (showTransactionSheets) vm.transactions.selectedTransaction(detailId)?.let { row ->
+            LedgerTransactionDetails(vm, row, openStatistics) { detailId = null }
+        }
     if (monthPicker) LedgerMonthPicker(vm.ledgerMonth, { monthPicker = false }) {
         vm.changeLedgerMonth(it)
         monthPicker = false

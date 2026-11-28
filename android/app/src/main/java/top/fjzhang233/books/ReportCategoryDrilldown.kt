@@ -117,7 +117,7 @@ import java.time.YearMonth
         try{val(result,count)=vm.api.reportCategoryPage(period,scope,vm.accounts,page,filter,directParentIds);rows=if(page==1)result else(rows+result).distinctBy{it.id()};total=count}
         catch(e:CancellationException){throw e}catch(e:Exception){vm.imageFailed(e);failure="明细加载失败，请重试"}finally{loading=false}
     }
-    var selected by remember{mutableStateOf<JSONObject?>(null)}
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val listState=androidx.compose.foundation.lazy.rememberLazyListState()
     val sheet=rememberModalBottomSheetState(skipPartiallyExpanded=true)
     if (visible) ModalBottomSheet(onDismissRequest=dismiss,sheetState=sheet,containerColor=reportSurface,dragHandle=null){Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).navigationBarsPadding().testTag("report-category-sheet")){
@@ -132,13 +132,15 @@ import java.time.YearMonth
         LazyColumn(Modifier.fillMaxWidth().heightIn(min=144.dp,max=420.dp),state=listState){
             itemsIndexed(rows,key={_,row->row.id()}){index,row->
                 val date=shanghaiReportDate(row.optLong("time")).toString()
-                LedgerTransactionRow(row,index==0,Modifier.testTag("report-category-row-${row.id()}"),dateLabel=date){selected=row}
+                LedgerTransactionRow(row,index==0,Modifier.testTag("report-category-row-${row.id()}"),dateLabel=date){selectedId=row.id()}
             }
             if(!loading&&failure.isEmpty()&&rows.size<total)item{TextButton(onClick={page++}){Text("加载更多")}}
             if(!loading&&failure.isEmpty()&&rows.isEmpty())item{Text("暂无明细",Modifier.padding(24.dp),color=reportMuted)}
         }
     }}
-    if(visible) selected?.let{row->LedgerTransactionDetails(vm,row,openStatistics,sourceQuery){selected=null}}
+    if (visible) rows.selectedTransaction(selectedId)?.let { row ->
+        LedgerTransactionDetails(vm, row, openStatistics, sourceQuery) { selectedId = null }
+    }
 }
 
 @Composable internal fun ReportCategoryStatistics(vm: BooksModel, route: CategoryStatisticsPage, dismiss: () -> Unit) {

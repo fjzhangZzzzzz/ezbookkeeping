@@ -1,5 +1,6 @@
 package top.fjzhang233.books
 
+import android.content.res.Configuration
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -77,16 +78,31 @@ class FamilyCategoryAcceptanceTest {
             compose.onNodeWithTag("family-scope-member-" + detail.id("ownerId")).performClick()
             await("family-list")
             if (!yearly) {
+                val originalOrientation = compose.activity.resources.configuration.orientation
+                fun awaitOrientation(orientation: Int) {
+                    compose.waitUntil(15_000) {
+                        var ready = false
+                        compose.activityRule.scenario.onActivity { activity ->
+                            val window = activity.window.decorView
+                            ready = activity.resources.configuration.orientation == orientation &&
+                                window.hasWindowFocus() && window.isLaidOut &&
+                                (window.width > window.height) == (orientation == Configuration.ORIENTATION_LANDSCAPE)
+                        }
+                        ready
+                    }
+                }
                 compose.onNodeWithTag("family-list").performScrollToNode(hasContentDescription("全屏图表"))
                 compose.onNodeWithContentDescription("全屏图表").performClick()
+                awaitOrientation(Configuration.ORIENTATION_LANDSCAPE)
                 await("report-chart-fullscreen")
                 compose.onNodeWithTag("report-segment-fullscreen-1").performClick().assertIsSelected()
                 compose.onNodeWithText("关闭", substring = false).performClick()
+                awaitOrientation(originalOrientation)
                 await("family-list")
             }
             val parentTag = "family-report-category-" + child.id("parentId")
-            compose.onNodeWithTag("family-list").performScrollToNode(hasTestTag(parentTag))
-            compose.onNodeWithTag(parentTag).performClick()
+            compose.onNodeWithTag("family-list").performScrollToKey("category-report")
+            compose.onNodeWithTag(parentTag).performScrollTo().assertIsDisplayed().performClick()
             compose.onNodeWithTag("report-child-category-change-" + child.id(), useUnmergedTree = true).assertExists()
             capture("parent")
             compose.onNodeWithTag("report-parent-category-statistics").performClick()

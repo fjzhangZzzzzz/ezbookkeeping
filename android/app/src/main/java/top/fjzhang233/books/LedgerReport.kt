@@ -345,7 +345,8 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
     openStatistics:(CategoryStatisticsPage)->Unit,dismiss:()->Unit,changed:()->Unit,
 ){
     var rows by remember{mutableStateOf<List<JSONObject>>(emptyList())};var page by remember(vm.searchInvalidation){mutableIntStateOf(1)};var total by remember{mutableLongStateOf(0)}
-    var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var retry by remember{mutableIntStateOf(0)};var selected by remember{mutableStateOf<JSONObject?>(null)}
+    var loading by remember{mutableStateOf(true)};var failure by remember{mutableStateOf("")};var retry by remember{mutableIntStateOf(0)}
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     fun refresh(){page=1;retry++;changed()}
     ReportRefreshAfterEditor(vm,::refresh)
     LaunchedEffect(date,page,retry,query,vm.searchInvalidation,vm.accounts,vm.categories,directParentIds){
@@ -361,13 +362,15 @@ internal fun reportTableDays(data:ReportSnapshot):List<Triple<String,BigInteger,
         if(failure.isNotEmpty())Row{Text(failure,color=reportRed);TextButton(onClick={retry++}){Text("重试")}}
         LazyColumn(Modifier.fillMaxWidth().heightIn(max=420.dp),state=listState){
             itemsIndexed(rows,key={_,row->row.id()}){index,row->
-                LedgerTransactionRow(row,index==0,Modifier.testTag("report-day-transaction-${row.id()}")){selected=row}
+                LedgerTransactionRow(row,index==0,Modifier.testTag("report-day-transaction-${row.id()}")){selectedId=row.id()}
             }
             if(!loading&&failure.isEmpty()&&rows.size<total)item{TextButton(onClick={page++}){Text("加载更多")}}
             if(!loading&&failure.isEmpty()&&rows.isEmpty())item{Text("暂无匹配的当日流水",Modifier.padding(24.dp),color=reportMuted)}
         }
     }}
-    if(visible) selected?.let{row->LedgerTransactionDetails(vm,row,openStatistics,query){selected=null}}
+    if (visible) rows.selectedTransaction(selectedId)?.let { row ->
+        LedgerTransactionDetails(vm, row, openStatistics, query) { selectedId = null }
+    }
 }
 @Composable internal fun ReportPeriodChooser(period:ReportPeriod,dismiss:()->Unit,choose:(YearMonth)->Unit){
     var year by remember{mutableIntStateOf(period.month.year)}

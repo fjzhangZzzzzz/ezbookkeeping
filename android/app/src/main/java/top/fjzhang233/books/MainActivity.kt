@@ -65,7 +65,6 @@ import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 private val pictureSlots=Semaphore(2)
 
@@ -189,21 +188,24 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
             },
             entryProvider = entryProvider<NavKey> {
                 entry<AppPage> { page ->
+                    val showTransactionSheets = activeStack.none { it is CategoryStatisticsPage }
                     when (page) {
                         AppPage.REPORT -> LedgerReport(
                             vm, { pop(page) }, ::openChart,
-                            showReportSheets = activeStack.none { it is CategoryStatisticsPage },
+                            showReportSheets = showTransactionSheets,
                             openStatistics = ::push,
                         )
                         AppPage.FAMILY -> FamilyReportPage(vm, { pop(page) }, ::openChart, ::push, activeStack.none { it is FamilyStatisticsPage })
-                        AppPage.CALENDAR -> LedgerCalendar(vm, ::push) { pop(page) }
+                        AppPage.CALENDAR -> LedgerCalendar(vm, showTransactionSheets, ::push) { pop(page) }
                         AppPage.ACCOUNTS -> AccountsPage(vm, { pop(page) }, feedback)
                         AppPage.CATALOG -> CatalogPage(vm, back = { pop(page) }, feedback = feedback)
                         else -> BooksScaffold(vm, page, feedback, { pop(page) }, { moveDrawer(DrawerValue.Open) }, ::push) {
                             when (page) {
                                 AppPage.ABOUT -> UpdatePage(updates)
-                                AppPage.LEDGER -> if (authenticated) TransactionsPage(vm, ::push) else LoginPage(vm)
-                                AppPage.SEARCH -> LedgerSearch(vm) { item, close -> LedgerTransactionDetails(vm, item, ::push, dismiss = close) }
+                                AppPage.LEDGER -> if (authenticated) TransactionsPage(vm, showTransactionSheets, ::push) else LoginPage(vm)
+                                AppPage.SEARCH -> LedgerSearch(vm) { item, close ->
+                                    if (showTransactionSheets) LedgerTransactionDetails(vm, item, ::push, dismiss = close)
+                                }
                                 AppPage.SETTINGS -> SettingsPage(vm) { destination ->
                                     push(destination)
                                     if (destination == AppPage.SESSIONS) vm.getSessions()
@@ -385,11 +387,10 @@ internal fun LedgerRefreshRetry(vm: BooksModel) {
 }
 
 internal fun transactionLabel(item: JSONObject): String = if(item.optInt("type")==1) "余额调整" else if(item.optInt("type")==4) "账户转账" else item.optJSONObject("category")?.optString("name")?.takeIf { it.isNotBlank() } ?: item.optString("categoryName").ifBlank { "未分类" }
-private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.of("Asia/Shanghai")).format(Instant.ofEpochSecond(time)) }.getOrDefault("")
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun TransactionsPage(vm: BooksModel, openStatistics: (CategoryStatisticsPage) -> Unit) {
-    var selected by remember{mutableStateOf<JSONObject?>(null)}
+@Composable private fun TransactionsPage(vm: BooksModel, showTransactionSheets: Boolean, openStatistics: (CategoryStatisticsPage) -> Unit) {
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val daily=vm.dailyAmounts.associateBy{it.optString("date")}
     val amounts=vm.dailyAmounts.flatMap{it.array("amounts")}
     fun total(field:String)=amounts.filter{it.optString("currency")=="CNY"}.fold(java.math.BigInteger.ZERO){sum,item->sum+item.optString(field,"0").toBigInteger()}
@@ -419,7 +420,7 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
                         }
                         rows.forEachIndexed{index,item->
                             LedgerTransactionRow(item,index==0,Modifier.testTag("transaction-${item.id()}"),
-                                showAccount=true,enabled=!vm.busy){selected=item}
+                                showAccount=true,enabled=!vm.busy){selectedId=item.id()}
                         }
                     }
                 }
@@ -427,7 +428,9 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         }
         if(vm.hasMoreTransactions) item{TextButton(onClick=vm::loadMore,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("加载更多")}}
     }
-    selected?.let{item->LedgerTransactionDetails(vm,item,openStatistics){selected=null}}
+    if (showTransactionSheets) vm.transactions.selectedTransaction(selectedId)?.let { item ->
+        LedgerTransactionDetails(vm, item, openStatistics) { selectedId = null }
+    }
 }
 @Composable internal fun LedgerMonthControl(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, open: () -> Unit) {
     LedgerControl(modifier, enabled = enabled, onClick = open) { interactions ->
@@ -464,20 +467,6 @@ private fun displayTime(time: Long): String = runCatching { DateTimeFormatter.of
         if (bitmap != null) Image(bitmap!!.asImageBitmap(), "交易图片附件", Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 280.dp))
         else Text(if (failed) "图片加载失败，请重新打开重试" else "正在加载图片…", style = MaterialTheme.typography.bodySmall)
     }
-}
-
-@Composable private fun SessionsPage(vm: BooksModel) {
-    var revoke by remember { mutableStateOf<JSONObject?>(null) }; var others by remember { mutableStateOf(false) }
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("丢失设备后，可撤销它的会话。撤销后该设备需重新登录。") }
-        item { OutlinedButton(onClick = { others = true }, enabled = !vm.busy) { Text("撤销其他所有会话") } }
-        items(vm.sessions, key = { it.optString("tokenId") }) { item ->
-            Card { ListItem(headlineContent = { Text(if (item.optBoolean("isCurrent")) "此设备" else "其他设备") }, supportingContent = { Text(item.optString("userAgent").take(80) + "\n最近活动：" + displayTime(item.optLong("lastSeen"))) }, trailingContent = { TextButton(onClick = { revoke = item }, enabled = !vm.busy,modifier=Modifier.testTag(if(item.optBoolean("isCurrent"))"revoke-current-session"else"revoke-other-session")) { Text("撤销") } }) }
-        }
-    }
-    if (revoke != null || others) AlertDialog(onDismissRequest = { revoke = null; others = false }, title = { Text("确认撤销会话？") }, text = { Text("被撤销的会话将不能继续访问账本。") }, confirmButton = { TextButton(onClick = {
-        if (others) vm.revokeOthers() else revoke?.let { vm.revokeSession(it.optString("tokenId"), it.optBoolean("isCurrent")) }; revoke = null; others = false
-    }) { Text("确认撤销") } }, dismissButton = { TextButton(onClick = { revoke = null; others = false }) { Text("取消") } })
 }
 
 @Composable internal fun Choice(label: String, values: List<Pair<String, String>>, value: String, enabled: Boolean = true, choose: (String) -> Unit) {

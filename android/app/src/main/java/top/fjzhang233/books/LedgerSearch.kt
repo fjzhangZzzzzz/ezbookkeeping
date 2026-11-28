@@ -73,7 +73,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
     var loading by remember{mutableStateOf(false)}
     var loadingMore by remember{mutableStateOf(false)}
     var problem by remember{mutableStateOf("")}
-    var selected by remember{mutableStateOf<JSONObject?>(null)}
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val scope=rememberCoroutineScope();val focus=LocalFocusManager.current
     fun saveCache(currentFilter:LedgerSearchFilter){vm.searchCache=LedgerSearchCache(currentFilter.toJson(),items,total,summary,nextTimeSequenceId,System.currentTimeMillis())}
     fun runSearch(next:LedgerSearchFilter=filter) {
@@ -145,7 +145,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
                                     val amount=remember(dayRows){LedgerSearchSnapshot(dayRows).amounts}
                                     Row(Modifier.fillMaxWidth().padding(top=20.dp,bottom=8.dp),horizontalArrangement=Arrangement.SpaceBetween){Text(date.replace('-','.'),fontSize=14.sp,fontWeight=FontWeight.Bold);Text(ledgerDaySummary(amount.income,amount.expense),fontSize=11.sp,color=searchMuted)}
                                 }
-                                itemsIndexed(dayRows,key={_,row->row.id()}){index,row->SearchTransactionRow(row,index==0,index==dayRows.lastIndex){selected=row}}
+                                itemsIndexed(dayRows,key={_,row->row.id()}){index,row->SearchTransactionRow(row,index==0,index==dayRows.lastIndex){selectedId=row.id()}}
                             }
                         }
                         if(nextTimeSequenceId!=null)item{TextButton(onClick=::loadMore,enabled=!loadingMore,modifier=Modifier.fillMaxWidth()){Text(if(loadingMore)"加载中…" else "加载更多")}}
@@ -157,7 +157,7 @@ private val searchGreen:Color @Composable get()=ledgerColors.income
                 }
         }
     }
-    selected?.let{item->detail(item){selected=null;runSearch()}}
+    items.selectedTransaction(selectedId)?.let { item -> detail(item) { selectedId=null;runSearch() } }
 }
 @Composable private fun SearchAmount(label:String,amount:String,color:Color,modifier:Modifier){Column(modifier){Text(label,fontSize=12.sp,color=searchMuted);Text(money(amount),Modifier.padding(top=6.dp),fontSize=20.sp,color=color,maxLines=1,overflow=TextOverflow.Ellipsis)}}
 @Composable private fun SearchDrop(label: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
