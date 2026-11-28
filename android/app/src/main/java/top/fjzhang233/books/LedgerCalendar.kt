@@ -96,18 +96,35 @@ internal fun calendarLunarLabel(date:LocalDate):String {
     val pickMonth: () -> Unit = { monthPicker = true }
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     val snapshot=remember(vm.ledgerMonth,vm.dailyAmounts){calendarAmounts(month,vm.dailyAmounts)}
-    LaunchedEffect(vm.ledgerMonth,dayNumber){if(vm.token!=null&&vm.ledgerDay!=selected.toString())vm.changeLedgerDay(selected.toString())}
+    LaunchedEffect(vm.ledgerMonth, dayNumber, vm.busy) {
+        if (!vm.busy && vm.token != null && vm.ledgerDay != selected.toString()) vm.changeLedgerDay(selected.toString())
+    }
     if(vm.token==null){LaunchedEffect(Unit){dismiss()};return}
-    fun shift(offset:Long){if(!vm.busy)vm.changeLedgerMonth(month.plusMonths(offset).toString())}
-    fun choose(date:LocalDate){if(!vm.busy){dayNumber=date.dayOfMonth;if(vm.ledgerDay!=date.toString())vm.changeLedgerDay(date.toString())}}
-    fun current(){if(!vm.busy){dayNumber=today.dayOfMonth;if(YearMonth.from(today)!=month)vm.changeLedgerMonth(YearMonth.from(today).toString())else vm.changeLedgerDay(today.toString())}}
+    fun selectMonth(target: YearMonth) {
+        val day = target.atDay(dayNumber.coerceAtMost(target.lengthOfMonth()))
+        vm.changeLedgerMonth(target.toString(), day.toString())
+    }
+    fun shift(offset:Long){if(!vm.busy)selectMonth(month.plusMonths(offset))}
+    fun choose(date:LocalDate){if(!vm.busy)dayNumber=date.dayOfMonth}
+    fun current(){
+        if (!vm.busy) {
+            if (YearMonth.from(today) != month) vm.changeLedgerMonth(YearMonth.from(today).toString(), today.toString())
+            dayNumber = today.dayOfMonth
+        }
+    }
         Scaffold(containerColor=ledgerColors.background,topBar={CenterAlignedTopAppBar(expandedHeight=56.dp,title={LedgerMonthControl(vm.ledgerMonth.replace('-', '.'), enabled = !vm.busy, open = pickMonth)},navigationIcon={IconButton(onClick=dismiss){Icon(Icons.Outlined.ArrowBack,"返回流水")}},actions={Box{IconButton(onClick={menu=true}){Icon(Icons.Outlined.MoreVert,"日历更多选项")};DropdownMenu(expanded=menu,onDismissRequest={menu=false},containerColor=ledgerColors.surface){DropdownMenuItem(text={Text("选择每周第一天")},onClick={menu=false;weekPicker=true})}}})},floatingActionButtonPosition=FabPosition.Center,floatingActionButton={FloatingActionButton(onClick={vm.newTransaction(selected.toString())},modifier=Modifier.size(56.dp).testTag("calendar-add-transaction"),shape=CircleShape,containerColor=ledgerColors.accent,contentColor=Color.White){Icon(Icons.Outlined.Add,"添加新的账单",Modifier.size(28.dp))}}){padding->
             Box(Modifier.fillMaxSize().padding(padding)){
                 LazyColumn(Modifier.fillMaxSize().testTag("calendar-ledger"),contentPadding=PaddingValues(top=12.dp,bottom=100.dp),verticalArrangement=Arrangement.spacedBy(0.dp)){
                     if(vm.busy)item{LinearProgressIndicator(Modifier.fillMaxWidth())}
                     if(vm.error.isNotBlank())item{Text(vm.error,Modifier.padding(horizontal=16.dp),color=ledgerColors.expense,fontSize=13.sp)}
                     if(vm.backgroundRefreshFailed)item{LedgerRefreshRetry(vm)}
-                    item{CalendarMonthCard(month,snapshot,selected,firstDay,mode,!vm.busy,{mode=it},::choose,::shift)}
+                    if(vm.editorRefreshFailed)item{EditorRefreshRetry(vm)}
+                    if (vm.ledgerRefreshFailed) item { LedgerScopeRetry(vm) }
+                    item{CalendarMonthCard(month,snapshot.takeUnless { vm.ledgerNeedsRefresh },selected,firstDay,mode,!vm.busy,{mode=it},::choose,::shift)}
+                    if (vm.ledgerNeedsRefresh) {
+                        if (!vm.ledgerRefreshFailed) item { Text("正在读取最新流水", Modifier.padding(16.dp)) }
+                        return@LazyColumn
+                    }
                     if(vm.ledgerDay==selected.toString()&&!vm.busy&&vm.transactions.isNotEmpty()){
                         item{Spacer(Modifier.height(12.dp));CalendarDayHeader(selected,snapshot.days[selected]?:CalendarAmounts(),today)}
                         itemsIndexed(vm.transactions,key={_,row->row.id()}){index,row->
@@ -126,13 +143,13 @@ internal fun calendarLunarLabel(date:LocalDate):String {
             LedgerTransactionDetails(vm, row, openStatistics) { detailId = null }
         }
     if (monthPicker) LedgerMonthPicker(vm.ledgerMonth, { monthPicker = false }) {
-        vm.changeLedgerMonth(it)
+        selectMonth(YearMonth.parse(it))
         monthPicker = false
     }
 }
 
-@Composable internal fun CalendarMonthCard(month:YearMonth,snapshot:CalendarMonthAmounts,selected:LocalDate,firstDay:Int,mode:CalendarAmountMode,enabled:Boolean,onMode:(CalendarAmountMode)->Unit,choose:(LocalDate)->Unit,shift:(Long)->Unit){
-    val scale=remember(snapshot){CalendarHeatScale(snapshot.days.values.maxOfOrNull{it.income.abs()}?:BigInteger.ZERO,snapshot.days.values.maxOfOrNull{it.expense.abs()}?:BigInteger.ZERO,snapshot.days.values.maxOfOrNull{it.balance.abs()}?:BigInteger.ZERO)}
+@Composable internal fun CalendarMonthCard(month:YearMonth,snapshot:CalendarMonthAmounts?,selected:LocalDate,firstDay:Int,mode:CalendarAmountMode,enabled:Boolean,onMode:(CalendarAmountMode)->Unit,choose:(LocalDate)->Unit,shift:(Long)->Unit){
+    val scale=remember(snapshot){CalendarHeatScale(snapshot?.days?.values?.maxOfOrNull{it.income.abs()}?:BigInteger.ZERO,snapshot?.days?.values?.maxOfOrNull{it.expense.abs()}?:BigInteger.ZERO,snapshot?.days?.values?.maxOfOrNull{it.balance.abs()}?:BigInteger.ZERO)}
     val cellHeight=52.dp*LocalDensity.current.fontScale.coerceAtLeast(1f);val offset=calendarFirstOffset(month,firstDay);val weekCount=(offset+month.lengthOfMonth()+6)/7
     var distance by remember{mutableFloatStateOf(0f)}
     Surface(Modifier.fillMaxWidth().padding(horizontal=12.dp).testTag("calendar-month-card").pointerInput(month,enabled){detectHorizontalDragGestures(onDragStart={distance=0f},onHorizontalDrag={change,amount->if(enabled){change.consume();distance+=amount}},onDragEnd={if(enabled&&abs(distance)>70.dp.toPx())shift(if(distance<0)1 else -1);distance=0f})},shape=RoundedCornerShape(8.dp),color=ledgerColors.surface){
@@ -142,13 +159,15 @@ internal fun calendarLunarLabel(date:LocalDate):String {
                 repeat(weekCount){week->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                     repeat(7){column->val number=week*7+column-offset+1
                         if(number !in 1..month.lengthOfMonth())Spacer(Modifier.weight(1f).height(cellHeight))
-                        else {val date=month.atDay(number);val amount=snapshot.days[date]?:CalendarAmounts();CalendarDateCell(date,amount,mode,date==selected,enabled,scale,Modifier.weight(1f)){choose(date)}}
+                        else {val date=month.atDay(number);val amount=snapshot?.days?.get(date)?:CalendarAmounts();CalendarDateCell(date,amount,mode,date==selected,enabled,scale,Modifier.weight(1f),showAmounts=snapshot!=null){choose(date)}}
                     }
                 }}
             }
+            if (snapshot != null) {
             CalendarModePicker(mode,onMode)
             Text("月收入:${money(snapshot.total.income.toString())}, 月支出:${money(snapshot.total.expense.toString())}, 月结余:${money(snapshot.total.balance.toString())}",Modifier.fillMaxWidth().padding(horizontal=16.dp).padding(top=6.dp,bottom=14.dp).testTag("calendar-month-totals"),fontSize=12.sp,lineHeight=18.sp,color=ledgerColors.muted)
             if(snapshot.excludedForeign)Text("仅统计 CNY，外币未计入",Modifier.padding(horizontal=16.dp).padding(bottom=12.dp).testTag("calendar-foreign-notice"),fontSize=11.sp,color=ledgerColors.muted)
+            }
         }
     }
 }
@@ -185,9 +204,9 @@ private fun calendarCellBackground(mode:CalendarAmountMode,amount:CalendarAmount
     val high=if(red)palette.heatExpenseHigh else palette.heatIncomeHigh
     return Color(red=low.red+(high.red-low.red)*ratio,green=low.green+(high.green-low.green)*ratio,blue=low.blue+(high.blue-low.blue)*ratio,alpha=1f)
 }
-@Composable private fun CalendarDateCell(date:LocalDate,amount:CalendarAmounts,mode:CalendarAmountMode,isSelected:Boolean,enabled:Boolean,scale:CalendarHeatScale,modifier:Modifier,choose:()->Unit){
+@Composable private fun CalendarDateCell(date:LocalDate,amount:CalendarAmounts,mode:CalendarAmountMode,isSelected:Boolean,enabled:Boolean,scale:CalendarHeatScale,modifier:Modifier,showAmounts:Boolean,choose:()->Unit){
     val cellHeight=52.dp*LocalDensity.current.fontScale.coerceAtLeast(1f)
-    val info="${date}，收入 ${money(amount.income.toString())} 元，支出 ${money(amount.expense.toString())} 元，结余 ${money(amount.balance.toString())} 元"
+    val info=if(showAmounts) "${date}，收入 ${money(amount.income.toString())} 元，支出 ${money(amount.expense.toString())} 元，结余 ${money(amount.balance.toString())} 元" else date.toString()
     Column(modifier.height(cellHeight).clip(RoundedCornerShape(8.dp)).background(calendarCellBackground(mode,amount,scale,isSelected,ledgerColors)).semantics(mergeDescendants=true){selected=isSelected;contentDescription=info}.testTag("calendar-day-$date").clickable(enabled=enabled,role=Role.Button,onClick=choose),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
         Text(date.dayOfMonth.toString(),fontSize=14.sp,lineHeight=18.sp,fontWeight=FontWeight.Bold,color=if(isSelected)ledgerColors.accent else ledgerColors.text)
         val lines=when(mode){CalendarAmountMode.BOTH->buildList{if(amount.expense!=BigInteger.ZERO)add(transactionSignedAmount(3,amount.expense.toString(),compact=true) to ledgerColors.expense);if(amount.income!=BigInteger.ZERO)add(transactionSignedAmount(2,amount.income.toString(),compact=true) to ledgerColors.income)};CalendarAmountMode.BALANCE->if(amount.hasAmounts)listOf(transactionSignedAmount(1,amount.balance.toString(),compact=true) to if(amount.balance.signum()<0)ledgerColors.expense else ledgerColors.income)else emptyList();CalendarAmountMode.INCOME->if(amount.income!=BigInteger.ZERO)listOf(transactionSignedAmount(2,amount.income.toString(),compact=true) to ledgerColors.income)else emptyList();CalendarAmountMode.EXPENSE->if(amount.expense!=BigInteger.ZERO)listOf(transactionSignedAmount(3,amount.expense.toString(),compact=true) to ledgerColors.expense)else emptyList()}

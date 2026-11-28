@@ -87,7 +87,11 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BooksApp(vm: BooksModel, updates: UpdateModel) {
-    val backStack = rememberNavBackStack(AppPage.LEDGER)
+    val initialPages = remember {
+        if (vm.token != null && vm.showEditor) arrayOf<NavKey>(AppPage.LEDGER, EntryPage)
+        else arrayOf<NavKey>(AppPage.LEDGER)
+    }
+    val backStack = rememberNavBackStack(*initialPages)
     val authenticated = vm.token != null
     val hasPrivatePages = !authenticated && backStack.any { it != AppPage.LEDGER && it != AppPage.ABOUT }
     val activeStack: List<NavKey> = if (hasPrivatePages) listOf(AppPage.LEDGER) else backStack
@@ -218,7 +222,7 @@ private val drawerSlide = tween<Float>(durationMillis = 240, easing = CubicBezie
                         }
                     }
                 }
-                entry<EntryPage>(metadata = fullScreenDialog) {
+                entry<EntryPage> {
                     LedgerWindowAppearance()
                     if (authenticated && vm.showEditor) TransactionEditor(vm) { push(EntryCatalogPage(it)) }
                 }
@@ -338,6 +342,8 @@ internal fun BooksScaffold(
             Column(Modifier.fillMaxSize().padding(padding)) {
                 if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (vm.token != null && vm.backgroundRefreshFailed) LedgerRefreshRetry(vm)
+                if (vm.token != null && vm.editorRefreshFailed) EditorRefreshRetry(vm)
+                if (vm.token != null && vm.ledgerRefreshFailed && page == AppPage.LEDGER) LedgerScopeRetry(vm)
                 content()
             }
         }
@@ -354,8 +360,27 @@ internal fun LedgerRefreshRetry(vm: BooksModel) {
         Modifier.fillMaxWidth().padding(start=16.dp,end=8.dp),
         verticalAlignment=Alignment.CenterVertically,
     ) {
-        Text("账本数据刷新失败", Modifier.weight(1f), color=ledgerColors.muted, style=MaterialTheme.typography.bodySmall)
+        Text("标签等辅助资料读取失败", Modifier.weight(1f), color=ledgerColors.muted, style=MaterialTheme.typography.bodySmall)
         TextButton(onClick=vm::retryBackgroundRefresh, enabled=!vm.busy) { Text("重试刷新") }
+    }
+}
+
+@Composable
+internal fun LedgerScopeRetry(vm: BooksModel) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("最新流水读取失败", Modifier.weight(1f), color = ledgerColors.muted, style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = vm::retryLedgerRefresh, enabled = !vm.busy) { Text("重试读取流水") }
+    }
+}
+
+@Composable
+internal fun EditorRefreshRetry(vm: BooksModel) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("记账资料读取失败", Modifier.weight(1f), color = ledgerColors.muted, style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = vm::retryEditorRefresh, enabled = !vm.busy) { Text("重试记账资料") }
     }
 }
 
@@ -396,6 +421,7 @@ internal fun transactionLabel(item: JSONObject): String = if(item.optInt("type")
     fun total(field:String)=amounts.filter{it.optString("currency")=="CNY"}.fold(java.math.BigInteger.ZERO){sum,item->sum+item.optString(field,"0").toBigInteger()}
     val income=total("incomeAmount");val expense=total("expenseAmount");val hasForeign=amounts.any{it.optString("currency")!="CNY"}
     LazyColumn(Modifier.fillMaxSize().testTag("ledger-list"),contentPadding=PaddingValues(bottom=100.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        if (!vm.ledgerNeedsRefresh) {
         item {
             Column(Modifier.fillMaxWidth().heightIn(min=132.dp).padding(horizontal=16.dp,vertical=18.dp)) {
                 Text("月支出 · CNY",fontSize=14.sp,color=ledgerColors.text)
@@ -404,8 +430,19 @@ internal fun transactionLabel(item: JSONObject): String = if(item.optInt("type")
                 if(hasForeign) Text("外币未计入 CNY 汇总",Modifier.padding(top=6.dp),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if(vm.ledgerDay==null)item{WeeklySpendingCard(vm.weeklyAmounts)}
+        }
+        if (vm.ledgerDay == null) item {
+            when {
+                vm.weeklyRefreshFailed -> TextButton(onClick = vm::retryWeeklyRefresh) { Text("重试最近七日汇总") }
+                vm.weeklyNeedsRefresh -> Text("最近七日汇总更新中", Modifier.padding(16.dp))
+                else -> WeeklySpendingCard(vm.weeklyAmounts)
+            }
+        }
         if(vm.ledgerDay!=null)item{TextButton(onClick={vm.changeLedgerDay(null)},modifier=Modifier.fillMaxWidth()){Text("${vm.ledgerDay} · 返回全月")}}
+        if (vm.ledgerNeedsRefresh) {
+            if (!vm.ledgerRefreshFailed) item { Text("正在读取最新流水", Modifier.padding(16.dp)) }
+            return@LazyColumn
+        }
         if(vm.transactions.isEmpty()&&!vm.busy) item{EmptyState("还没有流水","点击「记一笔」，记录第一笔收支。")}
         vm.transactions.groupBy{Instant.ofEpochSecond(it.optLong("time")).atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().toString()}.forEach{(date,rows)->
             item(key="day-$date") {

@@ -56,6 +56,23 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var error by mutableStateOf(""); private set
     var notice by mutableStateOf(""); private set
     var backgroundRefreshFailed by mutableStateOf(false); private set
+    private data class LedgerScope(val month: String, val day: String?)
+    private data class LedgerRefresh(val stale: Boolean, val failed: Boolean = false)
+    private var ledgerRefreshes by mutableStateOf<Map<LedgerScope, LedgerRefresh>>(emptyMap())
+    private var publishedLedgerScope: LedgerScope? = null
+    private val visibleLedger get() = LedgerScope(ledgerMonth, ledgerDay)
+    val ledgerNeedsRefresh get() = ledgerRefreshes[visibleLedger]?.stale == true
+    val ledgerRefreshFailed get() = ledgerRefreshes[visibleLedger]?.failed == true
+    var weeklyRefreshFailed by mutableStateOf(false); private set
+    var weeklyNeedsRefresh by mutableStateOf(false); private set
+    var accountRefreshPending by mutableStateOf(false); private set
+    private enum class EditorRefresh { STARTUP, SESSION_AND_CATEGORIES }
+    private var editorRefreshJob: Job? = null
+    private var editorRefreshIntent by mutableStateOf<EditorRefresh?>(null)
+    private enum class LedgerRead { ROWS_AND_MONTH, WEEK, ACCOUNTS }
+    private val pendingLedgerReads = mutableSetOf<LedgerRead>()
+    private val ledgerReadJobs = mutableMapOf<LedgerRead, Job>()
+    var editorRefreshFailed by mutableStateOf(false); private set
     var nickname by mutableStateOf("家人"); private set
     /** Server-synchronised account preference; never inferred from account list order alone. */
     var defaultAccountId by mutableStateOf(""); private set
@@ -101,6 +118,11 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     internal var searchCache by mutableStateOf<LedgerSearchCache?>(null)
     internal var fullscreenChart: Pair<FullscreenChartPage, ReportSnapshot>? = null
     var instantEntry by mutableStateOf(preferences.getBoolean("instant_entry", false)); private set
+    var keypadHaptics by mutableStateOf(preferences.getBoolean("keypad_haptics", true)); private set
+    fun updateKeypadHaptics(enabled: Boolean) {
+        keypadHaptics = enabled
+        preferences.edit().putBoolean("keypad_haptics", enabled).apply()
+    }
     private var initialLoadHandled = false
     private var cachedEditorShown=false
     private val cacheGeneration=AtomicLong(0)
@@ -221,6 +243,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     var externalLinked by mutableStateOf(false); private set
     var browserPending by mutableStateOf(false); private set
     private val operations = Mutex()
+    private var foregroundOperations = 0
     private var backgroundRefreshJob:Job?=null
     private var oidcLink = false
     private var page = 1
@@ -232,13 +255,17 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     private fun restoreCriticalCache(){
         val value=criticalDataCache.read();diagnostics.record("startup.cache",0,if(value==null)"miss" else "hit");value?:return
         accounts=value.accounts;categories=sortCategoriesForDisplay(value.categories);categoryRevision=value.revision;categoriesRefreshedAt=System.currentTimeMillis();pendingCheckReady=accounts.isNotEmpty()&&!transactionSubmission.hasPendingCandidate()
-        if(instantEntry&&pendingCheckReady){showEditor=true;initialLoadHandled=true;cachedEditorShown=true}
+        if (instantEntry && pendingCheckReady && preferredAccountId().isNotBlank() &&
+            entryVisibleCategories(categories, 3).isNotEmpty()
+        ) {
+            showEditor = true
+            initialLoadHandled = true
+            cachedEditorShown = true
+        }
     }
     private fun startInitialLoad(){
         if(cachedEditorShown){
-            viewModelScope.launch {
-                try{operations.withLock { loadCriticalData() };scheduleBackgroundRefresh()}catch(error:CancellationException){throw error}catch(error:ApiFailure){if(error.sessionExpired)localLogout(false);else this@BooksModel.error=error.message?:"请求未完成"}catch(_:Exception){this@BooksModel.error="网络暂不可用，请检查连接后重试"}
-            }
+            refreshWhileEditing(EditorRefresh.STARTUP)
         }else act {
             loadCriticalData()
             scheduleBackgroundRefresh()
@@ -246,6 +273,8 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun act(done: (() -> Unit)? = null, block: suspend () -> Unit) {
+        pauseLedgerReads()
+        foregroundOperations++
         busy = true; error = ""; notice = ""
         viewModelScope.launch {
           operations.withLock {
@@ -258,7 +287,11 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
             }
             catch (e: IllegalArgumentException) { error = e.message ?: "请检查输入" }
             catch (_: Exception) { error = "网络暂不可用，请检查连接后重试" }
-            finally { busy = false }
+            finally {
+                foregroundOperations--
+                busy = foregroundOperations > 0
+                startLedgerReads()
+            }
           }
         }
     }
@@ -266,7 +299,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if (result.optBoolean("need2FA")) { twoFactorToken = result.getString("token"); return }
         val value = result.optString("token"); require(value.isNotBlank()) { "未取得有效会话" }
         try { store.write(value) } catch(_:Exception) { runCatching { api.call("/api/logout.json",null,true,value) }; throw IllegalArgumentException("无法安全保存会话，请检查设备安全设置后重试") }
-        cacheGeneration.incrementAndGet();criticalDataCache.clear();pendingCheckReady=false;token = value;refreshAt=System.currentTimeMillis();preferences.edit().putLong("last_session_refresh",refreshAt).apply()
+        cacheGeneration.incrementAndGet();criticalDataCache.clear();pendingCheckReady=false;token = value;refreshAt=System.currentTimeMillis();preferences.edit().remove("pending_rotated_token_revocation").putLong("last_session_refresh",refreshAt).apply()
         result.optJSONObject("user")?.let { user ->
             nickname = user.optString("nickname").ifBlank { "家人" }
             defaultAccountId = user.optString("defaultAccountId")
@@ -279,18 +312,31 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         if (token != null) loadAll()
     }
     private suspend fun refreshSession() {
+        if (token == null) return
+        fun pendingRevocation() = preferences.getString("pending_rotated_token_revocation", null)
+        suspend fun revokePreviousToken() {
+            val old = pendingRevocation() ?: return
+            api.call("/api/v1/tokens/revoke.json", JSONObject().put("tokenId", old))
+            preferences.edit().remove("pending_rotated_token_revocation").apply()
+        }
+        revokePreviousToken()
         val now=System.currentTimeMillis();val persisted=preferences.getLong("last_session_refresh",0L);if(refreshAt==0L)refreshAt=persisted
-        if (token == null || now - refreshAt < 30 * 60_000) return
+        if (now - refreshAt < 30 * 60_000) return
+        val generation = cacheGeneration.get()
         val data = api.refresh()
+        if (generation != cacheGeneration.get()) return
         data.optString("newToken").takeIf { it.isNotBlank() }?.let {
             store.write(it); token = it
-            data.optString("oldTokenId").takeIf(String::isNotBlank)?.let { old -> api.call("/api/v1/tokens/revoke.json", JSONObject().put("tokenId", old)) }
+            data.optString("oldTokenId").takeIf(String::isNotBlank)?.let { old ->
+                preferences.edit().putString("pending_rotated_token_revocation", old).apply()
+            }
         }
         data.optJSONObject("user")?.let { user ->
             nickname = user.optString("nickname", "家人")
             defaultAccountId = user.optString("defaultAccountId", defaultAccountId)
         }
         refreshAt = System.currentTimeMillis();preferences.edit().putLong("last_session_refresh",refreshAt).apply()
+        revokePreviousToken()
     }
     private suspend fun loadCriticalData() {
         val criticalStarted=SystemClock.elapsedRealtime()
@@ -299,12 +345,14 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         val(loadedAccounts,loadedCategories)=coroutineScope{val accountRequest=async(Dispatchers.IO){api.accounts()};val categoryRequest=async(Dispatchers.IO){api.categorySnapshot()};accountRequest.await() to categoryRequest.await()}
         accounts=loadedAccounts;categories=sortCategoriesForDisplay(loadedCategories.first);categoryRevision=loadedCategories.second;categoriesRefreshedAt=System.currentTimeMillis()
         accountRefreshFailed = false
+        accountRefreshPending = false
         categoryRefreshFailed = false
         diagnostics.record("startup.critical_data",SystemClock.elapsedRealtime()-criticalStarted)
         if(accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation && transactionSubmission.hasPendingCandidate()){
             transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
         }
         cachedEditorShown=false
+        editorRefreshFailed = false
         if(!initialLoadHandled && instantEntry && accounts.isNotEmpty() && !showEditor && !transactionNeedsConfirmation) showEditor=true
         diagnostics.record("startup.editor_gate",SystemClock.elapsedRealtime()-criticalStarted)
         initialLoadHandled=true
@@ -318,31 +366,68 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         val loadedTags=async(Dispatchers.IO){api.tags()}
         val loadedTagGroups=async(Dispatchers.IO){api.tagGroups()}
         val linked=async(Dispatchers.IO){api.externalAuthLinked()}
-        page=1
-        val listed=async(Dispatchers.IO){api.ledgerPage(page,ledgerMonth,ledgerDay)}
-        val daily=async(Dispatchers.IO){api.dailyAmounts(ledgerMonth)}
-        val today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
-        val weekly=async(Dispatchers.IO){api.dailyRange(BooksApi.dayBounds(today.minusDays(6).toString()).first,BooksApi.dayBounds(today.toString()).second)}
         profile.await()?.let { value ->
             defaultAccountId=value.optString("defaultAccountId",defaultAccountId)
             nickname=value.optString("nickname",nickname)
         }
         tags=loadedTags.await();tagGroups=loadedTagGroups.await();externalLinked=linked.await()
-        listed.await().let{value->transactions=value.items;hasMoreTransactions=value.hasMore}
-        dailyAmounts=daily.await();weeklyAmounts=weekly.await()
         if(entityWrites.blocked)entityWrites.refresh()
         backgroundRefreshFailed=false
         diagnostics.record("refresh.background",SystemClock.elapsedRealtime()-backgroundStarted)
     }
-    private suspend fun <T> runOptional(block:suspend()->T):T?=try{block()}catch(error:CancellationException){throw error}catch(_:Exception){null}
-    private suspend fun loadAll() {
-        loadCriticalData()
-        loadBackgroundData()
+    private suspend fun readLedger(scope: LedgerScope) = coroutineScope {
+        val listed = async { api.ledgerPage(1, scope.month, scope.day) }
+        val daily = async { api.dailyAmounts(scope.month) }
+        listed.await() to daily.await()
     }
-    private fun scheduleBackgroundRefresh(){
-        backgroundRefreshJob?.cancel()
+    private fun publishLedger(scope: LedgerScope, rows: LedgerPage, days: List<JSONObject>) {
+        publishedLedgerScope = scope
+        ledgerMonth = scope.month
+        ledgerDay = scope.day
+        page = 1
+        transactions = rows.items
+        hasMoreTransactions = rows.hasMore
+        dailyAmounts = days
+        ledgerRefreshes = ledgerRefreshes - scope
+    }
+    private suspend fun refreshLedgerSnapshot() {
+        val generation = cacheGeneration.get()
+        val scope = visibleLedger
+        if (!tryRefreshSavedData {
+            val (rows, days) = readLedger(scope)
+            if (generation == cacheGeneration.get() && scope == visibleLedger) publishLedger(scope, rows, days)
+        } && generation == cacheGeneration.get()) {
+            val stale = publishedLedgerScope != scope || ledgerRefreshes[scope]?.stale == true
+            ledgerRefreshes = ledgerRefreshes + (scope to LedgerRefresh(stale, failed = true))
+        }
+    }
+    private suspend fun refreshWeek() {
+        val generation = cacheGeneration.get()
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
+        val refreshed = tryRefreshSavedData {
+            val values = api.dailyRange(BooksApi.dayBounds(today.minusDays(6).toString()).first, BooksApi.dayBounds(today.toString()).second)
+            if (generation == cacheGeneration.get()) {
+                weeklyAmounts = values
+                weeklyNeedsRefresh = false
+            }
+        }
+        if (generation == cacheGeneration.get()) weeklyRefreshFailed = !refreshed
+    }
+    private suspend fun <T> runOptional(block:suspend()->T):T?=try{block()}catch(error:CancellationException){throw error}catch(_:Exception){null}
+    private suspend fun loadAll() = coroutineScope {
+        loadCriticalData()
+        val ledger = async { synchronizeLedgerReads() }
+        refreshBackgroundData()
+        ledger.await()
+    }
+    private fun scheduleBackgroundRefresh(includeLedger: Boolean = true) {
+        if (includeLedger) scheduleLedgerReads()
+        if (backgroundRefreshJob?.isActive == true) return
+        val generation = cacheGeneration.get()
         backgroundRefreshJob=viewModelScope.launch {
-            operations.withLock { refreshBackgroundData() }
+            operations.withLock {
+                if (generation == cacheGeneration.get()) refreshBackgroundData()
+            }
         }
     }
     private suspend fun refreshBackgroundData() {
@@ -356,7 +441,8 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
             else backgroundRefreshFailed=true
         }
     }
-    fun retryBackgroundRefresh() = act { refreshBackgroundData() }
+    fun retryBackgroundRefresh() = scheduleBackgroundRefresh(includeLedger = false)
+    fun retryEditorRefresh() { editorRefreshIntent?.let(::refreshWhileEditing) }
     private fun invalidateSearchCache(){searchCache=null;searchInvalidation++}
     internal var searchInvalidation by mutableStateOf(0);private set
     internal fun performanceDiagnosticsText():String=diagnostics.readRecent()
@@ -364,16 +450,63 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun dismissFeedback(value:String){if(error==value)error="";if(notice==value)notice=""}
     fun reload() = act { loadAll() }
     fun updateInstantEntry(enabled:Boolean){instantEntry=enabled;preferences.edit().putBoolean("instant_entry",enabled).apply()}
-    fun resume() { if (token != null && !busy) act { refreshSession(); loadCategories(false) } }
-    fun loadMore() = act {if(!hasMoreTransactions)return@act;val result=api.ledgerPage(page+1,ledgerMonth,ledgerDay);hasMoreTransactions=result.hasMore;if(result.items.isNotEmpty()){page++;transactions=(transactions+result.items).distinctBy{it.id()}}}
-    fun changeLedgerMonth(value:String)=act {
-        java.time.YearMonth.parse(value)
-        val(listed,totals)=coroutineScope{val rows=async{api.ledgerPage(1,value)};val amounts=async{api.dailyAmounts(value)};rows.await() to amounts.await()};val rows=listed.items
-        ledgerMonth=value;ledgerDay=null;page=1;transactions=rows;hasMoreTransactions=listed.hasMore;dailyAmounts=totals
+    private fun refreshWhileEditing(intent: EditorRefresh) {
+        if (editorRefreshJob?.isActive == true) return
+        editorRefreshIntent = intent
+        val generation = cacheGeneration.get()
+        editorRefreshJob = viewModelScope.launch {
+            operations.withLock {
+                if (token == null || generation != cacheGeneration.get()) return@withLock
+                try {
+                    when (intent) {
+                        EditorRefresh.STARTUP -> {
+                            loadCriticalData()
+                            scheduleBackgroundRefresh(includeLedger = publishedLedgerScope != visibleLedger)
+                        }
+                        EditorRefresh.SESSION_AND_CATEGORIES -> {
+                            refreshSession()
+                            loadCategories(false)
+                        }
+                    }
+                    editorRefreshIntent = null
+                    editorRefreshFailed = false
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: ApiFailure) {
+                    if (e.sessionExpired) localLogout(false) else editorRefreshFailed = true
+                } catch (_: Exception) {
+                    editorRefreshFailed = true
+                }
+            }
+        }
     }
-    fun changeLedgerDay(value:String?)=act {
+    fun resume() {
+        if (token == null || busy) return
+        refreshWhileEditing(if (cachedEditorShown) EditorRefresh.STARTUP else EditorRefresh.SESSION_AND_CATEGORIES)
+    }
+    fun loadMore() = act {if(!hasMoreTransactions)return@act;val result=api.ledgerPage(page+1,ledgerMonth,ledgerDay);hasMoreTransactions=result.hasMore;if(result.items.isNotEmpty()){page++;transactions=(transactions+result.items).distinctBy{it.id()}}}
+    fun changeLedgerMonth(value: String, day: String? = null) = prioritizeForeground {
+        val month = java.time.YearMonth.parse(value)
+        if (day != null) require(java.time.YearMonth.from(java.time.LocalDate.parse(day)) == month)
+        selectLedger(LedgerScope(value, day))
+    }
+    fun changeLedgerDay(value:String?)=prioritizeForeground {
         if(value!=null)require(java.time.YearMonth.from(java.time.LocalDate.parse(value)).toString()==ledgerMonth)
-        val listed=api.ledgerPage(1,ledgerMonth,value);ledgerDay=value;page=1;transactions=listed.items;hasMoreTransactions=listed.hasMore
+        selectLedger(LedgerScope(ledgerMonth, value))
+    }
+    private suspend fun selectLedger(scope: LedgerScope) {
+        val generation = cacheGeneration.get()
+        if (!tryRefreshSavedData {
+            val (rows, days) = readLedger(scope)
+            if (generation == cacheGeneration.get()) {
+                publishLedger(scope, rows, days)
+                pendingLedgerReads.remove(LedgerRead.ROWS_AND_MONTH)
+            }
+        } && generation == cacheGeneration.get()) {
+            if (scope != visibleLedger) publishLedger(scope, LedgerPage(emptyList(), false), emptyList())
+            ledgerRefreshes = ledgerRefreshes + (scope to LedgerRefresh(stale = true, failed = true))
+            pendingLedgerReads.remove(LedgerRead.ROWS_AND_MONTH)
+        }
     }
     fun changeMonth(value: String) = act {
         require(runCatching { java.time.YearMonth.parse(value) }.isSuccess) { "请输入 YYYY-MM 格式月份" }
@@ -405,15 +538,104 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         newlyUploadedPictures=newlyUploadedPictures-id;draftPictures=draftPictures-id;draftPreviews=draftPreviews-id
         discardNewPictures(unused)
     }
-    private suspend fun finishTransactionSave(keepOpen:Boolean,acknowledged:JSONObject?,onSaved:()->Unit){
+    private suspend fun synchronizeLedgerReads(
+        tasks: Set<LedgerRead> = setOf(LedgerRead.ROWS_AND_MONTH, LedgerRead.WEEK),
+    ) = coroutineScope {
+        tasks.map { task -> async { readLedgerData(task) } }.forEach { it.await() }
+    }
+    private suspend fun readLedgerData(task: LedgerRead) {
+        when (task) {
+            LedgerRead.ROWS_AND_MONTH -> refreshLedgerSnapshot()
+            LedgerRead.WEEK -> refreshWeek()
+            LedgerRead.ACCOUNTS -> {
+                val retryingFailure = accountRefreshFailed
+                refreshAccountList()
+                if (retryingFailure && !accountRefreshFailed) invalidateSearchCache()
+            }
+        }
+        pendingLedgerReads.remove(task)
+    }
+    private fun pauseLedgerReads() {
+        ledgerReadJobs.values.forEach { it.cancel() }
+        ledgerReadJobs.clear()
+    }
+    private fun scheduleLedgerReads(vararg tasks: LedgerRead = arrayOf(LedgerRead.ROWS_AND_MONTH, LedgerRead.WEEK)) {
+        if (token == null) return
+        pendingLedgerReads.addAll(tasks)
+        startLedgerReads()
+    }
+    private fun startLedgerReads() {
+        if (token == null || busy) return
+        for (task in pendingLedgerReads.toList()) {
+            if (ledgerReadJobs[task]?.isActive == true) continue
+            ledgerReadJobs[task] = viewModelScope.launch {
+                try {
+                    readLedgerData(task)
+                } catch (e: ApiFailure) {
+                    if (e.sessionExpired) localLogout(false)
+                }
+            }
+        }
+    }
+    fun retryLedgerRefresh() = scheduleLedgerReads(LedgerRead.ROWS_AND_MONTH)
+    fun retryWeeklyRefresh() = scheduleLedgerReads(LedgerRead.WEEK)
+
+    private fun finishTransactionSave(
+        keepOpen: Boolean,
+        generation: Long,
+        onSaved: () -> Unit,
+        previousDateUnknown: Boolean = false,
+    ) {
+        val acknowledged = transactionSubmission.takeAcknowledgedTransaction()?.row
+        if (generation != cacheGeneration.get()) return
         val uiStarted=System.nanoTime()
+        val zone = java.time.ZoneId.of("Asia/Shanghai")
+        val dates = listOfNotNull(editTransaction, restoredTransaction, acknowledged).mapNotNull { row ->
+            row.optLong("time").takeIf { it > 0 }?.let { java.time.Instant.ofEpochSecond(it).atZone(zone).toLocalDate() }
+        }
+        val months = dates.map { java.time.YearMonth.from(it).toString() }.toSet()
+        val unknownOriginal = previousDateUnknown || (restoredTransaction != null && editTransaction == null)
+        val affectedScopes = (ledgerRefreshes.keys + visibleLedger).filter { unknownOriginal || months.isEmpty() || it.month in months } +
+            months.map { LedgerScope(it, null) }
+        ledgerRefreshes = ledgerRefreshes + affectedScopes.associateWith { LedgerRefresh(stale = true) }
+        val today = java.time.LocalDate.now(zone)
+        val affectsWeek = unknownOriginal || dates.isEmpty() || dates.any { !it.isBefore(today.minusDays(6)) && !it.isAfter(today) }
+        if (affectsWeek) weeklyNeedsRefresh = true
+        accountRefreshPending = true
+        accountRefreshFailed = false
+        if (acknowledged != null) transactions = mergeAcknowledgedLedgerRow(transactions, acknowledged, ledgerMonth, ledgerDay)
         showEditor=keepOpen;editTransaction=null;val copied=copiedTransaction;clearTransactionDraft();if(keepOpen)copiedTransaction=copied
-        if(acknowledged!=null)transactions=mergeAcknowledgedLedgerRow(transactions,acknowledged,ledgerMonth,ledgerDay)
-        onSaved();invalidateSearchCache();scheduleBackgroundRefresh()
+        onSaved();invalidateSearchCache()
+        if (visibleLedger in affectedScopes) scheduleLedgerReads(LedgerRead.ROWS_AND_MONTH)
+        if (affectsWeek) scheduleLedgerReads(LedgerRead.WEEK)
+        scheduleLedgerReads(LedgerRead.ACCOUNTS)
         diagnostics.record("transaction.ui_commit",(System.nanoTime()-uiStarted)/1_000_000)
     }
-    fun saveTransaction(payload: JSONObject, existing: Boolean, keepOpen:Boolean=false, onSaved:()->Unit={}) = act {
+    fun saveTransaction(payload: JSONObject, existing: Boolean, keepOpen:Boolean=false, onSaved:()->Unit={}) {
+        if (busy || transactionNeedsConfirmation) return
+        prioritizeForeground { submitTransaction(payload, existing, keepOpen, onSaved) }
+    }
+    private fun prioritizeForeground(operation: suspend () -> Unit) {
+        val interruptedEditor = editorRefreshIntent.takeIf { editorRefreshJob?.isActive == true }
+        val restartBackground = backgroundRefreshJob?.isActive == true
+        editorRefreshJob?.cancel()
+        editorRefreshJob = null
+        backgroundRefreshJob?.cancel()
+        backgroundRefreshJob = null
+        act {
+            try {
+                operation()
+            } finally {
+                if (token != null) {
+                    interruptedEditor?.let(::refreshWhileEditing)
+                    if (restartBackground) scheduleBackgroundRefresh(includeLedger = false)
+                }
+            }
+        }
+    }
+    private suspend fun submitTransaction(payload: JSONObject, existing: Boolean, keepOpen: Boolean, onSaved: () -> Unit) {
         val started=SystemClock.elapsedRealtime()
+        val generation = cacheGeneration.get()
         savingTransaction=true
         try{
             transactionSubmission.requireEditable()
@@ -421,7 +643,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
             uploadLocalCopyPictures()
             payload.put("pictureIds",JSONArray(draftPictures))
             val keepOpen=try { transactionSubmission.submit("/api/v1/transactions/${if(existing)"modify" else "add"}.json",payload,keepOpen) } catch(error:ApiFailure) { categoryConflict(error) }
-            finishTransactionSave(keepOpen,transactionSubmission.takeAcknowledgedTransaction()?.row,onSaved)
+            finishTransactionSave(keepOpen, generation, onSaved, previousDateUnknown = existing && editTransaction == null)
         }finally{
             savingTransaction=false
             diagnostics.record("transaction.save",SystemClock.elapsedRealtime()-started,if(transactionNeedsConfirmation)"confirmation" else "acknowledged")
@@ -470,6 +692,7 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun refreshAccountList() {
         accountRefreshFailed = !tryRefreshSavedData { accounts = api.accounts() }
+        accountRefreshPending = false
     }
 
     private suspend fun tryRefreshSavedData(refresh: suspend () -> Unit): Boolean {
@@ -484,9 +707,10 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun retryAccountRefresh() = act {
-        refreshAccountList()
-        if (!accountRefreshFailed) invalidateSearchCache()
+    fun retryAccountRefresh() {
+        if (token == null) return
+        accountRefreshPending = true
+        scheduleLedgerReads(LedgerRead.ACCOUNTS)
     }
 
     fun deleteOrArchiveAccount(accountId: String, onResult: (String) -> Unit = {}) = act {
@@ -505,9 +729,13 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun refreshTransactionConfirmation()=act {
         transactionSubmission.restore()?.let{verified->restoredTransaction=verified;draftPictures=verified.optJSONArray("pictureIds")?.let{ids->(0 until ids.length()).map{ids.getString(it)}}.orEmpty();showEditor=true}
     }
-    fun confirmTransactionSave(onSaved:()->Unit={})=act {
-        val keepOpen=try { transactionSubmission.retry() } catch(error:ApiFailure) { categoryConflict(error) }
-        finishTransactionSave(keepOpen,transactionSubmission.takeAcknowledgedTransaction()?.row,onSaved)
+    fun confirmTransactionSave(onSaved:()->Unit={}) {
+        if (busy) return
+        prioritizeForeground {
+            val generation = cacheGeneration.get()
+            val keepOpen=try { transactionSubmission.retry() } catch(error:ApiFailure) { categoryConflict(error) }
+            finishTransactionSave(keepOpen, generation, onSaved)
+        }
     }
     fun saveEntity(path: String, payload: JSONObject, done: () -> Unit) {
         // Reject synchronously before queueing behind an ACK that could otherwise unlock a second write.
@@ -551,7 +779,19 @@ class BooksModel(app: Application) : AndroidViewModel(app) {
     fun logout() = act { api.call("/api/logout.json"); localLogout() }
     fun forgetLocal() { localLogout(); notice = "已清除此设备会话；离线退出不会撤销服务器会话" }
     private fun localLogout(clearFlow: Boolean = true) {
+        editorRefreshJob?.cancel()
+        backgroundRefreshJob?.cancel()
+        pauseLedgerReads()
+        editorRefreshIntent = null
+        preferences.edit().remove("pending_rotated_token_revocation").apply()
+        editorRefreshFailed = false
+        pendingLedgerReads.clear()
         backgroundRefreshFailed=false
+        ledgerRefreshes = emptyMap()
+        publishedLedgerScope = null
+        weeklyRefreshFailed = false
+        weeklyNeedsRefresh = false
+        accountRefreshPending = false
         accountRefreshFailed = false
         categoryRefreshFailed = false
         cacheGeneration.incrementAndGet()

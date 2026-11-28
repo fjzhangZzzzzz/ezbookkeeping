@@ -73,7 +73,7 @@ import java.util.UUID
         Column(Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).testTag("accounts-list"), contentPadding = PaddingValues(16.dp)) {
                 item { EntityWriteWarning(vm) }
-                if (vm.accountRefreshFailed) item { AccountRefreshNotice(vm) }
+                if (vm.accountRefreshFailed || vm.accountRefreshPending) item { AccountRefreshNotice(vm) }
                 if (vm.accounts.isEmpty()) item { EmptyState("创建你的账户", "例如现金、银行卡。只管理自己的账户。") }
                 items(order.mapNotNull(byId::get), key = { it.id() }) { item ->
                     val id = item.id()
@@ -162,8 +162,12 @@ import java.util.UUID
         Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("已保存，账户列表刷新失败", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
-        TextButton(onClick = vm::retryAccountRefresh, enabled = !vm.busy) { Text("重试刷新账户") }
+        if (vm.accountRefreshPending) {
+            Text("账户余额更新中，暂显示上次结果", Modifier.weight(1f), color = ledgerColors.muted)
+        } else {
+            Text("已保存，账户列表刷新失败", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = vm::retryAccountRefresh, enabled = !vm.busy) { Text("重试刷新账户") }
+        }
     }
 }
 

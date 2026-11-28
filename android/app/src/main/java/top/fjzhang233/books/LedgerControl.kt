@@ -2,6 +2,7 @@ package top.fjzhang233.books
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -29,10 +30,18 @@ internal fun LedgerControl(
     enabled: Boolean = true,
     role: Role = if (selected == null) Role.Button else Role.Tab,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
     content: @Composable BoxScope.(InteractionSource) -> Unit,
 ) {
     val interactions = remember { MutableInteractionSource() }
-    val input = if (selected == null) {
+    val input = if (onLongClick != null) {
+        Modifier.combinedClickable(
+            interactionSource = interactions, indication = null, enabled = enabled, role = role,
+            onLongClick = onLongClick, onLongClickLabel = onLongClickLabel,
+            hapticFeedbackEnabled = false, onClick = onClick,
+        )
+    } else if (selected == null) {
         Modifier.clickable(interactions, indication = null, enabled = enabled, role = role, onClick = onClick)
     } else {
         Modifier.selectable(selected, interactions, indication = null, enabled = enabled, role = role, onClick = onClick)

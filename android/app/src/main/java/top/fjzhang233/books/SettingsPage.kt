@@ -154,6 +154,13 @@ internal fun SettingsPage(vm: BooksModel, navigate: (AppPage) -> Unit) {
                     testTag = "settings-instant-entry",
                 )
                 SettingsDivider()
+                SettingsRow(
+                    Icons.Outlined.Tune, "记账键盘振感",
+                    onClick = { vm.updateKeypadHaptics(!vm.keypadHaptics) },
+                    trailing = { Switch(checked = vm.keypadHaptics, onCheckedChange = vm::updateKeypadHaptics) },
+                    testTag = "settings-keypad-haptics",
+                )
+                SettingsDivider()
                 SettingsRow(Icons.Outlined.Info, "关于与更新", onClick = { navigate(AppPage.ABOUT) }, trailing = { SettingsChevron("关于与更新") }, testTag = "settings-about")
             }
         }

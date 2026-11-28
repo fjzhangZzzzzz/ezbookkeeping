@@ -116,4 +116,38 @@ class EditorDraftRestorationTest {
         compose.onNodeWithTag("transaction-amount").assertTextEquals("1")
         assertTrue(vm.draftPictures.isEmpty())
     }
+
+    @Test fun keypadDeleteAndMemoDoneKeepTheDraftEditable() {
+        val vm = model()
+        compose.setContent { FamilyTheme { TransactionEditor(vm) {} } }
+        val amount = compose.onNodeWithTag("transaction-amount")
+        val digit = compose.onNodeWithTag("entry-key-1")
+        repeat(3) { digit.performTouchInput { click() } }
+        amount.assertTextEquals("111")
+        val delete = compose.onNodeWithTag("entry-key-⌫")
+        delete.performTouchInput { click() }
+        amount.assertTextEquals("11")
+        delete.performTouchInput { longClick() }
+        amount.assertTextEquals("0.0")
+        digit.performTouchInput { down(center); cancel() }
+        amount.assertTextEquals("0.0")
+        val memo = compose.onNodeWithTag("entry-comment")
+        memo.performTextInput("暂存备注")
+        memo.performImeAction()
+        digit.performTouchInput { click() }
+        amount.assertTextEquals("1")
+        memo.assertTextEquals("暂存备注")
+    }
+
+    @Test fun swipingCategoryAreaChangesTypeAndKeepsAmount() {
+        val vm = model()
+        compose.setContent { FamilyTheme { TransactionEditor(vm) {} } }
+        compose.onNodeWithTag("entry-key-5").performClick()
+        val categories = compose.onNodeWithTag("entry-categories")
+        categories.performTouchInput { swipe(centerRight.copy(x = width * .80f), centerLeft.copy(x = width * .20f)) }
+        compose.onNodeWithText("收入").assertIsSelected()
+        categories.performTouchInput { swipe(centerLeft.copy(x = width * .20f), centerRight.copy(x = width * .80f)) }
+        compose.onNodeWithText("支出").assertIsSelected()
+        compose.onNodeWithTag("transaction-amount").assertTextEquals("5")
+    }
 }

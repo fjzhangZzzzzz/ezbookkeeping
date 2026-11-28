@@ -71,6 +71,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusChanged
@@ -86,9 +92,7 @@ import androidx.compose.ui.focus.onFocusChanged
     var account by rememberSaveable { mutableStateOf(initial?.id("sourceAccountId") ?: vm.preferredAccountId()) }
     var destination by rememberSaveable { mutableStateOf(initial?.id("destinationAccountId") ?: "") }
     var category by rememberSaveable { mutableStateOf(initial?.id("categoryId") ?: "") }
-    var originalTypeSelection by rememberSaveable(original?.id()) { mutableStateOf(original?.id("categoryId") ?: "") }
-    var copiedTypeSelection by rememberSaveable(vm.copiedTransaction?.id()) { mutableStateOf(vm.copiedTransaction?.id("categoryId") ?: "") }
-    var copiedTypeNeedsChoice by rememberSaveable(vm.copiedTransaction?.id()) { mutableStateOf(false) }
+    val typeSelections = rememberSaveable(original?.id(), vm.copiedTransaction?.id()) { Bundle() }
     var comment by rememberSaveable { mutableStateOf(initial?.optString("comment") ?: "") }
     var whenText by rememberSaveable { mutableStateOf(LocalDateTime.ofInstant(Instant.ofEpochSecond(initial?.optLong("time") ?: (vm.newTransactionDay?.let{java.time.LocalDate.parse(it).atTime(java.time.LocalTime.now(ZoneId.of("Asia/Shanghai"))).atZone(ZoneId.of("Asia/Shanghai")).toEpochSecond()} ?: Instant.now().epochSecond)), ZoneId.of("Asia/Shanghai")).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))) }
     var selectedTags by rememberSaveable { mutableStateOf<List<String>>(initial?.optJSONArray("tagIds")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()) }
@@ -96,6 +100,10 @@ import androidx.compose.ui.focus.onFocusChanged
     var localError by remember { mutableStateOf("") }
     var requestId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     val context = LocalContext.current
+    val keypadView = androidx.compose.ui.platform.LocalView.current
+    fun keyFeedback() {
+        if (vm.keypadHaptics) keypadView.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+    }
     var memoFocused by remember{mutableStateOf(false)}
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) { vm.draftAttachmentProblem=true;vm.act {
         require(!vm.transactionNeedsConfirmation) { "请先确认刚才那笔保存的结果" };require(pictures.size < 10) { "每笔最多 10 张图片" }
@@ -139,7 +147,6 @@ import androidx.compose.ui.focus.onFocusChanged
     LaunchedEffect(type, leaves, original?.id(), vm.copiedTransaction?.id()) {
         if (!keepOriginalCategory && category.isNotBlank() && category != "0" && leaves.none { it.id() == category } && hasEstablishedCategory) {
             category=""; requireExplicitCategory=true
-            if (original == null && vm.copiedTransaction?.optInt("type") == type) { copiedTypeSelection=""; copiedTypeNeedsChoice=true }
         } else if (!keepOriginalCategory && category.isBlank() && !requireExplicitCategory) {
             val defaultCategory=entryDefaultCategory(leaves)
             if (defaultCategory.isNotBlank()) { category=defaultCategory; hasEstablishedCategory=true }
@@ -147,8 +154,37 @@ import androidx.compose.ui.focus.onFocusChanged
     }
     fun selectCategory(item:JSONObject) {
         category=item.id(); requireExplicitCategory=false; hasEstablishedCategory=true
-        if (original != null && type == original.optInt("type")) originalTypeSelection=category
-        if (original == null && vm.copiedTransaction?.optInt("type") == type) { copiedTypeSelection=category; copiedTypeNeedsChoice=false }
+    }
+    fun switchType(value: Int) {
+        if (editLocked || value == type) return
+        typeSelections.putString("category-$type", category)
+        typeSelections.putBoolean("required-$type", requireExplicitCategory)
+        type = value
+        category = typeSelections.getString("category-$value").orEmpty()
+        requireExplicitCategory = typeSelections.getBoolean("required-$value")
+        hasEstablishedCategory = category.isNotBlank() && category != "0"
+    }
+    val currentSwitchType by rememberUpdatedState(::switchType)
+    val categorySwipe = Modifier.pointerInput(type, editLocked) {
+        if (editLocked) return@pointerInput
+        val types = listOf(3, 2, 4)
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val edge = 24.dp.toPx()
+            if (down.position.x < edge || down.position.x > size.width - edge) return@awaitEachGesture
+            var distance = 0f
+            val start = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
+                change.consume()
+                distance = over
+            } ?: return@awaitEachGesture
+            val finished = horizontalDrag(start.id) { change ->
+                distance += change.positionChange().x
+                change.consume()
+            }
+            if (finished && kotlin.math.abs(distance) >= 48.dp.toPx()) {
+                types.getOrNull(types.indexOf(type) + if (distance < 0) 1 else -1)?.let(currentSwitchType)
+            }
+        }
     }
     fun close() { vm.closeTransaction() }
     fun saved(){amount="";destinationAmount="";comment="";selectedTags=emptyList();requestId=UUID.randomUUID().toString();localError=""}
@@ -179,18 +215,7 @@ import androidx.compose.ui.focus.onFocusChanged
                     Row(Modifier.weight(1f).selectableGroup(), horizontalArrangement = Arrangement.Center) {
                         listOf(3 to "支出", 2 to "收入", 4 to "转账").forEach { (value, label) ->
                             val active = type == value
-                            LedgerControl(Modifier.width(64.dp), selected = active, enabled = !editLocked, onClick = {
-                                if (type != value) {
-                                    type = value
-                                    requireExplicitCategory = original == null && vm.copiedTransaction?.optInt("type") == value && copiedTypeNeedsChoice
-                                    category = when {
-                                        original != null && original.optInt("type") == value -> originalTypeSelection
-                                        original == null && vm.copiedTransaction?.optInt("type") == value -> copiedTypeSelection
-                                        else -> ""
-                                    }
-                                    hasEstablishedCategory = category.isNotBlank() && category != "0"
-                                }
-                            }) { interactions ->
+                            LedgerControl(Modifier.width(64.dp), selected = active, enabled = !editLocked, onClick = { switchType(value) }) { interactions ->
                                 Column(Modifier.padding(top = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(label, Modifier.ledgerControlFeedback(interactions).padding(horizontal = 8.dp),
                                         color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -207,6 +232,7 @@ import androidx.compose.ui.focus.onFocusChanged
                 if(vm.copiedTransaction!=null) Text("复制流水 · 保存后生成新记录",Modifier.padding(horizontal=20.dp),style=MaterialTheme.typography.labelMedium)
                 if(original!=null) Text("编辑流水",Modifier.padding(horizontal=20.dp),style=MaterialTheme.typography.labelMedium)
                 if(vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (vm.editorRefreshFailed) EditorRefreshRetry(vm)
 
                 if(type!=4) {
                     if (requireExplicitCategory) Text("所选分类不可用，请选择新的分类", Modifier.padding(horizontal=16.dp, vertical=8.dp).testTag("entry-copy-category-required"), style=MaterialTheme.typography.bodySmall)
@@ -214,7 +240,7 @@ import androidx.compose.ui.focus.onFocusChanged
                         val name = vm.categories.firstOrNull { it.id()==category }?.optString("name")?.takeIf { it.isNotBlank() } ?: original?.optJSONObject("category")?.optString("name")?.takeIf { it.isNotBlank() } ?: "原分类"
                         Text("${name}（已隐藏；保存时保留）", Modifier.padding(horizontal=16.dp, vertical=8.dp).testTag("entry-hidden-original-category"), style=MaterialTheme.typography.bodySmall)
                     }
-                    Box(Modifier.weight(1f).fillMaxWidth().testTag("entry-categories")) {
+                    Box(Modifier.weight(1f).fillMaxWidth().then(categorySwipe).testTag("entry-categories")) {
                         EntryCategoryPicker(
                             categories = vm.categories,
                             transactionType = type,
@@ -225,7 +251,7 @@ import androidx.compose.ui.focus.onFocusChanged
                         )
                     }
                 } else {
-                    Column(Modifier.weight(1f).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.weight(1f).fillMaxWidth().then(categorySwipe).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                         Text("账户间转账",style=MaterialTheme.typography.titleLarge)
                         if (keepOriginalCategory && leaves.none { it.id()==category }) Text("原转账分类（已隐藏；保存时保留）", Modifier.testTag("entry-hidden-original-category"))
                         if (requireExplicitCategory) Text("所选转账分类不可用，请选择新的分类", Modifier.testTag("entry-copy-category-required"))
@@ -271,12 +297,15 @@ import androidx.compose.ui.focus.onFocusChanged
                 }
                 if(vm.draftAttachmentProblem) { Text(if(vm.busy) "正在上传图片…" else "图片上传未完成，请重选或取消后保存",Modifier.padding(horizontal=16.dp),color=MaterialTheme.colorScheme.error);if(!editLocked) TextButton(onClick={vm.draftAttachmentProblem=false}){Text("取消本次失败附件")} }
                 val keys=listOf(listOf("1","2","3","⌫"),listOf("4","5","6","−"),listOf("7","8","9","+"),listOf("再记","0",".","保存"))
-                Column(Modifier.fillMaxWidth().padding(start=8.dp,end=8.dp,top=0.dp,bottom=4.dp)) { keys.forEach { row -> Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) { row.forEach { key ->
+                val keyboardBed = if (ledgerColors.dark) ledgerColors.background else Color.Transparent
+                Column(Modifier.fillMaxWidth().background(keyboardBed).padding(start=8.dp,end=8.dp,top=0.dp,bottom=4.dp)) { keys.forEach { row -> Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) { row.forEach { key ->
                     val saveKey=key=="保存"||key=="再记"
                     val enabled=if(saveKey) usable&&(key!="再记"||original==null) else !editLocked
                     LedgerControl(
                         Modifier.weight(1f).height(52.dp).testTag("entry-key-$key"), enabled = enabled,
-                        onClick = { when(key){"保存"->save(false);"再记"->save(true);else->{amount=entryKey(amount,key);localError=""}} },
+                        onClick = { keyFeedback(); when(key){"保存"->save(false);"再记"->save(true);else->{amount=entryKey(amount,key);localError=""}} },
+                        onLongClick = if (key == "⌫") ({ keyFeedback(); amount=""; localError="" }) else null,
+                        onLongClickLabel = if (key == "⌫") "清空金额" else null,
                     ) { interactions ->
                         Box(
                             Modifier.fillMaxWidth().height(43.dp)
@@ -321,7 +350,7 @@ import androidx.compose.ui.focus.onFocusChanged
                     enabled = !editLocked,
                     createEnabled = !editLocked && !vm.entityBlocked,
                     defaultId = vm.defaultAccountId,
-                    refreshNotice = { if (vm.accountRefreshFailed) AccountRefreshNotice(vm) },
+                    refreshNotice = { if (vm.accountRefreshFailed || vm.accountRefreshPending) AccountRefreshNotice(vm) },
                 )
             }
         }
